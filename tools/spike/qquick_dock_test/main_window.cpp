@@ -1,16 +1,21 @@
 #include "main_window.hpp"
 
 #include <QAction>
+#include <QByteArray>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPixmap>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QTest>
+#include <QTextStream>
 #include <QUrl>
 #include <QWindow>
+#include <cctype>
+#include <optional>
 
 namespace signalforge::spike {
 
@@ -153,6 +158,7 @@ int MainWindow::run_auto_check(int check_id, bool short_variant) {
     case 3:
         return run_check_3_context_menu();
     case 4:
+        return run_check_4_lifecycle(short_variant);
     case 5:
         qWarning() << "[spike] Check" << check_id << "not yet implemented in this subtask";
         return 2;
@@ -306,6 +312,103 @@ int MainWindow::run_check_3_context_menu() {
         }
         qDebug() << "[check3] dock" << (i + 1) << "pass";
     }
+    return 0;
+}
+
+namespace {
+
+std::optional<qint64> read_vm_rss_kb() {
+    QFile f(QStringLiteral("/proc/self/status"));
+    if (!f.open(QIODevice::ReadOnly)) {
+        return std::nullopt;
+    }
+    // procfs file sizes are reported as 0; readLine's heuristics do not cope.
+    // readAll() forces a full read into memory.
+    const QByteArray content = f.readAll();
+    const auto lines = content.split('\n');
+    for (const QByteArray& line : lines) {
+        if (!line.startsWith("VmRSS:")) {
+            continue;
+        }
+        QByteArray digits;
+        for (char c : line) {
+            if (std::isdigit(static_cast<unsigned char>(c))) {
+                digits.append(c);
+            } else if (!digits.isEmpty()) {
+                break;
+            }
+        }
+        if (digits.isEmpty()) {
+            return std::nullopt;
+        }
+        bool ok = false;
+        const qint64 v = digits.toLongLong(&ok);
+        return ok ? std::optional<qint64>{v} : std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::optional<int> count_open_fds() {
+    QDir d(QStringLiteral("/proc/self/fd"));
+    if (!d.exists()) {
+        return std::nullopt;
+    }
+    return static_cast<int>(d.entryList(QDir::NoDotAndDotDot | QDir::AllEntries).size());
+}
+
+}  // namespace
+
+int MainWindow::run_check_4_lifecycle(bool short_variant) {
+    const int cycles = short_variant ? 5 : 20;
+    QDockWidget* dock = docks_[0];
+    if (dock == nullptr) {
+        qWarning() << "[check4] Dock 1 missing";
+        return 2;
+    }
+
+    const QString dir = QStringLiteral("docs/spikes/M1-artifacts");
+    if (!QDir().mkpath(dir)) {
+        qWarning() << "[check4] could not create artifact dir";
+        return 2;
+    }
+    const QString csv_path = dir + QLatin1Char('/') + QStringLiteral("check4-memory-trace.csv");
+    QFile csv(csv_path);
+    if (!csv.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        qWarning() << "[check4] could not open" << csv_path;
+        return 2;
+    }
+    QTextStream out(&csv);
+    out << "cycle,state,rss_kb,fd_count\n";
+
+    auto sample = [&out](int cycle, const char* state) {
+        const auto rss = read_vm_rss_kb();
+        const auto fds = count_open_fds();
+        out << cycle << "," << state << "," << (rss ? QString::number(*rss) : QStringLiteral("NA")) << ","
+            << (fds ? QString::number(*fds) : QStringLiteral("NA")) << "\n";
+        out.flush();
+        qDebug().nospace() << "[check4] cycle=" << cycle << " state=" << state
+                           << " rss_kb=" << (rss ? QString::number(*rss) : QStringLiteral("NA"))
+                           << " fd_count=" << (fds ? QString::number(*fds) : QStringLiteral("NA"));
+    };
+
+    sample(0, "baseline");
+
+    for (int i = 1; i <= cycles; ++i) {
+        dock->hide();
+        QTest::qWait(500);
+        sample(i, "after_hide");
+
+        dock->show();
+        QTest::qWait(500);
+        sample(i, "after_show");
+    }
+
+    csv.close();
+
+    // Success criterion: RSS growth across cycles under 10 MB; open-FD count
+    // returns to baseline ± 2. The CSV contains the raw data; report analysis
+    // is done at S9 so both the short and full runs contribute evidence.
+    qDebug() << "[check4] CSV written:" << csv_path;
     return 0;
 }
 

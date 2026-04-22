@@ -35,6 +35,7 @@ private:
     int run_check_1_floating();
     int run_check_2_hidpi();
     int run_check_3_context_menu();
+    int run_check_4_lifecycle(bool short_variant);
     bool save_screenshot(const QString& filename);
 
     std::array<QDockWidget*, 3> docks_{};
