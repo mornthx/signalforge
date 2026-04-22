@@ -29,7 +29,7 @@ Establish a C++ / Qt / CMake project skeleton on which every subsequent mileston
 
 1. Git repository initialized and pushed to GitHub (visibility is the human's choice; private by default is recommended).
 2. `main` branch protection configured on GitHub: pull request required, no force push, no direct push.
-3. Top-level CMake project supporting Qt 6.10.2 + GCC 12 + Ninja.
+3. Top-level CMake project supporting Qt 6.10.2 + GCC 13 + Ninja.
 4. `CMakePresets.json` defining `debug`, `release`, `debug-asan` build presets, with matching `testPresets`.
 5. Module directory layout per `[Arch §18]`.
 6. Each module directory contains:
@@ -51,7 +51,7 @@ Establish a C++ / Qt / CMake project skeleton on which every subsequent mileston
 12. `.clang-tidy` — see Appendix B.
 13. `.editorconfig` — UTF-8, LF line endings, 4-space indentation.
 14. `.gitignore` — Qt, CMake, and IDE standard entries, plus `build/` and unresolved HALT files under `.claude/halt/`.
-15. GitHub Actions workflow at `.github/workflows/ci.yml` with three jobs on `ubuntu-22.04`:
+15. GitHub Actions workflow at `.github/workflows/ci.yml` with three jobs on `ubuntu-24.04`:
     - `debug-build` — configure `debug` preset, build, run `ctest`
     - `release-build` — configure `release` preset, build, run `ctest`
     - `asan-build` — configure `debug-asan` preset, build, run `ctest`
@@ -243,7 +243,7 @@ All `FetchContent` logic lives in `cmake/dependencies.cmake`. The top-level `CMa
 Three build presets, all using Ninja and exporting `compile_commands.json`:
 
 - `debug` — `CMAKE_BUILD_TYPE=Debug`, no sanitizers.
-- `release` — `CMAKE_BUILD_TYPE=Release`, LTO enabled if GCC 12 supports it cleanly on the target environment.
+- `release` — `CMAKE_BUILD_TYPE=Release`, LTO enabled if GCC 13 supports it cleanly on the target environment.
 - `debug-asan` — `CMAKE_BUILD_TYPE=Debug` with `-fsanitize=address,undefined` and `-fno-omit-frame-pointer`.
 
 `CMAKE_PREFIX_PATH` defaults to the conventional Qt install location (under the user's home) and can be overridden via the `SIGNALFORGE_QT_PATH` environment variable. **Do not hardcode any absolute path.**
@@ -334,14 +334,14 @@ jobs:
     strategy:
       matrix:
         preset: [debug, release, debug-asan]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install GCC 12
+      - name: Install GCC 13
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-12 ninja-build xvfb
+          sudo apt-get install -y g++-13 ninja-build xvfb
 
       - name: Install Qt 6.10.2
         uses: jurplel/install-qt-action@v4
@@ -355,8 +355,8 @@ jobs:
 
       - name: Configure
         env:
-          CC: gcc-12
-          CXX: g++-12
+          CC: gcc-13
+          CXX: g++-13
         run: cmake --preset ${{ matrix.preset }}
 
       - name: Build
@@ -368,7 +368,7 @@ jobs:
 
 **Platform notes for the workflow**:
 
-- The `ubuntu-22.04` GitHub Actions runner ships with GCC 11 by default. GCC 12 must be installed explicitly.
+- The `ubuntu-24.04` GitHub Actions runner ships with GCC 13 by default. The workflow reinstalls `g++-13` explicitly for determinism alongside `ninja-build` and `xvfb`.
 - `xvfb` is required because `QApplication` construction attempts to connect to a display even for non-visible tests.
 - The `jurplel/install-qt-action` action with `cache: true` caches the Qt install across CI runs.
 - `ctest --preset <name>` requires a `testPresets` section in `CMakePresets.json`. That section must be added alongside the build presets.
@@ -477,7 +477,7 @@ Human reviewers use the checklists below. CC self-verifies them before writing t
 These are in addition to the general HALT triggers in `CLAUDE.md`:
 
 1. **Qt 6.10.2 cannot be found via `find_package`**. HALT and report. Do not manually patch `CMAKE_PREFIX_PATH` with an absolute path.
-2. **GCC 12 is unavailable and GCC 11 fails to compile the required C++20 features**. HALT and await direction.
+2. **GCC 13 is unavailable and the GCC 11.4 fallback from `[Arch §12.2]` fails to compile the required C++20 features**. HALT and await direction.
 3. **Any `FetchContent` dependency fails to fetch**. HALT. Do not switch to system packages.
 4. **The `debug-asan` preset reports any leak or use-after-free, including issues that appear to originate in Qt**. HALT and let the human decide on suppressions.
 5. **Branch protection configuration on GitHub is refused** (permissions, repository visibility, or similar). HALT and report.

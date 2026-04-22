@@ -74,12 +74,12 @@ Each milestone has a detailed spec at `docs/milestones/M<n>-<slug>.md`, produced
 
 **Deliverables**:
 
-- Top-level `CMakeLists.txt` + `CMakePresets.json` (Qt 6.10.2, GCC 12, Ninja)
+- Top-level `CMakeLists.txt` + `CMakePresets.json` (Qt 6.10.2, GCC 13, Ninja)
 - Module directories per `[Arch §18]`
 - Per-module `CMakeLists.txt` and placeholder files
 - Third-party dependencies via `FetchContent`: spdlog, Catch2, moodycamel, ExprTk, yaml-cpp, nlohmann/json
 - `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitignore`
-- GitHub Actions workflow with three jobs on `ubuntu-22.04`: Debug, Release, Debug+ASan
+- GitHub Actions workflow with three jobs on `ubuntu-24.04`: Debug, Release, Debug+ASan
 - Minimal app: a `QMainWindow` that opens and closes cleanly
 - `CLAUDE.md` at repo root, copied verbatim from `[EM §2]`
 - `README.md`, `CONTRIBUTING.md`, placeholder `LICENSE`
