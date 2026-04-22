@@ -50,6 +50,7 @@ QDockWidget* MainWindow::make_dock(std::size_t index, Qt::DockWidgetArea /*area*
 
     auto* qw = new QQuickWidget(dock);
     qw->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    qw->setMinimumSize(320, 240);
     qw->rootContext()->setContextProperty(QStringLiteral("_initialDockId"), label);
     qw->setSource(QUrl(QStringLiteral("qrc:/qml/DockContent.qml")));
 
@@ -73,6 +74,14 @@ QDockWidget* MainWindow::make_dock(std::size_t index, Qt::DockWidgetArea /*area*
         qDebug().nospace() << "[spike] " << label << " topLevelChanged floating=" << floating;
     });
 
+    if (auto* root = qw->rootObject()) {
+        const bool ok = QObject::connect(root, SIGNAL(contextMenuRequested(QPointF)), this,
+                                         SLOT(on_context_menu_requested(QPointF)));
+        if (!ok) {
+            qWarning() << "[spike] failed to connect contextMenuRequested for" << label;
+        }
+    }
+
     return dock;
 }
 
@@ -88,6 +97,41 @@ void MainWindow::build_menu_bar() {
     auto* quit_action = file_menu->addAction(QStringLiteral("&Quit"));
     quit_action->setShortcut(QKeySequence::Quit);
     QObject::connect(quit_action, &QAction::triggered, this, &QMainWindow::close);
+}
+
+void MainWindow::on_context_menu_requested(const QPointF& pos) {
+    // Identify the source QQuickWidget via the sender root item.
+    auto* src_root = qobject_cast<QQuickItem*>(sender());
+    QQuickWidget* source_qw = nullptr;
+    for (auto* qw : quick_widgets_) {
+        if (qw != nullptr && qw->rootObject() == src_root) {
+            source_qw = qw;
+            break;
+        }
+    }
+    if (source_qw == nullptr) {
+        qWarning() << "[spike] context menu sender not matched to a QQuickWidget";
+        return;
+    }
+
+    const QPoint widget_local = pos.toPoint();
+    const QPoint global = source_qw->mapToGlobal(widget_local);
+
+    auto* menu = new QMenu(this);
+    auto* action_a = menu->addAction(QStringLiteral("Action A"));
+    auto* action_b = menu->addAction(QStringLiteral("Action B"));
+    QObject::connect(action_a, &QAction::triggered, this, [this]() {
+        last_chosen_action_ = QStringLiteral("Action A");
+        qDebug() << "[spike] context menu triggered: Action A";
+    });
+    QObject::connect(action_b, &QAction::triggered, this, [this]() {
+        last_chosen_action_ = QStringLiteral("Action B");
+        qDebug() << "[spike] context menu triggered: Action B";
+    });
+    QObject::connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+
+    qDebug().nospace() << "[spike] showing context menu at global=" << global.x() << "," << global.y();
+    menu->popup(global);  // non-modal so --auto-check can drive it
 }
 
 void MainWindow::toggle_dock1_visibility() {
@@ -107,6 +151,7 @@ int MainWindow::run_auto_check(int check_id, bool short_variant) {
     case 2:
         return run_check_2_hidpi();
     case 3:
+        return run_check_3_context_menu();
     case 4:
     case 5:
         qWarning() << "[spike] Check" << check_id << "not yet implemented in this subtask";
@@ -182,6 +227,85 @@ int MainWindow::run_check_2_hidpi() {
     // external scrot invocation (~1.8 s in) to capture the focused window.
     QTest::qWait(3000);
 
+    return 0;
+}
+
+int MainWindow::run_check_3_context_menu() {
+    // Wait for the MainWindow's layout to settle so QQuickWidgets have non-zero
+    // usable geometry. Without this, an auto-check at startup sees dock widgets
+    // still being laid out and hits y=0.
+    for (int wait_budget = 0; wait_budget < 2000; wait_budget += 50) {
+        bool all_sized = true;
+        for (auto* qw : quick_widgets_) {
+            if (qw == nullptr || qw->width() < 100 || qw->height() < 100) {
+                all_sized = false;
+                break;
+            }
+        }
+        if (all_sized) {
+            break;
+        }
+        QTest::qWait(50);
+    }
+
+    for (std::size_t i = 0; i < quick_widgets_.size(); ++i) {
+        QQuickWidget* qw = quick_widgets_[i];
+        if (qw == nullptr) {
+            qWarning() << "[check3] dock" << (i + 1) << "missing";
+            return 2;
+        }
+        qDebug().nospace() << "[check3] dock " << (i + 1) << " size=" << qw->width() << "x" << qw->height();
+        last_chosen_action_.clear();
+
+        const QPoint center = qw->rect().center();
+        qDebug().nospace() << "[check3] dock " << (i + 1) << " right-click at local " << center.x() << ","
+                           << center.y();
+        QTest::mouseClick(qw, Qt::RightButton, Qt::NoModifier, center);
+
+        // Poll for the menu to show (non-modal popup).
+        const int kPollBudgetMs = 500;
+        int waited_ms = 0;
+        while (waited_ms < kPollBudgetMs && QApplication::activePopupWidget() == nullptr) {
+            QTest::qWait(20);
+            waited_ms += 20;
+        }
+        auto* popup = QApplication::activePopupWidget();
+        if (popup == nullptr) {
+            qWarning() << "[check3] dock" << (i + 1) << "popup did not appear within" << kPollBudgetMs << "ms";
+            return 1;
+        }
+
+        // Snap a screenshot of the menu open on the middle dock (i == 1).
+        if (i == 1) {
+            save_screenshot(QStringLiteral("check3-menu-screenshot.png"));
+        }
+
+        auto* menu = qobject_cast<QMenu*>(popup);
+        if (menu == nullptr) {
+            qWarning() << "[check3] dock" << (i + 1) << "popup is not a QMenu:" << popup;
+            return 1;
+        }
+        const auto actions = menu->actions();
+        if (actions.size() != 2 || actions[0]->text() != QStringLiteral("Action A")) {
+            qWarning() << "[check3] dock" << (i + 1) << "unexpected actions count=" << actions.size();
+            return 1;
+        }
+
+        actions[0]->trigger();
+        menu->hide();
+        QTest::qWait(200);
+
+        if (last_chosen_action_ != QStringLiteral("Action A")) {
+            qWarning() << "[check3] dock" << (i + 1) << "last_chosen_action_ mismatch, got:" << last_chosen_action_;
+            return 1;
+        }
+
+        if (QApplication::activePopupWidget() != nullptr) {
+            qWarning() << "[check3] dock" << (i + 1) << "popup still active after trigger";
+            return 1;
+        }
+        qDebug() << "[check3] dock" << (i + 1) << "pass";
+    }
     return 0;
 }
 

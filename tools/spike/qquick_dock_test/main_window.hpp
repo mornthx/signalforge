@@ -25,6 +25,7 @@ public:
 
 private slots:
     void toggle_dock1_visibility();
+    void on_context_menu_requested(const QPointF& pos);
 
 private:
     void build_docks();
@@ -33,10 +34,12 @@ private:
 
     int run_check_1_floating();
     int run_check_2_hidpi();
+    int run_check_3_context_menu();
     bool save_screenshot(const QString& filename);
 
     std::array<QDockWidget*, 3> docks_{};
     std::array<QQuickWidget*, 3> quick_widgets_{};
+    QString last_chosen_action_{};
 };
 
 }  // namespace signalforge::spike

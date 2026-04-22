@@ -1,0 +1,18 @@
+[debug] [spike] run_auto_check 3 short= false
+[debug] [check3] dock 1 size=637x240
+[debug] [check3] dock 1 right-click at local 318,119
+[debug] [spike] showing context menu at global=318,162
+[debug] [spike] context menu triggered: Action A
+[debug] [check3] dock 1 pass
+[debug] [check3] dock 2 size=637x240
+[debug] [check3] dock 2 right-click at local 318,119
+[debug] [spike] showing context menu at global=961,162
+[debug] [spike] screenshot "docs/spikes/M1-artifacts/check3-menu-screenshot.png" -> true size= QSize(1280, 800)
+[debug] [spike] context menu triggered: Action A
+[debug] [check3] dock 2 pass
+[debug] [check3] dock 3 size=1280x491
+[debug] [check3] dock 3 right-click at local 639,245
+[debug] [spike] showing context menu at global=639,554
+[debug] [spike] context menu triggered: Action A
+[debug] [check3] dock 3 pass
+[debug] [spike] check 3 rc=0 concerning_warnings=0
