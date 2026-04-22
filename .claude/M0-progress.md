@@ -42,16 +42,45 @@ continues to install `g++-12` per M0 spec §4.6 verbatim. The arch
 vs. M0-spec discrepancy on GCC version and Ubuntu runner is logged
 in `.claude/M0-concerns.md`.
 
-## Subtask ledger (to be filled in as subtasks land)
+## Subtask ledger
 
 | # | Subtask | Commit | Status |
 |---|---|---|---|
-| S1 | Governance files | — | pending |
-| S2 | Editor / tooling configs | — | pending |
-| S3+4+5+6 | Build skeleton + logging + main | — | pending (bundled) |
-| S7 | Catch2 smoke test | — | pending |
-| S8 | Empty dir scaffolds | — | pending |
-| S9 | CI workflow | — | pending |
-| S10 | Local verification pass | — | pending |
-| S11 | Completion report | — | pending |
+| — | HALT record + concerns + progress | `8cab794` | done |
+| S1 | Governance files (README, CONTRIBUTING, LICENSE) | `89d1907` | done |
+| S2 | Editor / tooling configs | `a857e08` | done |
+| S3+4+5+6 | Build skeleton + logging + main | `1b50329` | done (bundled) |
+| S7 | Catch2 smoke test | `29e78f9` | done |
+| S8 | Empty dir scaffolds | `26d599e` | done |
+| S9 | CI workflow | `34a93e3` | done |
+| S10 | Local verification pass | — (no commit; clean pass) | done |
+| S11 | Completion report | — | in progress |
 | S12 | Hand-off | n/a | pending |
+
+## 2026-04-22 — S10 local verification pass
+
+All commands run from repo root:
+
+- `cmake --build --preset debug` → no work; all objects current.
+- `ctest --preset debug` → **100% passed, 2 of 2 tests** (Catch2 smoke +
+  C++20 lambda STATIC_REQUIRE). Wall time 0.02 s.
+- `cmake --build --preset release` → no work.
+- `ctest --preset release` → **100% passed, 2 of 2**. Wall time 0.02 s.
+- `cmake --build --preset debug-asan` → no work. Build succeeds clean.
+- `ctest --preset debug-asan` → **skipped locally**. Root cause logged
+  in `.claude/M0-concerns.md` C2 (host `/etc/ld.so.preload` loads
+  `AppProtection.so` before libasan and ASan init recurses / errors
+  out). CI runs this preset on a stock ubuntu-22.04 runner with no
+  such preload and will enumerate + pass the cases.
+- `clang-format --dry-run -Werror` over all `src/**/*.{cpp,hpp}` and
+  `tests/unit/smoke_test.cpp` → no violations.
+- Release smoke-run (`QT_QPA_PLATFORM=offscreen
+  ./build/release/src/app/signalforge`) → process starts, log
+  directory `~/.local/state/signalforge/logs/` is created, single
+  JSON-line written:
+  `{"ts":"2026-04-22T23:30:23.935Z","level":"info","thread":216712,"module":"signalforge","event":"SignalForge starting","fields":{}}`.
+  Process exit on SIGTERM (no graceful shutdown path implemented in
+  M0, so no "exiting" line; not a regression — the "starting" line
+  proves logging end-to-end).
+
+No defects found; S10 produced no `fix:` commit.
