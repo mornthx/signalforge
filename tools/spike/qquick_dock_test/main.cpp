@@ -68,7 +68,10 @@ bool install_check_logging(int check_id) {
     }
     const QString path = QStringLiteral("%1/check%2-log.txt").arg(dir).arg(check_id);
     auto* f = new QFile(path);
-    if (!f->open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    // Append so multiple invocations (e.g. Check 2's scale loop) accumulate
+    // rather than clobber. Driver scripts are expected to truncate once at
+    // the start of a run.
+    if (!f->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
         delete f;
         return false;
     }

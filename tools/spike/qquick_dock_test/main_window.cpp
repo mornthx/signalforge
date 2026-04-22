@@ -105,6 +105,7 @@ int MainWindow::run_auto_check(int check_id, bool short_variant) {
     case 1:
         return run_check_1_floating();
     case 2:
+        return run_check_2_hidpi();
     case 3:
     case 4:
     case 5:
@@ -157,6 +158,31 @@ int MainWindow::run_check_1_floating() {
     const bool saved = save_screenshot(QStringLiteral("check1-end-state.png"));
     qDebug() << "[check1] end-state screenshot saved:" << saved;
     return saved ? 0 : 1;
+}
+
+int MainWindow::run_check_2_hidpi() {
+    // Check 2's capture is done externally by scrot (see run-check2.sh). The spike
+    // only has to show the window, grab focus so scrot -u picks the right target,
+    // log observed geometry for later cross-checking against the requested scale,
+    // and stay alive long enough for scrot to snap.
+    show();
+    raise();
+    activateWindow();
+
+    const QSize logical = size();
+    qDebug().nospace() << "[check2] logical size=" << logical.width() << "x" << logical.height();
+    if (auto* win = windowHandle()) {
+        const qreal dpr = win->devicePixelRatio();
+        const QSize physical(static_cast<int>(logical.width() * dpr), static_cast<int>(logical.height() * dpr));
+        qDebug().nospace() << "[check2] devicePixelRatio=" << dpr << " physical size~=" << physical.width() << "x"
+                           << physical.height();
+    }
+
+    // 3 s is enough for the 30 Hz canvas to paint several frames and for an
+    // external scrot invocation (~1.8 s in) to capture the focused window.
+    QTest::qWait(3000);
+
+    return 0;
 }
 
 bool MainWindow::save_screenshot(const QString& filename) {

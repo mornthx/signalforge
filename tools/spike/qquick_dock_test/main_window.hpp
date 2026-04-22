@@ -32,6 +32,7 @@ private:
     void build_menu_bar();
 
     int run_check_1_floating();
+    int run_check_2_hidpi();
     bool save_screenshot(const QString& filename);
 
     std::array<QDockWidget*, 3> docks_{};

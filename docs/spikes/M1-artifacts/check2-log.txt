@@ -1,0 +1,57 @@
+Starting Xvfb on :100 (3200x2000x24)
+=== scale=1.25 ===
+[spike] QML loaded for "Dock 1"
+[spike] QML loaded for "Dock 2"
+[spike] QML loaded for "Dock 3"
+[spike] main window constructed, three docks ready
+[spike] run_auto_check 2 short= false
+[debug] [spike] run_auto_check 2 short= false
+[check2] logical size=1280x800
+[debug] [check2] logical size=1280x800
+[check2] devicePixelRatio=1.25 physical size~=1600x1000
+[debug] [check2] devicePixelRatio=1.25 physical size~=1600x1000
+[spike] check 2 rc=0 concerning_warnings=0
+[debug] [spike] check 2 rc=0 concerning_warnings=0
+--- end scale=1.25 ---
+=== scale=1.50 ===
+[spike] QML loaded for "Dock 1"
+[spike] QML loaded for "Dock 2"
+[spike] QML loaded for "Dock 3"
+[spike] main window constructed, three docks ready
+[spike] run_auto_check 2 short= false
+[debug] [spike] run_auto_check 2 short= false
+[check2] logical size=1280x800
+[debug] [check2] logical size=1280x800
+[check2] devicePixelRatio=1.5 physical size~=1920x1200
+[debug] [check2] devicePixelRatio=1.5 physical size~=1920x1200
+[spike] check 2 rc=0 concerning_warnings=0
+[debug] [spike] check 2 rc=0 concerning_warnings=0
+--- end scale=1.50 ---
+=== scale=1.75 ===
+[spike] QML loaded for "Dock 1"
+[spike] QML loaded for "Dock 2"
+[spike] QML loaded for "Dock 3"
+[spike] main window constructed, three docks ready
+[spike] run_auto_check 2 short= false
+[debug] [spike] run_auto_check 2 short= false
+[check2] logical size=1280x800
+[debug] [check2] logical size=1280x800
+[check2] devicePixelRatio=1.75 physical size~=2240x1400
+[debug] [check2] devicePixelRatio=1.75 physical size~=2240x1400
+[spike] check 2 rc=0 concerning_warnings=0
+[debug] [spike] check 2 rc=0 concerning_warnings=0
+--- end scale=1.75 ---
+=== scale=2.00 ===
+[spike] QML loaded for "Dock 1"
+[spike] QML loaded for "Dock 2"
+[spike] QML loaded for "Dock 3"
+[spike] main window constructed, three docks ready
+[spike] run_auto_check 2 short= false
+[debug] [spike] run_auto_check 2 short= false
+[check2] logical size=1280x800
+[debug] [check2] logical size=1280x800
+[check2] devicePixelRatio=2 physical size~=2560x1600
+[debug] [check2] devicePixelRatio=2 physical size~=2560x1600
+[spike] check 2 rc=0 concerning_warnings=0
+[debug] [spike] check 2 rc=0 concerning_warnings=0
+--- end scale=2.00 ---
