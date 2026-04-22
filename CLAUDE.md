@@ -4,7 +4,7 @@ This file is the hard contract for Claude Code on this project. When it conflict
 
 ## Project identity
 
-SignalForge is a Qt desktop workbench for embedded-device bring-up, running on Ubuntu 22.04. Core stack: Qt 6.10.2, C++20, CMake 3.22+, GCC 12+. Full architecture: `docs/architecture/architecture.md`.
+SignalForge is a Qt desktop workbench for embedded-device bring-up. The authoritative platform, toolchain, Qt version, CMake minimum, and dependency list live in `docs/architecture/architecture.md`. The rules below take precedence over anything in that document, but any specific version number or platform detail lives there — not here.
 
 ## Forbidden
 
@@ -28,9 +28,13 @@ SignalForge is a Qt desktop workbench for embedded-device bring-up, running on U
 1. Every new module has a matching test file in `tests/unit/` with ≥ 70% line coverage on the module's public surface.
 2. Before every commit:
    - Build passes for **both** Debug and Release presets
-   - `ctest` passes on all configured presets
-   - AddressSanitizer reports no violations (the `debug-asan` preset enables ASan and UBSan)
+   - `ctest` passes on Debug and Release presets
+   - AddressSanitizer and UBSan violations: verified on the `debug-asan` preset when the local host permits; otherwise CI is the authoritative gate (document the local block in `.claude/M<n>-concerns.md`)
    - `clang-format --dry-run -Werror` passes on changed files
+
+   **Exceptions to the above**:
+   - Commits that only modify non-code files (docs, Markdown, config like `.gitignore`, CI workflow YAML) may be made without rebuilding when the build graph is unaffected.
+   - During bootstrap or major refactoring, it is acceptable to batch multiple subtasks into a single "first buildable commit" to avoid intentionally-red intermediate states. State this intent in the plan before executing.
 3. Commit message format: `<module>: <imperative verb> <object>`. Example: `frame: add backpressure hook`. Subject line ≤ 72 characters.
 4. Each PR or merge is ≤ **800 net lines added**, excluding generated files and test fixtures. Larger changes must be split.
 5. Any change touching a performance-sensitive path includes before/after benchmark numbers in the commit body.
