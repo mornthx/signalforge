@@ -664,10 +664,8 @@ For reference when writing `.claude/M0-done.md`:
 §5.1–§5.5 — each item ticked; no blanks.
 
 ## HALTs raised
-- HALT-2026-04-22T14-33Z-exprtk-version:
-  ExprTk latest release tag is 0.0.3 (verified on GitHub).
-  Spec said "latest release tag". Proposed 0.0.3.
-  Resolution: human approved 0.0.3.
+
+(None in this example. If HALTs occurred during your milestone, list each with its trigger and resolution.)
 
 ## Deviations and concerns
 - Added `CMakeUserPresets.json` to .gitignore although not explicitly required;
