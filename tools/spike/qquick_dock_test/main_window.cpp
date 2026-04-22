@@ -2,11 +2,15 @@
 
 #include <QAction>
 #include <QDebug>
+#include <QDir>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPixmap>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QTest>
 #include <QUrl>
+#include <QWindow>
 
 namespace signalforge::spike {
 
@@ -99,6 +103,7 @@ int MainWindow::run_auto_check(int check_id, bool short_variant) {
     qDebug() << "[spike] run_auto_check" << check_id << "short=" << short_variant;
     switch (check_id) {
     case 1:
+        return run_check_1_floating();
     case 2:
     case 3:
     case 4:
@@ -109,6 +114,62 @@ int MainWindow::run_auto_check(int check_id, bool short_variant) {
         qWarning() << "[spike] unknown check id:" << check_id;
         return 2;
     }
+}
+
+int MainWindow::run_check_1_floating() {
+    constexpr int kCycles = 5;
+    QDockWidget* dock = docks_[0];
+    if (dock == nullptr) {
+        qWarning() << "[check1] Dock 1 missing";
+        return 2;
+    }
+    const QString dock_label = dock->windowTitle();
+
+    qDebug().nospace() << "[check1] starting " << kCycles << " float/move/re-dock cycles on " << dock_label;
+
+    for (int i = 1; i <= kCycles; ++i) {
+        qDebug().nospace() << "[check1] cycle " << i << "/" << kCycles << " -> float";
+        dock->setFloating(true);
+        QTest::qWait(800);
+
+        // Programmatic move to simulate cross-monitor drag (approximation — a real
+        // drag cannot be synthesized under xvfb, so we exercise the re-render path).
+        const QPoint target(80 + i * 90, 60 + i * 55);
+        if (auto* win = dock->windowHandle()) {
+            win->setPosition(target);
+            qDebug().nospace() << "[check1] cycle " << i << " moved floating window to " << target.x() << ","
+                               << target.y();
+        } else {
+            dock->move(target);
+            qDebug().nospace() << "[check1] cycle " << i << " moved dock widget to " << target.x() << "," << target.y()
+                               << " (no windowHandle)";
+        }
+        QTest::qWait(400);
+
+        qDebug().nospace() << "[check1] cycle " << i << "/" << kCycles << " -> re-dock";
+        dock->setFloating(false);
+        QTest::qWait(800);
+    }
+
+    // Settle before screenshot so the re-docked state is fully painted.
+    QTest::qWait(500);
+
+    const bool saved = save_screenshot(QStringLiteral("check1-end-state.png"));
+    qDebug() << "[check1] end-state screenshot saved:" << saved;
+    return saved ? 0 : 1;
+}
+
+bool MainWindow::save_screenshot(const QString& filename) {
+    const QString dir = QStringLiteral("docs/spikes/M1-artifacts");
+    if (!QDir().mkpath(dir)) {
+        qWarning() << "[spike] failed to create artifact dir" << dir;
+        return false;
+    }
+    const QString path = dir + QLatin1Char('/') + filename;
+    const QPixmap pm = this->grab();
+    const bool ok = pm.save(path, "PNG");
+    qDebug() << "[spike] screenshot" << path << "->" << ok << "size=" << pm.size();
+    return ok;
 }
 
 }  // namespace signalforge::spike

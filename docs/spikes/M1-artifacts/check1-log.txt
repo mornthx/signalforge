@@ -1,0 +1,30 @@
+[debug] [spike] run_auto_check 1 short= false
+[debug] [check1] starting 5 float/move/re-dock cycles on "Dock 1"
+[debug] [check1] cycle 1/5 -> float
+[debug] [spike] "Dock 1" topLevelChanged floating=true
+[debug] [check1] cycle 1 moved floating window to 170,115
+[debug] [check1] cycle 1/5 -> re-dock
+[debug] [spike] "Dock 1" topLevelChanged floating=false
+[debug] [check1] cycle 2/5 -> float
+[debug] [spike] "Dock 1" topLevelChanged floating=true
+[debug] [check1] cycle 2 moved floating window to 260,170
+[debug] [check1] cycle 2/5 -> re-dock
+[debug] [spike] "Dock 1" topLevelChanged floating=false
+[debug] [check1] cycle 3/5 -> float
+[debug] [spike] "Dock 1" topLevelChanged floating=true
+[debug] [check1] cycle 3 moved floating window to 350,225
+[debug] [check1] cycle 3/5 -> re-dock
+[debug] [spike] "Dock 1" topLevelChanged floating=false
+[debug] [check1] cycle 4/5 -> float
+[debug] [spike] "Dock 1" topLevelChanged floating=true
+[debug] [check1] cycle 4 moved floating window to 440,280
+[debug] [check1] cycle 4/5 -> re-dock
+[debug] [spike] "Dock 1" topLevelChanged floating=false
+[debug] [check1] cycle 5/5 -> float
+[debug] [spike] "Dock 1" topLevelChanged floating=true
+[debug] [check1] cycle 5 moved floating window to 530,335
+[debug] [check1] cycle 5/5 -> re-dock
+[debug] [spike] "Dock 1" topLevelChanged floating=false
+[debug] [spike] screenshot "docs/spikes/M1-artifacts/check1-end-state.png" -> true size= QSize(1280, 800)
+[debug] [check1] end-state screenshot saved: true
+[debug] [spike] check 1 rc=0 concerning_warnings=0

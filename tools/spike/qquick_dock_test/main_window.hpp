@@ -31,6 +31,9 @@ private:
     QDockWidget* make_dock(std::size_t index, Qt::DockWidgetArea area);
     void build_menu_bar();
 
+    int run_check_1_floating();
+    bool save_screenshot(const QString& filename);
+
     std::array<QDockWidget*, 3> docks_{};
     std::array<QQuickWidget*, 3> quick_widgets_{};
 };
