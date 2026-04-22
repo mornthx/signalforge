@@ -609,7 +609,7 @@ Desktop environments: GNOME (default) and KDE Plasma must launch and be usable. 
 | GCC | **13+ recommended**, 11.4 as fallback | Primary |
 | Clang | 14+ | CI cross-check for consistency, not primary |
 
-Ubuntu 24.04 ships GCC 11.4 by default; GCC 13 is available via `apt install g++-13`. Qt 6.10 officially supports GCC 11, but several C++20 features (notably `std::jthread`, `std::barrier`, and parts of the ranges API) are more complete on GCC 13. Upgrading via apt does not alter the base system.
+Ubuntu 24.04 ships GCC 13.3 as its default system compiler; GCC 11.4 remains available via `apt install g++-11` as the documented fallback. Qt 6.10 officially supports GCC 11, but several C++20 features (notably `std::jthread`, `std::barrier`, and parts of the ranges API) are more complete on GCC 13. Additional toolchains installed via apt do not alter the base system.
 
 ### 12.3 Qt Acquisition
 
