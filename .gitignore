@@ -1,0 +1,27 @@
+# Build
+build/
+build-*/
+
+# CMake
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+
+# Qt
+*.qmlc
+*.jsc
+*.autosave
+
+# IDE
+.vscode/
+.idea/
+*.user
+.cache/
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code: ignore in-progress HALT files; resolved ones are committed
+.claude/halt/*.inprogress

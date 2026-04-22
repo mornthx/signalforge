@@ -1,0 +1,12 @@
+# Ignore transient working files; keep lifecycle artifacts tracked
+*.tmp
+halt/*.inprogress
+
+# Explicit allowlist for tracked files
+!*-understanding.md
+!*-plan.md
+!*-progress.md
+!*-done.md
+!*-concerns.md
+!*-overrides.md
+!halt/HALT-*.md
