@@ -19,7 +19,7 @@ This document is the authoritative technical baseline for SignalForge V1. It def
 
 - Qt version pinned to **Qt 6.10.2** (matching the team's local environment). A planned migration to Qt 6.12 LTS is documented in §12.6.
 - CMake minimum lowered to **3.22**, matching Qt 6.9+ requirements.
-- Recommended compiler changed to **GCC 12+**, with GCC 11.4 documented as a fallback.
+- Recommended compiler changed to **GCC 13+**, with GCC 11.4 documented as a fallback.
 - Added §12.6: Qt version support lifetime and migration strategy.
 - Added §8.6: evaluation of the Qt Graphs module and the decision to not adopt it.
 - Git hosting pinned to **GitHub**; CI pinned to **GitHub Actions**.
@@ -609,7 +609,7 @@ Desktop environments: GNOME (default) and KDE Plasma must launch and be usable. 
 | GCC | **13+ recommended**, 11.4 as fallback | Primary |
 | Clang | 14+ | CI cross-check for consistency, not primary |
 
-Ubuntu 24.04 ships GCC 11.4 by default; GCC 12 is available via `apt install g++-12`. Qt 6.10 officially supports GCC 11, but several C++20 features (notably `std::jthread`, `std::barrier`, and parts of the ranges API) are more complete on GCC 12. Upgrading via apt does not alter the base system.
+Ubuntu 24.04 ships GCC 11.4 by default; GCC 13 is available via `apt install g++-13`. Qt 6.10 officially supports GCC 11, but several C++20 features (notably `std::jthread`, `std::barrier`, and parts of the ranges API) are more complete on GCC 13. Upgrading via apt does not alter the base system.
 
 ### 12.3 Qt Acquisition
 
@@ -971,7 +971,7 @@ ci/
 packaging/
 ├── appimage/
 └── deb/
-CMakePresets.json         # Qt 6.10.2 paths, GCC 12, Ninja bindings
+CMakePresets.json         # Qt 6.10.2 paths, GCC 13, Ninja bindings
 ```
 
 ---
@@ -1024,7 +1024,7 @@ All §8.4 metrics pass. In particular:
 5. Define the Driver interface and `RawFrame` data structure.
 6. Build the first version of the Decode page model and a synthetic data flow.
 7. Build a proof-of-concept for the high-frequency chart component.
-8. Provision CI on Ubuntu 24.04 + GCC 12 + Qt 6.10.2 + CMake 3.22.
+8. Provision CI on Ubuntu 24.04 + GCC 13 + Qt 6.10.2 + CMake 3.22.
 9. Commit `CMakePresets.json` and standardize Qt install paths.
 10. File a Sprint-12 tracking task to review Qt 6.12 LTS migration readiness.
 
