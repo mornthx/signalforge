@@ -4,7 +4,7 @@
 |---|---|
 | Document version | 0.4 |
 | Status | Baseline for V1 development |
-| Target platform | Ubuntu 22.04 LTS (x64) |
+| Target platform | Ubuntu 24.04 LTS (x64) |
 | Qt version | 6.10.2 (planned migration to 6.12 LTS, see §12.6) |
 | Language | C++20 |
 | File path | `docs/architecture/architecture.md` |
@@ -160,7 +160,7 @@ Within 16 weeks, deliver a first release usable for real device bring-up, meetin
 - Save command panel
 - Record and replay
 
-**Platform**: Ubuntu 22.04 LTS (x64), single platform.
+**Platform**: Ubuntu 24.04 LTS (x64), single platform.
 
 ### 3.3 Out of Scope for V1
 
@@ -461,7 +461,7 @@ Charts must support:
 
 ### 8.4 Performance Targets
 
-Baseline hardware: a typical mid-range office laptop, roughly Intel Core i5-1240P with 16 GB RAM, running Ubuntu 22.04. Targets scale up on stronger hardware but must hold on this class.
+Baseline hardware: a typical mid-range office laptop, roughly Intel Core i5-1240P with 16 GB RAM, running Ubuntu 24.04. Targets scale up on stronger hardware but must hold on this class.
 
 | Metric | Target | Measurement |
 |---|---|---|
@@ -598,7 +598,7 @@ project_root/
 
 ### 12.1 Operating System
 
-**Only supported target**: Ubuntu 22.04 LTS (x64).
+**Only supported target**: Ubuntu 24.04 LTS (x64).
 
 Desktop environments: GNOME (default) and KDE Plasma must launch and be usable. Other desktops (XFCE, Unity, etc.) are not actively validated but should not be deliberately broken.
 
@@ -606,10 +606,10 @@ Desktop environments: GNOME (default) and KDE Plasma must launch and be usable. 
 
 | Compiler | Version | Role |
 |---|---|---|
-| GCC | **12+ recommended**, 11.4 as fallback | Primary |
+| GCC | **13+ recommended**, 11.4 as fallback | Primary |
 | Clang | 14+ | CI cross-check for consistency, not primary |
 
-Ubuntu 22.04 ships GCC 11.4 by default; GCC 12 is available via `apt install g++-12`. Qt 6.10 officially supports GCC 11, but several C++20 features (notably `std::jthread`, `std::barrier`, and parts of the ranges API) are more complete on GCC 12. Upgrading via apt does not alter the base system.
+Ubuntu 24.04 ships GCC 11.4 by default; GCC 12 is available via `apt install g++-12`. Qt 6.10 officially supports GCC 11, but several C++20 features (notably `std::jthread`, `std::barrier`, and parts of the ranges API) are more complete on GCC 12. Upgrading via apt does not alter the base system.
 
 ### 12.3 Qt Acquisition
 
@@ -783,7 +783,7 @@ Target: zero crashes, zero uncaught exceptions, zero heap-corruption reports.
 
 - **Code hosting**: GitHub. The `main` branch is protected: required PR, required status checks, no force push, no direct push.
 - **CI**: GitHub Actions.
-- **Build environment**: Ubuntu 22.04 + GCC 12 + Qt 6.10.2 + CMake 3.22+. No build matrix.
+- **Build environment**: Ubuntu 24.04 + GCC 13 + Qt 6.10.2 + CMake 3.22+. No build matrix.
 - **Merge gate**: build passes; tests pass; net new code has ≥ 70% coverage; no AddressSanitizer violations.
 
 ### 16.2 Versioning
@@ -907,7 +907,7 @@ Layout presets, documentation, packaging (AppImage and `.deb`), regression test 
 
 **Optional**, pending Checkpoint 2: insert Qt 6.12 LTS migration, approximately one week.
 
-**Acceptance**: deliverable internal-beta release; both AppImage and `.deb` run on a clean Ubuntu 22.04.
+**Acceptance**: deliverable internal-beta release; both AppImage and `.deb` run on a clean Ubuntu 24.04.
 
 ### 17.3 Buffer Rationale
 
@@ -933,7 +933,7 @@ If progress runs ahead, Sprint 15 can accommodate the Qt 6.12 LTS migration. If 
 | 10–11 | Replay and live paths diverge | Replay and live must share the `SignalStore` interface and share integration tests |
 | 13–14 | Performance tuning regresses memory | AddressSanitizer + LeakSanitizer routine; valgrind per release |
 | 15–16 | Qt 6.12 LTS migration surfaces regressions | Run full test suite pre-migration; this work is optional, skippable under time pressure |
-| 15–16 | AppImage incompatible with other distributions | V1 only commits to Ubuntu 22.04 |
+| 15–16 | AppImage incompatible with other distributions | V1 only commits to Ubuntu 24.04 |
 
 ---
 
@@ -1003,7 +1003,7 @@ All §8.4 metrics pass. In particular:
 - Unit test coverage ≥ 70% on core modules
 - Fuzz testing produces no crashes
 - AddressSanitizer clean on the full test suite
-- AppImage and `.deb` run on a clean Ubuntu 22.04
+- AppImage and `.deb` run on a clean Ubuntu 24.04
 - SBOM generated; `NOTICE` complete
 
 ### 19.4 Experience
@@ -1024,7 +1024,7 @@ All §8.4 metrics pass. In particular:
 5. Define the Driver interface and `RawFrame` data structure.
 6. Build the first version of the Decode page model and a synthetic data flow.
 7. Build a proof-of-concept for the high-frequency chart component.
-8. Provision CI on Ubuntu 22.04 + GCC 12 + Qt 6.10.2 + CMake 3.22.
+8. Provision CI on Ubuntu 24.04 + GCC 12 + Qt 6.10.2 + CMake 3.22.
 9. Commit `CMakePresets.json` and standardize Qt install paths.
 10. File a Sprint-12 tracking task to review Qt 6.12 LTS migration readiness.
 
@@ -1055,7 +1055,7 @@ V1 of SignalForge holds to:
 - Data flow decoupled from UI
 - Debugging assets that persist across sessions
 - Backpressure, time source, and schema versioning decided in Sprint 1; not revisited later
-- Single platform (Ubuntu 22.04) and single protocol family (Serial / TCP / UDP), so that all engineering effort concentrates on core-path quality
+- Single platform (Ubuntu 24.04) and single protocol family (Serial / TCP / UDP), so that all engineering effort concentrates on core-path quality
 
 This document is the v0.4 baseline. Downstream requirements, architecture iterations, and task breakdowns originate here.
 
