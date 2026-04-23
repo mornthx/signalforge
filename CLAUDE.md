@@ -15,7 +15,17 @@ SignalForge is a Qt desktop workbench for embedded-device bring-up. The authorit
    - Any `schema/` file, once the schema has been marked frozen in a milestone completion report
    - The Qt path fields in `CMakePresets.json`
 3. No `git push --force`, no `git rebase` of others' commits, no bulk deletions (`rm -rf` style).
-4. No merge to `main` or any `release/*` branch.
+4. No autonomous git operations on protected branches or on remote. Specifically, the following operations require per-operation authorization from the session prompt; session-level blanket authorization ("all git operations allowed") is not valid:
+   - `git push` to any remote branch
+   - `gh pr create`, `gh pr merge`
+   - `git tag` pushed to remote
+   - `git push --force` (forbidden unconditionally — no authorization exists)
+
+   Mechanical read-only operations are always permitted without authorization: `git status`, `git log`, `git diff`, `git fetch origin --prune`, `git branch`, `git remote -v`, `gh auth status`, `gh repo view`, `gh pr view`, `gh run list`, `gh run watch`.
+
+   Local-only operations on the current milestone branch are always permitted: `git checkout` to an existing branch, `git commit`, `git add`. Creating a new branch locally is permitted.
+
+   At runtime, the human may issue "hold" or "stop" in chat at any time, which supersedes any prior authorization and halts the next git operation.
 5. No header guards other than `#pragma once`. No `using namespace` in headers.
 6. No `std::cout` / `printf` / `qDebug` in production code; always use the `SF_LOG_*` macros defined in `src/observability/logging.hpp`.
 7. No swallowed exceptions (`catch (...) {}`); unknown errors must propagate or be logged with full context.
@@ -99,6 +109,70 @@ If you believe a spec clause is wrong or suboptimal, record your concern in `.cl
 - Formatter: `clang-format` with config at `.clang-format`; do not modify.
 - Static analysis: `clang-tidy` with config at `.clang-tidy`. Disabled checks in the initial config may be re-enabled when you can make CI green with the enabled rule; enabling a check requires fixing all existing violations in the same commit. Relaxing an already-enabled check is forbidden.
 - Build directory: `build/` only, with one subdirectory per preset.
+
+## Git operation protocol
+
+Every authorized git operation must be followed by a result report to the human, even for routine operations (push to milestone branch, CI watch, PR creation). The report includes:
+
+- The exact command executed
+- The output or result (SHA, PR number, CI run ID, URL, etc.)
+- Any unexpected condition observed
+
+Operations that fail or produce unexpected output must HALT. Do not retry git operations silently.
+
+### Milestone closure flow
+
+Standard five-phase flow for closing milestone `M<n>` and beginning milestone `M<n+1>`:
+
+**Phase 1 (CC autonomous)**: Complete M<n> subtasks.
+
+1. Commit M<n> work to `milestone/M<n>`.
+2. Push `milestone/M<n>` to origin; report.
+3. Wait for CI green; report.
+4. Create PR to main (do not merge); report PR number and URL.
+5. Produce `.claude/M<n>-done.md` with PR number, merge SHA placeholder, CI status.
+6. Stop and announce: "M<n> ready. Awaiting approval to merge M<n> and begin M<n+1> bootstrap".
+
+**Phase 2 (human checkpoint A)**: Merge authorization + next milestone bootstrap.
+
+7. Human reads `.claude/M<n>-done.md`.
+8. Human replies: "approved, merge M<n> and begin M<n+1> bootstrap" (or literal equivalent).
+
+**Phase 3 (CC autonomous)**: Merge, tag, bootstrap next milestone.
+
+9. Execute in order:
+   a. `gh pr merge <PR> --merge --delete-branch=false`
+   b. `git tag -a v0.0.<n>.1 -m "<message>"`
+   c. `git push origin v0.0.<n>.1`
+   d. `git checkout main && git pull origin main`
+   e. `git checkout -b milestone/M<n+1>`
+   f. `git push -u origin milestone/M<n+1>`
+   g. Read `docs/milestones/M<n+1>-*.md`
+   h. Read CLAUDE.md and relevant architecture docs
+   i. `git status` — confirm clean
+   j. Produce `.claude/M<n+1>-understanding.md`
+   k. Produce `.claude/M<n+1>-plan.md`
+   l. Commit `.claude/` files; push to `milestone/M<n+1>`
+10. Stop and announce: "M<n+1> understanding and plan ready for review. Awaiting execute approval."
+
+**Phase 4 (human checkpoint B)**: Execution authorization.
+
+11. Human reviews `.claude/M<n+1>-understanding.md` and `.claude/M<n+1>-plan.md`.
+12. Human replies: "approved, execute M<n+1>" (or literal equivalent).
+
+**Phase 5 (CC autonomous)**: Execute next milestone subtasks.
+
+Phase 2 and Phase 4 are mandatory human checkpoints. CC must not skip either. CC must not merge subsequent phases into a single approval without explicit new instructions in the session prompt.
+
+### Authorization phrase matching
+
+CC matches the following human approval phrases literally (case-insensitive, whitespace-tolerant):
+
+- `approved, merge <M<n>> and begin <M<n+1>> bootstrap` → Phase 3
+- `approved, execute <M<n+1>>` → Phase 5
+- `hold` or `stop` → halt next operation
+
+Other phrasings may convey the same intent but do not auto-trigger — CC may confirm back and wait.
 
 ## Environment conventions
 
