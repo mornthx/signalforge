@@ -41,9 +41,10 @@ This is the most expensive-to-change milestone in V1. Precision at definition ti
 
 2. **Driver interface** at `src/drivers/driver_interface.hpp`:
    - Abstract base class defining the driver contract
-   - Associated value types: `DriverState`, `DriverError`, `DriverConfig` (tag-dispatched variant or base class)
+   - Associated value types: `DriverState`, `DriverError`
    - Signals for frame delivery, error, state change
    - `RxStats` / `TxStats` / `DriverStatistics` struct families
+   - No `DriverConfig` type in M2. Each concrete driver in M3 defines its own config struct (`SerialConfig`, `TcpConfig`, `UdpConfig`, `ReplayConfig`), passed via that driver's constructor. `DriverInterface::open()` takes no parameters.
 
 3. **Frame layer** under `src/frame/`:
    - `raw_frame.{hpp,cpp}` — `RawFrame` value type
@@ -76,7 +77,7 @@ This is the most expensive-to-change milestone in V1. Precision at definition ti
 1. **No concrete driver implementations.** Those belong to M3.
 2. **No frame pipeline.** The frame-layer code defines `RawFrame` and backpressure primitives; wiring drivers to decoders is M4.
 3. **No UI code.** Performance panel is M5; crash-trigger tool is a CLI.
-4. **No migration from existing M0/M1 code except where spec explicitly requires modification.** Specifically, do not restructure `src/observability/logging.cpp` beyond what patch 5 of this spec asks.
+4. **No migration from existing M0/M1 code except where spec explicitly requires modification.** Specifically, do not restructure `src/observability/logging.cpp` beyond what §4.6 of this spec describes.
 5. **No new top-level dependencies.** If you think you need one, HALT.
 
 ---
@@ -207,8 +208,22 @@ public:
     explicit DriverInterface(QObject* parent = nullptr);
     ~DriverInterface() override;
 
-    /// Acquire the IO resource. Non-blocking; emits stateChanged() transitions.
-    /// Returns Success immediately on accepted request; actual open may complete async.
+    /// Request IO resource acquisition. Non-blocking.
+    ///
+    /// Return semantics:
+    /// - Returns Success if the request is accepted for async processing
+    ///   (not if the resource is actually open). The driver transitions
+    ///   Idle → Opening synchronously on acceptance.
+    /// - Returns a non-Success code (NotConfigured, ConfigInvalid) if the
+    ///   request itself is malformed. No state transition in this case.
+    ///
+    /// Actual open completion is reported asynchronously via signals:
+    /// - stateChanged(Open) on success (Opening → Open)
+    /// - stateChanged(Error) + errorOccurred(...) on failure (Opening → Error)
+    ///
+    /// The IO thread executes the actual acquisition. Consumers must connect
+    /// stateChanged and errorOccurred with Qt::QueuedConnection if on another thread.
+    ///
     /// Precondition: state() == Idle.
     virtual DriverErrorCode open() = 0;
 
@@ -293,15 +308,41 @@ using SourceId = QString;
 /// operation as possible.
 struct RawFrame {
     SourceId sourceId;           ///< Stable ID of the originating driver
-    QByteArray payload;          ///< Raw bytes; encoding is protocol-dependent
+    /// Raw bytes. Each byte is interpreted as unsigned char (0-255) at the
+    /// M2 / frame-layer boundary. Higher-layer interpretation (signed integers,
+    /// multi-byte values, endianness) is the decoder's responsibility in M4.
+    /// Encoding is protocol-dependent.
+    QByteArray payload;
     SteadyTimestamp recvAt;      ///< When the bytes reached the IO thread
-    std::optional<SteadyTimestamp> deviceAt;  ///< If the frame carries a device timestamp
+    /// If the frame carries a device-side timestamp, translated into
+    /// steady_clock time relative to the session's ClockOrigin.
+    /// Protocols that deliver absolute wall-clock timestamps have their
+    /// translation performed by the decoder in M4, not at the driver level.
+    /// M2 guarantee: this field is always steady-clock, never wall-clock.
+    std::optional<SteadyTimestamp> deviceAt;
     QString protocolHint;        ///< Optional; e.g., "serial", "tcp", "udp", "replay"
 
     // Reserved fields (populated M3+, present here to avoid post-freeze additions):
     std::uint64_t sequenceNumber = 0;  ///< Driver-local monotonic counter
     std::uint32_t flags = 0;            ///< Bit-reserved, see FrameFlags in future milestones
 };
+
+/// Statistics atomicity model.
+///
+/// DriverStatistics (and the RxStats / TxStats components) is a point-in-time
+/// snapshot returned by DriverInterface::statistics(). Individual counter
+/// fields are updated on the IO thread as frames flow.
+///
+/// The driver implementation MUST use std::atomic<uint64_t> for each counter
+/// field, and statistics() MUST read each field independently via atomic load.
+/// Cross-field consistency is NOT guaranteed — a snapshot may show
+/// framesTotal=101 while bytesTotal reflects only the first 100 frames.
+/// This is acceptable because:
+/// - The performance panel reads at 30Hz; cross-field skew is <33ms
+/// - Monitoring consumers tolerate eventual consistency
+///
+/// Concrete drivers in M3+ MUST NOT use mutex-guarded stats blocks. Per-field
+/// atomics avoid IO-thread contention with the UI-thread snapshot.
 
 /// Receive-side statistics. All counters are monotonic increasing; rates are
 /// derived by consumer.
@@ -377,6 +418,18 @@ public:
                               std::uint32_t recoverPct = 60);
 
     /// Update with current queue depth. Returns optional signal to emit.
+    ///
+    /// When observe() returns a BackpressureSignal, the caller is responsible
+    /// for exactly two actions:
+    ///
+    ///   1. Log the signal via SF_LOG_WARN (always, no filtering)
+    ///   2. Update the metric "queue_watermark_<queueName>" in
+    ///      MetricsRegistry via set() with the current watermarkPct
+    ///
+    /// The caller MUST NOT forward the signal to any global broker, pub/sub
+    /// bus, or signal aggregator. Per-queue observation is the only mechanism
+    /// in V1 — see §3.3 of this spec for rationale.
+    ///
     /// Thread-safe: callable from producer thread without external locking.
     [[nodiscard]] std::optional<BackpressureSignal> observe(
         std::uint64_t currentDepth,
@@ -438,6 +491,13 @@ public:
     SpscRing& operator=(SpscRing&&) = delete;
 
     /// Attempt to push. Returns false if full. Producer-only.
+    ///
+    /// Move semantics: item is passed by value. On both success and failure
+    /// paths, item is moved into the ring's internal storage (on failure,
+    /// it is then discarded). The caller MUST NOT use item after push()
+    /// returns, regardless of return value. This mirrors std::vector::emplace_back.
+    ///
+    /// Callers needing to retry with the same item should copy before pushing.
     [[nodiscard]] bool push(T item);
 
     /// Attempt to pop. Returns std::nullopt if empty. Consumer-only.
@@ -551,7 +611,9 @@ private:
 }  // namespace signalforge::utils
 ```
 
-Note: C++20's `std::atomic<std::shared_ptr<T>>` is the cleanest implementation. GCC 13 supports it. If any portability issue arises (unlikely on Ubuntu 24.04 + GCC 13), HALT — do not fall back to a custom implementation silently.
+Implementation: `std::atomic<std::shared_ptr<const T>>` from C++20 is the required implementation. Verified available on GCC 13.3 (Ubuntu 24.04 default). Do NOT fall back to a custom implementation. If `std::atomic<std::shared_ptr<const T>>` is unavailable or misbehaves at build time, HALT immediately — the issue is environmental and requires human diagnosis before any workaround.
+
+Reader-count overhead: shared_ptr atomic refcount ops are ~10ns on modern x86. At the projected 30Hz UI read rate × ~100 signals = 3000 reads/sec, total overhead is negligible. M10 will revisit if profiling shows otherwise; until then, correctness (no torn reads, automatic lifetime management) takes precedence over theoretical overhead reduction.
 
 ### 4.5 Platform-layer details
 
