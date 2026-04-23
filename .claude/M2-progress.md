@@ -88,4 +88,36 @@ created under `tests/unit/platform/`.
 
 ---
 
+### S2 — Crashpad integration (HALT)
+
+**Goal**: deliver the Crashpad integration per spec §4.5.3 — `crash_reporting.
+{hpp,cpp}` plus `cmake/Crashpad.cmake` (FetchContent) plus
+`SIGNALFORGE_CRASHPAD_HANDLER_PATH`.
+
+**Approach attempted**: minimal `FetchContent_Declare` +
+`FetchContent_MakeAvailable` against `https://chromium.googlesource.com/
+crashpad/crashpad` at `main` with `GIT_SHALLOW TRUE`.
+
+**Outcome**: HALT per spec §7-2. Fetch succeeded (25.4 s), but the fetched
+source has no top-level `CMakeLists.txt` — Crashpad upstream is GN-only.
+No CMake targets produced, so `crash_reporting.cpp` cannot link against
+Crashpad without adopting a community CMake fork. Which community fork to
+adopt (and at what SHA, verified against Ubuntu 24.04 + GCC 13 + Qt 6.10 +
+`-Werror`) requires human judgment — CLAUDE.md §HALT-trigger 9
+("two plausible implementations, cannot confidently pick one") and spec
+§7-2 both require HALT at this point.
+
+**Committable artifact kept**: `src/platform/crash_reporting.hpp` matches
+spec §4.5.3 verbatim in its public surface. Committed for later reuse once
+the human resolves the Crashpad vendor choice.
+
+**Experimental artifacts reverted**: `cmake/Crashpad.cmake` and the root
+`CMakeLists.txt` include of it — both removed before HALT commit.
+
+**HALT report**: `.claude/halt/HALT-2026-04-23T15-09Z-m2-s2-crashpad-no-
+upstream-cmake.md`. Enumerates four resolution options (A: community fork,
+B: vendor in-repo, C: sentry-native, D: defer to M2.5).
+
+Session ends after this commit per CLAUDE.md §HALT.
+
 
