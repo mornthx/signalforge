@@ -297,3 +297,26 @@ QVariant roundtrip via registerMetatypes.
 - **Freeze scope delivered**: `src/utils/spsc_ring.hpp` — SpscRing<T>
   public API per spec §6.1.
 
+### S6 — MpscQueue<T> (close)
+
+- **Implementation**: header declares `MpscQueue<T>` with `std::unique_ptr<Impl>`
+  pimpl; `mpsc_queue.cpp` defines `Impl` using `moodycamel::ConcurrentQueue<T>`
+  and provides explicit instantiations. This keeps `<concurrentqueue.h>` out
+  of the public header. Currently instantiated: `MpscQueue<int>`. New `T`s
+  (e.g., `RawFrame` in M4) add an entry at the end of the .cpp.
+- **push() OOM semantics** per understanding §3.8: only `std::bad_alloc` is
+  swallowed and mapped to `false`; any other exception from `T`'s move
+  constructor propagates (CLAUDE.md Forbidden-7).
+- **Utils library** switched back from INTERFACE to STATIC (MpscQueue's .cpp
+  is the first real TU).
+- **Tests**: 5 new cases: default empty pop, single-thread FIFO,
+  8-producer × 100k MPSC stress, sizeApprox convergence, initial-capacity
+  hint acceptance. The stress test uses a `std::set` to verify no drops
+  and no duplicates across 800k items. 63 tests pass across Debug and
+  Release. debug-asan build clean.
+- **Coverage**: push-success, pop-empty-vs-nonempty, sizeApprox, ctor
+  hints all exercised. `bad_alloc` branch not tested (hard without mocking
+  allocator); estimated ≥ 85%.
+- **Freeze scope delivered**: `src/utils/mpsc_queue.hpp` — MpscQueue<T>
+  public API per spec §6.1.
+
