@@ -1,6 +1,7 @@
 add_executable(frame_test
     raw_frame_test.cpp
     stats_test.cpp
+    backpressure_test.cpp
 )
 target_link_libraries(frame_test
     PRIVATE

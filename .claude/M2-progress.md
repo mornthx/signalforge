@@ -250,3 +250,27 @@ QVariant roundtrip via registerMetatypes.
   enumerate a struct for it; plan S3 scope is RawFrame+stats only).
 - **clang-format**: auto-applied.
 
+### S4 — BackpressureSignal + WatermarkTracker (close)
+
+- **Implementation**: `observe()` returns `QueueFilling` once per
+  below-high → above-high transition via CAS, `QueueRecovered` once per
+  above-high → below-recover transition via CAS, and `QueueFull` on
+  every observation at capacity (event, not state). Per-field
+  `std::atomic` — no mutexes.
+- **Caller contract** (spec §3.3 / clarification 6): receiver logs via
+  `SF_LOG_WARN` and updates `queue_watermark_<queueName>` in
+  MetricsRegistry. No global broker. Documented on `observe()` Doxygen.
+- **Tests**: 12 new cases covering default state, below-threshold
+  silence, filling-crossing, full-at-capacity, recovery below 60,
+  re-entry after recovery, capacity-0 unbounded, peak tracking, reset,
+  multi-producer race (8 threads, exactly 1 Filling), signal-field
+  consistency, and default-init of BackpressureSignal. 49 tests pass
+  across Debug and Release.
+- **Coverage**: every observe() branch exercised (below-recover,
+  hysteresis band, above-high, at-capacity, capacity==0). CAS
+  contention path covered by the 8-thread concurrent test. Estimated
+  ≥ 90%.
+- **Freeze scope delivered**: `src/frame/backpressure.hpp` —
+  BackpressureSignal struct, BackpressureReason enum, WatermarkTracker
+  public API (spec §6.1).
+
