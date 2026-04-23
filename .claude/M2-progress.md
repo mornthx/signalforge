@@ -120,4 +120,96 @@ B: vendor in-repo, C: sentry-native, D: defer to M2.5).
 
 Session ends after this commit per CLAUDE.md §HALT.
 
+---
+
+### Resuming after S2 HALT — sentry-native (2026-04-24)
+
+**Context**: HALT resolved by human. ADR-002 selects sentry-native (option C
+from the HALT report). Architecture v0.7 and M2 spec §4.5.3 amended on main
+at 31f808e; merged into milestone/M2 at b26a89f for this continuation.
+
+**Plan delta from amendment**:
+
+- `CrashReporterConfig.handlerExecutable` → `backendHandlerPath` (spec §4.5.3
+  post-amendment). Aligned `src/platform/crash_reporting.hpp` on this branch.
+- `cmake/dependencies.cmake` gains a sentry-native FetchContent entry; no
+  separate Crashpad shim.
+- §3.4, §4.7, §5.4, §7 all scrubbed of Crashpad-specific wording on the main
+  merge.
+- ADR-002 Open Items: record the pinned sentry-native tag in `.claude/M2-done.md`
+  at S13.
+
+### S2 re-execution — sentry-native integration (start)
+
+**Goal**: deliver `crash_reporting.{hpp,cpp}` against sentry-native, wire
+FetchContent at a pinned stable release tag, add unit tests covering the
+init/shutdown/active lifecycle.
+
+**Approach**:
+
+1. Add sentry-native to `cmake/dependencies.cmake` at a recent stable release
+   tag, configured for the crashpad backend (default) with build options
+   minimizing surface area (disable examples/tests).
+2. Implement `crash_reporting.cpp` with sentry_options_t configuration:
+   `sentry_options_set_database_path()` to crashDumpDirectory,
+   `sentry_options_set_release()` from SIGNALFORGE_VERSION (or a M2 placeholder
+   if undefined), `sentry_options_set_handler_path()` to backendHandlerPath,
+   DSN intentionally unset. `sentry_init()` on positive path; return false on
+   any precondition failure (paths empty, not a directory).
+3. Track active state in an atomic bool. `shutdownCrashReporting()` calls
+   `sentry_close()` and clears the flag. `crashReportingActive()` reads the
+   flag.
+4. Unit tests: init-on-valid-config, init-idempotent, init-fails-on-empty-
+   backendHandlerPath, shutdown-idempotent, crashReportingActive lifecycle.
+   No deliberate crashes in unit tests (per spec §3.4).
+5. Build + test under all three presets; commit with pinned tag in body.
+
+### S2 re-execution — sentry-native integration (close)
+
+- **Backend choice**: `SENTRY_BACKEND=crashpad` (default). An initial
+  attempt with `inproc` was made because the host lacked
+  `libcurl4-openssl-dev` (which sentry-native's vendored Crashpad requires
+  at configure time). The human installed libcurl dev headers mid-session;
+  the backend was switched back to `crashpad` — the architecturally
+  preferred choice matching ADR-002 and §14.3 (out-of-process handler,
+  resilient to handler-thread corruption).
+- **Pinned tag**: `0.7.17` (getsentry/sentry-native). Recorded in commit
+  body and to be copied to `.claude/M2-done.md` at S13.
+- **Implementation surfaces**:
+  - `backendHandlerPath` is now **required** (non-empty) — the crashpad
+    backend's `sentry_options_set_handler_path` needs a valid path to
+    the `crashpad_handler` binary. sentry-native builds this binary as
+    a CMake target (`crashpad_handler`); its built location is exposed
+    to tests via `SIGNALFORGE_TEST_CRASHPAD_HANDLER_PATH` compile
+    definition. Production consumers (M3+) will pass the deployed
+    handler path.
+  - Crashpad client enforces **one init per process lifetime**. After
+    `shutdownCrashReporting()`, a subsequent `initCrashReporting()`
+    returns false and logs a warning — it will not re-register. This
+    constraint is documented in `crash_reporting.hpp` Doxygen and
+    verified by the combined lifecycle test.
+- **Tests**: 5 crash_reporting cases (active-default, empty-dump-dir,
+  empty-handler-path, shutdown-without-init, combined lifecycle) + 19
+  S1 cases + 2 smoke = 26 passing under Debug and Release. debug-asan
+  build clean; runtime blocked per host preload (see
+  `.claude/M2-concerns.md`).
+- **Coverage**: init's validation paths (empty dump dir, empty handler
+  path) and active-guard covered by dedicated tests. The combined
+  lifecycle test covers sentry_init success, g_ever_initialized re-init
+  guard, shutdown, and post-shutdown init. `create_directories` error
+  path (permission denied) is not exercised. Estimated coverage ≥ 88%.
+- **Freeze scope delivered**: `src/platform/crash_reporting.hpp` — public
+  surface per spec §4.5.3 post-amendment (CrashReporterConfig with
+  `backendHandlerPath`, init/shutdown/active free functions, documented
+  single-init-per-process constraint).
+- **Observations**: sentry-native + vendored Crashpad build adds ~2–3
+  minutes to first configure/build; ~250 translation units across
+  sentry-native + Crashpad + mini_chromium. Upstream Crashpad emits
+  some `-Wpragmas` and `-Wclass-memaccess` warnings, but they do not
+  propagate to our `-Werror` gate because sentry-native's CMake scopes
+  warning flags to the Crashpad subdir. Linker emits a deprecation
+  warning on `crashpad_info_note.S.o` missing `.note.GNU-stack`; it is
+  a warning, not an error.
+
+---
 
