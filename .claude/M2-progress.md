@@ -462,3 +462,19 @@ QVariant roundtrip via registerMetatypes.
   would flag the intentional crashes).
 - **Not frozen** — the tool is an operator artifact.
 
+### S13 — M2 completion report (close)
+
+- **M2-done.md** produced per execution-manual §6.2, including the
+  Freezes section with sha256sum record generated from the
+  deterministic `find | sort | xargs sha256sum` command documented in
+  plan §5. Contains all required sections: Timing, Deliverables
+  checklist, PR state (to be filled after PR creation), Acceptance
+  self-check, Test results, HALTs raised, Deviations and concerns,
+  Freezes, Impact analysis (required for interface-freeze milestones),
+  Open issues, Suggestions for M3, Commits on milestone/M2, Hand-off
+  checklist.
+- **Freeze sha256 list** is byte-stable against the workspace at the
+  commit just before push; any post-merge tampering is detectable by
+  re-running the same command and comparing.
+- Next step: commit, push, create PR, wait for CI green, stop.
+
