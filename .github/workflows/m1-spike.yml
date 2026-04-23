@@ -1,0 +1,72 @@
+name: M1 spike
+
+on:
+  push:
+    branches: ["milestone/M1"]
+  pull_request:
+    branches: ["milestone/M1"]
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: check1
+            name: "check 1 — floating"
+            args: "--auto-check 1"
+            glob: "check1-*"
+          - id: check3
+            name: "check 3 — context menu"
+            args: "--auto-check 3"
+            glob: "check3-*"
+          - id: check4
+            name: "check 4 — hide/show lifecycle (short)"
+            args: "--auto-check 4 --short"
+            glob: "check4-*"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GCC 13 and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13 ninja-build xvfb
+
+      - name: Install Qt 6.10.2
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.2'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          modules: 'qtserialport'
+          cache: true
+
+      - name: Configure spike
+        env:
+          CC: gcc-13
+          CXX: g++-13
+        run: |
+          cmake -B tools/spike/qquick_dock_test/build \
+                -S tools/spike/qquick_dock_test \
+                -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build spike
+        run: cmake --build tools/spike/qquick_dock_test/build
+
+      - name: Run ${{ matrix.name }}
+        run: |
+          xvfb-run --auto-servernum \
+            ./tools/spike/qquick_dock_test/build/qquick_dock_test \
+            ${{ matrix.args }}
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.id }}-artifacts
+          path: docs/spikes/M1-artifacts/${{ matrix.glob }}
+          if-no-files-found: warn

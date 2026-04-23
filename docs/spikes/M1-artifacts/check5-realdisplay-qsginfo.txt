@@ -1,0 +1,17 @@
+[spike] QML loaded for "Dock 1"
+[spike] QML loaded for "Dock 2"
+[spike] QML loaded for "Dock 3"
+[spike] main window constructed, three docks ready
+qt.rhi.general: Created OpenGL context QSurfaceFormat(version 4.6, options QFlags<QSurfaceFormat::FormatOption>(DeprecatedFunctions), depthBufferSize 0, redBufferSize 8, greenBufferSize 8, blueBufferSize 8, alphaBufferSize 0, stencilBufferSize 0, samples -1, swapBehavior QSurfaceFormat::DefaultSwapBehavior, swapInterval 1, colorSpace QColorSpace(), profile  QSurfaceFormat::CompatibilityProfile)
+qt.rhi.general: OpenGL VENDOR: AMD RENDERER: AMD Radeon Graphics (radeonsi, renoir, ACO, DRM 3.57, 6.8.0-110-generic) VERSION: 4.6 (Compatibility Profile) Mesa 25.2.8-0ubuntu0.24.04.1
+qt.scenegraph.general: rhi texture atlas dimensions: 1024x512
+qt.scenegraph.general: rhi texture atlas dimensions: 1024x512
+qt.scenegraph.general: rhi texture atlas dimensions: 2048x512
+[spike] run_auto_check 5 short= false
+[check5] starting radeontop
+[check5] complete:
+  cpu_pct min=43.82 max=55.56 mean=48.67 n=60
+  gpu_pct min=41.67 max=54.17 mean=47.83 n=60
+  rss_kb min=179120 max=179912 mean=179553 n=60
+  vram_mb_radeontop min=1638.98 max=1649.42 mean=1640.62 n=60
+[spike] check 5 rc=0 concerning_warnings=0

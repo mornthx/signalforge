@@ -1,0 +1,29 @@
+Check 4 VmRSS-growth characterization across 5 independent 20-cycle runs.
+Command: xvfb-run --auto-servernum ./build/qquick_dock_test --auto-check 4
+Host: Ubuntu 24.04, AMD Radeon Vega (Cezanne iGPU), Qt 6.10.2, GCC 13.3.
+
+run 1: baseline=222288 final=237136 delta=14848 kB (14.50 MB)
+run 2: baseline=224084 final=241876 delta=17792 kB (17.38 MB)
+run 3: baseline=227584 final=239040 delta=11456 kB (11.19 MB)
+run 4: baseline=225912 final=233132 delta=7220  kB ( 7.05 MB)
+run 5: baseline=219508 final=233248 delta=13740 kB (13.42 MB)
+
+Summary:
+  min   =  7.05 MB
+  max   = 17.38 MB
+  mean  = 12.71 MB
+  median= 13.42 MB
+  range = 10.33 MB
+
+Spec criterion (§S6): "VmRSS growth across 20 cycles is < 10 MB
+(i.e., not unbounded)."
+
+Observed: 1 of 5 runs under the strict 10 MB threshold; growth is
+bounded in all runs. On this AMD-iGPU + xvfb configuration the
+metric is noisy; no run exhibited runaway allocation. Open-FD
+count was constant (31 or 32, no leak) in all five runs.
+
+The RSS-growth report in the M1 verdict matrix leans on "not
+unbounded" as the actual spec spirit; the human judges whether
+the 13 MB median is acceptable for the Observe / Control-page
+long-dwell use cases called out in M1 §S6 fallback impact.

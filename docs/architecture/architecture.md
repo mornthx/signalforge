@@ -15,7 +15,12 @@ This document is the authoritative technical baseline for SignalForge V1. It def
 
 ## Change Log
 
-### v0.4 (current)
+### v0.5 (current)
+
+- §8.4 signal and chart density targets revised per M1 spike measurements: concurrent signals 100 → 60, concurrent chart widgets 20 → 8–12. Other §8.4 targets unchanged. Rationale in ADR-001.
+- Added ADR-001 under `docs/architecture/decisions/` recording the rendering approach decision (QQuickWidget + Scene Graph) for V1.
+
+### v0.4
 
 - Qt version pinned to **Qt 6.10.2** (matching the team's local environment). A planned migration to Qt 6.12 LTS is documented in §12.6.
 - CMake minimum lowered to **3.22**, matching Qt 6.9+ requirements.
@@ -465,8 +470,8 @@ Baseline hardware: a typical mid-range office laptop, roughly Intel Core i5-1240
 
 | Metric | Target | Measurement |
 |---|---|---|
-| Online signal count | ≥ 100 | Observe page active |
-| Live chart components | ≥ 20 | Same layout |
+| Concurrent signals online | ≥ 60 | Observe page active |
+| Concurrent real-time chart widgets | ≥ 8–12 | Same layout |
 | Aggregate input rate | ≥ 10 k points/s total; single signal ≥ 1 kHz | Performance regression suite |
 | End-to-end latency, P50 | ≤ 80 ms | IO-read to UI pixel update |
 | End-to-end latency, P99 | ≤ 200 ms | Same |
@@ -476,6 +481,8 @@ Baseline hardware: a typical mid-range office laptop, roughly Intel Core i5-1240
 | RSS ceiling, 24-hour record | ≤ 1.5 GB | `/proc/self/status` plus valgrind sampling |
 | Dropped frame rate (normal load) | < 0.01% | Backpressure counters |
 | Long-run stability | 72 hours with no crash or leak | LeakSanitizer + automation |
+
+> **V1 scope amendment (2026-04-23, ADR-001)**: Signal and chart-widget density targets were revised from their initial aspirational values (100 signals, 20 charts) based on M1 spike measurements on AMD Cezanne iGPU hardware. Aggregate throughput, latency, and frame-rate targets are unchanged — those are not chart-density-bound. See `docs/architecture/decisions/ADR-001-rendering-approach.md` for full rationale.
 
 ### 8.5 Qt Widgets + Qt Quick Integration Constraints
 
