@@ -2,7 +2,6 @@
 
 | Field | Value |
 |---|---|
-| Document version | 0.4 |
 | Status | Baseline for V1 development |
 | Target platform | Ubuntu 24.04 LTS (x64) |
 | Qt version | 6.10.2 (planned migration to 6.12 LTS, see §12.6) |
@@ -15,7 +14,11 @@ This document is the authoritative technical baseline for SignalForge V1. It def
 
 ## Change Log
 
-### v0.5 (current)
+### v0.6 (current)
+
+- Removed redundant "Document version" field from top metadata. Change Log is now the single source of truth for version history.
+
+### v0.5
 
 - §8.4 signal and chart density targets revised per M1 spike measurements: concurrent signals 100 → 60, concurrent chart widgets 20 → 8–12. Other §8.4 targets unchanged. Rationale in ADR-001.
 - Added ADR-001 under `docs/architecture/decisions/` recording the rendering approach decision (QQuickWidget + Scene Graph) for V1.

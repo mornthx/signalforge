@@ -41,6 +41,7 @@ SignalForge is a Qt desktop workbench for embedded-device bring-up. The authorit
 6. Any cross-thread code comes with a corresponding ThreadSanitizer test.
 7. Prefer modern C++: `std::jthread` over `std::thread`, `std::string_view` / `std::span` where appropriate, `std::optional` / `std::variant` over sentinel values.
 8. Smart pointers: `std::unique_ptr` is the default; `std::shared_ptr` only when ownership is genuinely shared.
+9. **Every session's first action is state observation before planning**. Run `git status`, `git fetch origin --prune`, `git log` on relevant branches, and compare observations with the prompt's assumptions. Any divergence is reported to the human before proceeding with `understanding.md` or `plan.md`. No exceptions.
 
 ## HALT triggers — stop immediately when any of these fires
 
@@ -77,6 +78,16 @@ If any of these is not met, the task is **not done**. Either keep working, or HA
 
 When the spec is ambiguous, the default action is **do not proceed**. Write your two best interpretations into `.claude/M<n>-concerns.md` with their implementation differences, then HALT if the ambiguity blocks progress, or continue with other tasks if it does not. Never guess silently.
 
+**Exception — additive extensions without HALT**. CC may autonomously extend the vocabulary of the report or documentation it produces, without HALT, when all three of:
+
+- The extension is additive (new verdict category, new field, new subsection) — not changing existing semantics
+- The extension does not introduce new API surface, new dependencies, or new file types
+- The extension is documented in the milestone's `done.md` under "Deviations and concerns"
+
+Typical examples: adding a `Nuanced` verdict alongside the spec's 4-state vocabulary; adding a new section to a report that the spec's template did not foresee.
+
+Everything else follows the default HALT rule.
+
 ## Disagreement handling
 
 If you believe a spec clause is wrong or suboptimal, record your concern in `.claude/M<n>-concerns.md` with a proposed alternative, **and then execute the spec as written**. Do not deviate from the spec without explicit human approval. Concerns are addressed at milestone review.
@@ -86,8 +97,15 @@ If you believe a spec clause is wrong or suboptimal, record your concern in `.cl
 - Build: CMake + `FetchContent`. Do not switch to system packages.
 - Editor config: `.editorconfig` is locked; do not modify.
 - Formatter: `clang-format` with config at `.clang-format`; do not modify.
-- Static analysis: `clang-tidy` with config at `.clang-tidy`; you may extend rules, you may not relax them.
+- Static analysis: `clang-tidy` with config at `.clang-tidy`. Disabled checks in the initial config may be re-enabled when you can make CI green with the enabled rule; enabling a check requires fixing all existing violations in the same commit. Relaxing an already-enabled check is forbidden.
 - Build directory: `build/` only, with one subdirectory per preset.
+
+## Environment conventions
+
+- Qt install path: `$SIGNALFORGE_QT_PATH` (falls back to `~/Qt/6.10.2/gcc_64`).
+- Log directory: `$XDG_STATE_HOME/signalforge/logs/`, defaulting to `~/.local/state/signalforge/logs/`.
+- Build directory: `build/<preset>` under the repo root.
+- `.claude/` is committed to git; `.claude/halt/*.inprogress` is ignored.
 
 ## Qt 6.10.2 notes
 
