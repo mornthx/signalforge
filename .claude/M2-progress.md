@@ -387,3 +387,38 @@ QVariant roundtrip via registerMetatypes.
 - **Not frozen** — logging.hpp is not in spec §6.1's enumerated
   freeze surface.
 
+### S10 — DriverInterface + mock (close)
+
+- **Interface**: `DriverInterface` is a pure virtual `QObject` subclass
+  with `Q_DISABLE_COPY_MOVE`. `open()` takes no parameters per
+  clarification 1 (DriverConfig removed from M2). Async semantics per
+  clarification 2: `open()` returns `Success` for accepted requests,
+  actual completion via signals. `statistics()` returns a plain
+  `frame::DriverStatistics` snapshot; per clarification 3 concrete
+  drivers use per-field atomics internally.
+- **Enum numeric values are explicit** (0-6 for DriverState, 0-10 for
+  DriverErrorCode) for log stability and metatype round-trip. Verified
+  by an explicit test.
+- **registerMetatypes()** is idempotent (qRegisterMetaType is
+  idempotent internally); must be called once before signals are
+  connected across threads.
+- **MockDriver** in `tests/mocks/`: synchronous lifecycle for unit
+  tests; helpers `emitFrame`, `injectError`, `setPreOpenFailure` for
+  test determinism. A Qt-Thread variant for thread-affinity tests is
+  deferred to S11's integration test.
+- **Tests**: 13 driver cases covering default state, full lifecycle,
+  open/start wrong-state, write precondition, close idempotency,
+  pre-open failure, error injection + recovery, frame emission,
+  tx-stats accumulation, QVariant metatype round-trip, enum numeric
+  stability, DriverError default-init. Uses `Qt::Test::QSignalSpy`
+  for signal assertions. 100 tests pass across Debug and Release.
+  debug-asan build clean.
+- **Compile-time invariants**: `static_assert` on `is_copy_constructible`,
+  `is_copy_assignable`, `is_move_constructible`, `is_move_assignable`
+  all yielding false for `DriverInterface`.
+- **Freeze scope delivered** (spec §6.1): DriverInterface class with
+  all methods and signals; DriverState enum with numeric assignments;
+  DriverErrorCode enum with numeric assignments; DriverError struct
+  layout. The thread-affinity contract (documented in class Doxygen)
+  freezes with the class.
+
