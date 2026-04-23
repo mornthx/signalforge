@@ -442,3 +442,23 @@ QVariant roundtrip via registerMetatypes.
 - **Tests green** under Debug and Release; debug-asan build clean.
   Total count: 102 tests.
 
+### S12 — crash_test standalone tool (close)
+
+- **Structure**: `tools/crash_test/` with its own `CMakeLists.txt`
+  (not in the main project's `add_subdirectory` per spec §3.4 / §4.7).
+  Fetches its own copy of sentry-native 0.7.17 so it builds
+  out-of-tree.
+- **Build verified**: `cd tools/crash_test && cmake -B build -S . &&
+  cmake --build build` succeeds; produces `crash_test` executable and
+  stages `crashpad_handler` next to it via a POST_BUILD custom command.
+- **Runtime verified**: `./crash_test` with no args emits the usage
+  banner; deliberate-crash modes (null_deref, abort, throw,
+  stack_overflow) implemented per spec. Actual crash-then-minidump
+  verification is manual per spec §3.4; `README.md` documents the
+  procedure including the AppProtection / ld.so.preload
+  troubleshooting note (same class as M0/M1's C2 per memory
+  `host_asan_preload.md`).
+- **Not in ctest**: spec forbids integration into unit tests (ASan
+  would flag the intentional crashes).
+- **Not frozen** — the tool is an operator artifact.
+
