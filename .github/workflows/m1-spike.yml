@@ -17,15 +17,15 @@ jobs:
           - id: check1
             name: "check 1 — floating"
             args: "--auto-check 1"
-            artifacts: "docs/spikes/M1-artifacts/check1-*.png docs/spikes/M1-artifacts/check1-*.txt"
+            glob: "check1-*"
           - id: check3
             name: "check 3 — context menu"
             args: "--auto-check 3"
-            artifacts: "docs/spikes/M1-artifacts/check3-*.png docs/spikes/M1-artifacts/check3-*.txt"
+            glob: "check3-*"
           - id: check4
             name: "check 4 — hide/show lifecycle (short)"
             args: "--auto-check 4 --short"
-            artifacts: "docs/spikes/M1-artifacts/check4-*.csv docs/spikes/M1-artifacts/check4-*.txt"
+            glob: "check4-*"
     steps:
       - uses: actions/checkout@v4
 
@@ -68,5 +68,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.id }}-artifacts
-          path: ${{ matrix.artifacts }}
+          path: docs/spikes/M1-artifacts/${{ matrix.glob }}
           if-no-files-found: warn
