@@ -1,6 +1,7 @@
 add_executable(utils_test
     spsc_ring_test.cpp
     mpsc_queue_test.cpp
+    snapshot_test.cpp
 )
 target_link_libraries(utils_test
     PRIVATE

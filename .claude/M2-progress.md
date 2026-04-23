@@ -320,3 +320,22 @@ QVariant roundtrip via registerMetatypes.
 - **Freeze scope delivered**: `src/utils/mpsc_queue.hpp` — MpscQueue<T>
   public API per spec §6.1.
 
+### S7 — Snapshot<T> (close)
+
+- **Implementation**: header-only template using
+  `std::atomic<std::shared_ptr<const T>>` per spec §4.4.3 and
+  clarification 8. No custom fallback. `publish(T)` wraps the value in
+  `make_shared<const T>` and atomic-stores it. `read()` atomic-loads
+  the shared_ptr; returned pointer keeps the value alive until the
+  reader drops its copy.
+- **Tests**: 6 new cases: null-on-empty, publish+read round-trip,
+  old-reader-sees-old-value after republish, destructor-tracking lifetime,
+  concurrent 4-reader × 100k publish stress with tearing-detection sentinel,
+  and non-trivial value type (std::string). 69 tests pass across Debug
+  and Release. debug-asan build clean.
+- **Coverage**: every public method exercised; lifetime-semantics
+  verified via destructor counter; tearing-detection via paired `{a,b}`
+  invariant. ≥ 90%.
+- **Freeze scope delivered**: `src/utils/snapshot.hpp` — Snapshot<T>
+  public API per spec §6.1.
+
