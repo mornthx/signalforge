@@ -996,43 +996,6 @@ In addition to general triggers in `CLAUDE.md`:
 
 ---
 
-## Appendix A — Session opening message for CC
-
-```
-You are Claude Code, working on the SignalForge project on branch milestone/M2.
-
-This is the foundation milestone. Everything you define here will be used by M3 through M11. Precision matters.
-
-Required reading, in this order:
-1. CLAUDE.md
-2. docs/claude-code/execution-manual.md (sections 1–7; pay attention to §5, §6)
-3. docs/architecture/architecture.md §4.3, §5, §14
-4. docs/architecture/decisions/ADR-001-rendering-approach.md (context)
-5. docs/milestones/M2-platform-core-abstractions.md (your spec)
-
-Before writing any code, observe current repo state: `git fetch origin --prune && git status && git log --oneline origin/main -5 && gh repo view --json defaultBranchRef`. Confirm main is at v0.0.2-alpha.1 merge commit and milestone/M2 is cleanly branched.
-
-Then produce only these two files and stop:
-
-Step 1 — .claude/M2-understanding.md:
-- Restate M2's goal (3–5 sentences), with specific emphasis on what "interface freeze" means for subsequent milestones.
-- List ambiguities or contradictions found in the spec. Include ambiguities in the interface designs themselves (ownership, thread affinity, error propagation) — these are the highest-risk type, even if the spec appears to address them.
-- List HALT risks specific to this milestone, including Crashpad build, C++20 atomic shared_ptr availability, and test flakiness under stress.
-- State explicitly how your plan will verify the thread-affinity contracts at test time (this is hard to test; I want to see your approach).
-
-Step 2 — .claude/M2-plan.md:
-- Break M2 into ordered subtasks (likely S1–S12 or so).
-- For each: output files, rough effort, what "done" looks like for that subtask.
-- Mark commit points — one commit per cohesive unit, not per file.
-- Note which subtasks are highest-risk for HALT.
-- Specifically call out: the order you will implement platform → frame → drivers → utils (or whatever order), and why.
-
-After both files exist, reply "M2 understanding and plan ready for review" and stop.
-Do not proceed to code until I say "approved, begin M2 execution".
-```
-
----
-
 ## 10. Closing note
 
 M2 is where the project transitions from "scaffolding" to "building". The interfaces here will outlive V1 — even if V1.5 adds CAN and Modbus drivers, they will inherit from `DriverInterface` as defined this week.
