@@ -339,3 +339,24 @@ QVariant roundtrip via registerMetatypes.
 - **Freeze scope delivered**: `src/utils/snapshot.hpp` — Snapshot<T>
   public API per spec §6.1.
 
+### S8 — MetricsRegistry (close)
+
+- **Implementation**: `Metric` is a single-file class with lock-free
+  atomic int64 value; `MetricsRegistry` is a Meyers singleton holding a
+  pimpl with a mutex-guarded `std::unordered_map<std::string,
+  std::unique_ptr<Metric>>`. QHash cannot hold unique_ptr (deleted copy
+  ctor), so std::unordered_map is used instead; the key is the UTF-8
+  serialization of the QString name. `clearForTesting()` exists for
+  per-test isolation.
+- **NOT frozen** per spec §6.2 (metrics API expected to evolve with the
+  M5 performance panel).
+- **Tests**: 10 cases: counter add, gauge set, name/kind immutability,
+  getOrCreate same-ptr on repeat, different names, existing-kind wins,
+  snapshot, metricNames enumeration, 8-thread × 1M add stress
+  (verifies no lost increments), concurrent registration + snapshot,
+  clearForTesting. 80 tests pass across Debug and Release. debug-asan
+  build clean.
+- **Coverage**: every public method exercised; concurrent paths tested
+  under 4-producer + 1-reader load; clearForTesting exercised.
+  Estimated ≥ 90%.
+
