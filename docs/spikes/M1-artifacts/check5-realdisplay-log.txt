@@ -1,0 +1,8 @@
+[debug] [spike] run_auto_check 5 short= false
+[debug] [check5] starting radeontop
+[debug] [check5] complete:
+[debug]   cpu_pct min=43.82 max=55.56 mean=48.67 n=60
+[debug]   gpu_pct min=41.67 max=54.17 mean=47.83 n=60
+[debug]   rss_kb min=179120 max=179912 mean=179553 n=60
+[debug]   vram_mb_radeontop min=1638.98 max=1649.42 mean=1640.62 n=60
+[debug] [spike] check 5 rc=0 concerning_warnings=0

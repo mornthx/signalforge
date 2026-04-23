@@ -2,20 +2,27 @@
 
 #include <QAction>
 #include <QByteArray>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPixmap>
+#include <QProcess>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QRegularExpression>
 #include <QTest>
 #include <QTextStream>
 #include <QUrl>
 #include <QWindow>
+#include <algorithm>
 #include <cctype>
+#include <numeric>
 #include <optional>
+#include <unistd.h>
+#include <vector>
 
 namespace signalforge::spike {
 
@@ -160,8 +167,7 @@ int MainWindow::run_auto_check(int check_id, bool short_variant) {
     case 4:
         return run_check_4_lifecycle(short_variant);
     case 5:
-        qWarning() << "[spike] Check" << check_id << "not yet implemented in this subtask";
-        return 2;
+        return run_check_5_multi_instance_gpu();
     default:
         qWarning() << "[spike] unknown check id:" << check_id;
         return 2;
@@ -409,6 +415,251 @@ int MainWindow::run_check_4_lifecycle(bool short_variant) {
     // returns to baseline ± 2. The CSV contains the raw data; report analysis
     // is done at S9 so both the short and full runs contribute evidence.
     qDebug() << "[check4] CSV written:" << csv_path;
+    return 0;
+}
+
+namespace {
+
+std::optional<qint64> read_vm_size_kb() {
+    QFile f(QStringLiteral("/proc/self/status"));
+    if (!f.open(QIODevice::ReadOnly)) {
+        return std::nullopt;
+    }
+    const QByteArray content = f.readAll();
+    const auto lines = content.split('\n');
+    for (const QByteArray& line : lines) {
+        if (!line.startsWith("VmSize:")) {
+            continue;
+        }
+        QByteArray digits;
+        for (char c : line) {
+            if (std::isdigit(static_cast<unsigned char>(c))) {
+                digits.append(c);
+            } else if (!digits.isEmpty()) {
+                break;
+            }
+        }
+        bool ok = false;
+        const qint64 v = digits.toLongLong(&ok);
+        return ok ? std::optional<qint64>{v} : std::nullopt;
+    }
+    return std::nullopt;
+}
+
+struct CpuTicks {
+    qint64 utime{0};
+    qint64 stime{0};
+    qint64 wall_ms{0};
+};
+
+std::optional<CpuTicks> read_cpu_ticks() {
+    QFile f(QStringLiteral("/proc/self/stat"));
+    if (!f.open(QIODevice::ReadOnly)) {
+        return std::nullopt;
+    }
+    const QByteArray content = f.readAll();
+    // Fields (1-indexed): 14=utime, 15=stime. The comm field can contain
+    // spaces/parens; split after the last ')' to be safe.
+    const int end_of_comm = content.lastIndexOf(')');
+    if (end_of_comm < 0) {
+        return std::nullopt;
+    }
+    const QByteArray after = content.mid(end_of_comm + 1).trimmed();
+    const auto fields = after.split(' ');
+    // After ')', field indices shift: index 0 = state (field 3 overall),
+    // so utime = index 11, stime = index 12.
+    if (fields.size() < 13) {
+        return std::nullopt;
+    }
+    bool ok_u = false, ok_s = false;
+    const qint64 ut = fields[11].toLongLong(&ok_u);
+    const qint64 st = fields[12].toLongLong(&ok_s);
+    if (!ok_u || !ok_s) {
+        return std::nullopt;
+    }
+    return CpuTicks{ut, st, QDateTime::currentMSecsSinceEpoch()};
+}
+
+std::optional<qint64> read_vram_used_bytes() {
+    static const QString kPath = QStringLiteral("/sys/class/drm/card1/device/mem_info_vram_used");
+    QFile f(kPath);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return std::nullopt;
+    }
+    const QByteArray content = f.readAll().trimmed();
+    bool ok = false;
+    const qint64 v = content.toLongLong(&ok);
+    return ok ? std::optional<qint64>{v} : std::nullopt;
+}
+
+}  // namespace
+
+int MainWindow::run_check_5_multi_instance_gpu() {
+    // All three QQuickWidgets already have an animated Canvas running at 30 Hz.
+    // Sample process and GPU metrics for 30 s at 500 ms cadence (60 samples).
+
+    const QString dir = QStringLiteral("docs/spikes/M1-artifacts");
+    if (!QDir().mkpath(dir)) {
+        qWarning() << "[check5] could not create artifact dir";
+        return 2;
+    }
+    QFile csv(dir + QLatin1Char('/') + QStringLiteral("check5-gpu-trace.csv"));
+    if (!csv.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        qWarning() << "[check5] could not open trace CSV";
+        return 2;
+    }
+    QTextStream out(&csv);
+    out << "elapsed_s,cpu_pct,rss_kb,vsize_kb,gpu_pct,vram_bytes_sysfs,vram_mb_radeontop\n";
+
+    QProcess radeontop;
+    radeontop.setProcessChannelMode(QProcess::MergedChannels);
+    radeontop.setProgram(QStringLiteral("radeontop"));
+    radeontop.setArguments({QStringLiteral("-d"), QStringLiteral("-"), QStringLiteral("-i"), QStringLiteral("1"),
+                            QStringLiteral("-l"), QStringLiteral("0")});
+    qDebug() << "[check5] starting radeontop";
+    radeontop.start();
+    if (!radeontop.waitForStarted(2000)) {
+        qWarning() << "[check5] radeontop failed to start";
+        return 2;
+    }
+
+    // Calibration wait — radeontop emits the first useful line after ~1–2 s.
+    QTest::qWait(2200);
+
+    QString radeontop_buffer;
+    double latest_gpu_pct = -1.0;
+    double latest_vram_mb = -1.0;
+    static const QRegularExpression kGpuRx(QStringLiteral(R"(gpu\s+([0-9.]+)%)"));
+    static const QRegularExpression kVramRx(QStringLiteral(R"(vram\s+[0-9.]+%\s+([0-9.]+)mb)"));
+
+    auto pump_radeontop = [&]() {
+        radeontop_buffer += QString::fromUtf8(radeontop.readAllStandardOutput());
+        int nl = radeontop_buffer.lastIndexOf(QLatin1Char('\n'));
+        if (nl < 0) {
+            return;
+        }
+        const QString complete = radeontop_buffer.left(nl);
+        radeontop_buffer = radeontop_buffer.mid(nl + 1);
+        // Parse only the latest complete line for current readings.
+        const int last_line_start = complete.lastIndexOf(QLatin1Char('\n'));
+        const QString last_line = (last_line_start < 0) ? complete : complete.mid(last_line_start + 1);
+        const auto gpu_m = kGpuRx.match(last_line);
+        if (gpu_m.hasMatch()) {
+            latest_gpu_pct = gpu_m.captured(1).toDouble();
+        }
+        const auto vram_m = kVramRx.match(last_line);
+        if (vram_m.hasMatch()) {
+            latest_vram_mb = vram_m.captured(1).toDouble();
+        }
+    };
+
+    const auto baseline_cpu = read_cpu_ticks();
+    const qint64 wall_start = QDateTime::currentMSecsSinceEpoch();
+
+    std::vector<double> cpu_samples, gpu_samples, vram_samples;
+    std::vector<qint64> rss_samples, vsize_samples, vram_bytes_samples;
+
+    auto prev_cpu = baseline_cpu;
+
+    constexpr int kTotalSamples = 60;
+    constexpr int kCadenceMs = 500;
+
+    for (int s = 0; s < kTotalSamples; ++s) {
+        QTest::qWait(kCadenceMs);
+        pump_radeontop();
+
+        const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
+        const double elapsed = (wall_now - wall_start) / 1000.0;
+        const auto cpu_now = read_cpu_ticks();
+        const auto rss = read_vm_rss_kb();
+        const auto vsize = read_vm_size_kb();
+        const auto vram_bytes = read_vram_used_bytes();
+
+        double cpu_pct = -1.0;
+        if (cpu_now && prev_cpu) {
+            const qint64 ticks_delta = (cpu_now->utime + cpu_now->stime) - (prev_cpu->utime + prev_cpu->stime);
+            const double wall_delta_s = (cpu_now->wall_ms - prev_cpu->wall_ms) / 1000.0;
+            const long hz = ::sysconf(_SC_CLK_TCK);
+            if (hz > 0 && wall_delta_s > 0.0) {
+                cpu_pct = (static_cast<double>(ticks_delta) / static_cast<double>(hz)) / wall_delta_s * 100.0;
+            }
+        }
+        prev_cpu = cpu_now;
+
+        out << elapsed << "," << (cpu_pct >= 0 ? QString::number(cpu_pct, 'f', 2) : QStringLiteral("NA")) << ","
+            << (rss ? QString::number(*rss) : QStringLiteral("NA")) << ","
+            << (vsize ? QString::number(*vsize) : QStringLiteral("NA")) << ","
+            << (latest_gpu_pct >= 0 ? QString::number(latest_gpu_pct, 'f', 2) : QStringLiteral("NA")) << ","
+            << (vram_bytes ? QString::number(*vram_bytes) : QStringLiteral("NA")) << ","
+            << (latest_vram_mb >= 0 ? QString::number(latest_vram_mb, 'f', 2) : QStringLiteral("NA")) << "\n";
+
+        if (cpu_pct >= 0)
+            cpu_samples.push_back(cpu_pct);
+        if (rss)
+            rss_samples.push_back(*rss);
+        if (vsize)
+            vsize_samples.push_back(*vsize);
+        if (latest_gpu_pct >= 0)
+            gpu_samples.push_back(latest_gpu_pct);
+        if (latest_vram_mb >= 0)
+            vram_samples.push_back(latest_vram_mb);
+        if (vram_bytes)
+            vram_bytes_samples.push_back(*vram_bytes);
+    }
+
+    radeontop.terminate();
+    radeontop.waitForFinished(2000);
+    csv.close();
+
+    auto stats = [](const std::vector<double>& v) -> QString {
+        if (v.empty())
+            return QStringLiteral("(no samples)");
+        const double mn = *std::min_element(v.begin(), v.end());
+        const double mx = *std::max_element(v.begin(), v.end());
+        const double mean = std::accumulate(v.begin(), v.end(), 0.0) / static_cast<double>(v.size());
+        return QStringLiteral("min=%1 max=%2 mean=%3 n=%4")
+            .arg(mn, 0, 'f', 2)
+            .arg(mx, 0, 'f', 2)
+            .arg(mean, 0, 'f', 2)
+            .arg(v.size());
+    };
+    auto stats_int = [](const std::vector<qint64>& v) -> QString {
+        if (v.empty())
+            return QStringLiteral("(no samples)");
+        const qint64 mn = *std::min_element(v.begin(), v.end());
+        const qint64 mx = *std::max_element(v.begin(), v.end());
+        const double mean = std::accumulate(v.begin(), v.end(), qint64{0}) / static_cast<double>(v.size());
+        return QStringLiteral("min=%1 max=%2 mean=%3 n=%4").arg(mn).arg(mx).arg(mean, 0, 'f', 0).arg(v.size());
+    };
+
+    QFile summary(dir + QLatin1Char('/') + QStringLiteral("check5-summary.md"));
+    if (summary.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        QTextStream s(&summary);
+        s << "# Check 5 — multi-instance GPU summary\n\n";
+        s << "30 s @ 500 ms cadence; three QQuickWidgets each running a 30 Hz canvas.\n\n";
+        s << "| Metric | Stats |\n|---|---|\n";
+        s << "| cpu_pct (%) | " << stats(cpu_samples) << " |\n";
+        s << "| rss_kb | " << stats_int(rss_samples) << " |\n";
+        s << "| vsize_kb | " << stats_int(vsize_samples) << " |\n";
+        s << "| gpu_pct (%) | " << stats(gpu_samples) << " |\n";
+        s << "| vram_bytes_sysfs | " << stats_int(vram_bytes_samples) << " |\n";
+        s << "| vram_mb_radeontop | " << stats(vram_samples) << " |\n\n";
+        s << "## Spec thresholds (§S7)\n\n";
+        s << "- gpu_pct sustained < 60% → see max above\n";
+        s << "- cpu_pct < 30% single-core → see max above\n";
+        s << "- spike-process GPU memory < 200 MB total — the vram_bytes_sysfs column reports system-wide VRAM usage "
+             "(shared iGPU, cannot be attributed per-process); vram_mb_radeontop is also system-wide. Per-process VRAM "
+             "attribution is not available from free-tier AMD telemetry. The report treats this as partial evidence "
+             "and flags the attribution gap.\n";
+        s.flush();
+    }
+
+    qDebug() << "[check5] complete:";
+    qDebug().noquote() << "  cpu_pct" << stats(cpu_samples);
+    qDebug().noquote() << "  gpu_pct" << stats(gpu_samples);
+    qDebug().noquote() << "  rss_kb" << stats_int(rss_samples);
+    qDebug().noquote() << "  vram_mb_radeontop" << stats(vram_samples);
+
     return 0;
 }
 

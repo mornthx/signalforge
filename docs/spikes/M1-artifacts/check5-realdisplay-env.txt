@@ -1,0 +1,18 @@
+=== Environment snapshot — before Check 5 real-display run ===
+Timestamp: 2026-04-23T00:28:03Z
+DISPLAY=:0  XDG_SESSION_TYPE=x11
+
+=== glxinfo | grep -E 'OpenGL renderer|OpenGL version' ===
+glxinfo NOT INSTALLED (mesa-utils absent). Qt's QSG_INFO=1 output
+in check5-realdisplay-qsginfo.txt is the authoritative RHI indicator.
+
+=== radeontop single-sample baseline ===
+1776904084.152529: bus 04, gpu 36.67%, ee 0.00%, vgt 3.33%, ta 25.00%, sx 26.67%, sh 2.50%, spi 29.17%, sc 28.33%, pa 3.33%, db 28.33%, cb 27.50%, vram 39.03% 1563.80mb, gtt 1.77% 246.25mb, mclk 100.00% 1.600ghz, sclk 21.40% 0.428ghz
+1776904085.152622: bus 04, gpu 36.67%, ee 0.00%, vgt 3.33%, ta 25.00%, sx 26.67%, sh 2.50%, spi 29.17%, sc 28.33%, pa 3.33%, db 28.33%, cb 27.50%, vram 39.03% 1563.80mb, gtt 1.77% 246.25mb, mclk 100.00% 1.600ghz, sclk 21.40% 0.428ghz
+
+=== Environment snapshot — after Check 5 real-display run ===
+Timestamp: 2026-04-23T00:29:23Z
+
+=== radeontop single-sample baseline ===
+1776904164.173931: bus 04, gpu 29.17%, ee 0.00%, vgt 1.67%, ta 20.00%, sx 22.50%, sh 1.67%, spi 27.50%, sc 26.67%, pa 1.67%, db 26.67%, cb 22.50%, vram 39.24% 1572.04mb, gtt 1.77% 246.25mb, mclk 100.00% 1.600ghz, sclk 25.49% 0.510ghz
+1776904165.174234: bus 04, gpu 29.17%, ee 0.00%, vgt 1.67%, ta 20.00%, sx 22.50%, sh 1.67%, spi 27.50%, sc 26.67%, pa 1.67%, db 26.67%, cb 22.50%, vram 39.24% 1572.04mb, gtt 1.77% 246.25mb, mclk 100.00% 1.600ghz, sclk 25.49% 0.510ghz
