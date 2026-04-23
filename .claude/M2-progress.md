@@ -213,3 +213,40 @@ init/shutdown/active lifecycle.
 
 ---
 
+### S3 — frame value types (start)
+
+**Goal**: deliver `src/frame/raw_frame.hpp` with `RawFrame`, `RxStats`,
+`TxStats`, `DriverStatistics`, and type aliases `SteadyTimestamp`,
+`WallTimestamp`, `SourceId`. Also `registerMetatypes()` in the .cpp to
+invoke `qRegisterMetaType<RawFrame>()` at program start. Replace the
+frame/ placeholder.
+
+**Approach**: value types are plain POD structs matching spec §4.2
+verbatim. Per clarification 3, concrete drivers use std::atomic
+internally; the snapshot returned from statistics() is the plain struct
+defined here. Per clarification 4, RawFrame::payload is
+byte-as-unsigned-char at the frame-layer boundary; documented in Doxygen.
+Per clarification 5, deviceAt is steady_clock only; wall-clock
+translation is M4's job; documented.
+
+Tests cover: default-init state for each struct; QByteArray implicit
+sharing (copy of a RawFrame with a pre-sized payload doesn't allocate);
+QVariant roundtrip via registerMetatypes.
+
+### S3 — frame value types (close)
+
+- **Tests**: 6 RawFrame + 5 stats = 11 new cases; 48 total across all
+  test binaries in this milestone so far. All pass under Debug and
+  Release. debug-asan build clean (runtime blocked per host preload).
+- **Coverage**: every struct field initialized-to-default tested;
+  implicit-sharing copy verified via `constData()` pointer comparison;
+  metatype round-trip exercised via `QVariant::fromValue` /
+  `QVariant::value`. `registerMetatypes()` idempotency validated by
+  double-invocation.
+- **Freeze scope delivered**: `src/frame/raw_frame.hpp` — RawFrame
+  struct layout, RxStats, TxStats, DriverStatistics, type aliases.
+  Per spec §6.1. Note: frame/ also hosts backpressure (S4) and
+  frame_envelope is deferred (spec §2.1 lists it but §6.1 does not
+  enumerate a struct for it; plan S3 scope is RawFrame+stats only).
+- **clang-format**: auto-applied.
+
