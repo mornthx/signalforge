@@ -274,3 +274,26 @@ QVariant roundtrip via registerMetatypes.
   BackpressureSignal struct, BackpressureReason enum, WatermarkTracker
   public API (spec §6.1).
 
+### S5 — SpscRing<T> (close)
+
+- **Implementation**: header-only template in `src/utils/spsc_ring.hpp`.
+  Power-of-two internal buffer with mask-based modulo, cache-line-padded
+  head / tail / peak atomics. Usable capacity reported by `capacity()`
+  is one less than the allocated slot count (standard empty-vs-full
+  distinction). `push(T item)` takes the argument by value per
+  clarification 7; caller's object is moved-from in either return path.
+  `pop()` drains the slot and nulls it so destructors run.
+- **Utils library**: changed from STATIC to INTERFACE since
+  `spsc_ring.hpp` is header-only. Placeholder removed. Will revisit in
+  S6 when `MpscQueue` contributes a .cpp and needs STATIC.
+- **Tests**: 9 new cases: empty pop, single push+pop, FIFO ordering,
+  fill-to-capacity + clean fail, interleaved push/pop, power-of-2
+  rounding, peak-size tracking, move-only value type (`unique_ptr`),
+  and the 1M-item two-thread stress test per spec §5.2. 58 tests pass
+  across Debug and Release. debug-asan build clean.
+- **Coverage**: every public method exercised; push-full and pop-empty
+  branches covered; peak-CAS loop implicitly exercised by stress test.
+  Estimated ≥ 90%.
+- **Freeze scope delivered**: `src/utils/spsc_ring.hpp` — SpscRing<T>
+  public API per spec §6.1.
+

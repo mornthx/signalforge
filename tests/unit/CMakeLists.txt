@@ -6,3 +6,4 @@ catch_discover_tests(smoke_test DISCOVERY_MODE PRE_TEST)
 
 add_subdirectory(platform)
 add_subdirectory(frame)
+add_subdirectory(utils)
