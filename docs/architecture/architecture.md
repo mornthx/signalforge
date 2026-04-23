@@ -14,7 +14,11 @@ This document is the authoritative technical baseline for SignalForge V1. It def
 
 ## Change Log
 
-### v0.6 (current)
+### v0.7 (current)
+
+- Crash reporting backend changed from Crashpad to sentry-native, per ADR-002. The two are interface-compatible at the architecture level (local minidumps, no upload in V1); the change is driven by CMake integration feasibility, not by capability differences. See ADR-002 for rationale and alternatives considered.
+
+### v0.6
 
 - Removed redundant "Document version" field from top metadata. Change Log is now the single source of truth for version history.
 
@@ -212,7 +216,7 @@ This list does not constrain V1. It records known future directions so that V1 a
 | Build system | CMake 3.22+ | |
 | Testing | Catch2 + Qt Test + replay-based integration tests | |
 | Logging | spdlog (async, rotating file sink) | |
-| Crash reporting | Crashpad (Linux) | Local minidumps, no upload backend in V1 |
+| Crash reporting | sentry-native | Local minidumps; no upload backend |
 | Expression engine | ExprTk (header-only) | Only for DerivedSignal |
 | Config serialization | yaml-cpp for projects, nlohmann/json for layouts | |
 | Lock-free queues | moodycamel::ConcurrentQueue (MPSC) + hand-rolled SPSC ring | |
@@ -287,7 +291,7 @@ Cross-cutting. Depended on by every other layer:
 
 - Structured logging (spdlog)
 - Runtime metrics (internal performance panel)
-- Crash reporting (Crashpad)
+- Crash reporting (sentry-native)
 - Tracing hook (Tracy integration reserved; off by default)
 
 ---
@@ -664,7 +668,7 @@ Ubuntu 24.04 ships GCC 13.3 as its default system compiler; GCC 11.4 remains ava
 **Migration cost estimate**: low.
 
 - Qt 6.10 → 6.12 is a minor-version transition within the same major line; API stability is strong.
-- Main work: re-run the full test suite, validate `QQuickWidget` behavior for regressions, confirm Crashpad integration unchanged.
+- Main work: re-run the full test suite, validate `QQuickWidget` behavior for regressions, confirm crash reporting integration unchanged.
 - Expected: one engineer for one week.
 
 **Fallback plan**: if the team cannot accept a mid-project Qt migration, ship V1.0 against Qt 6.10.2. This is the fallback, not the primary path. The cost is that V1.0 users run on a version that no longer receives open-source security patches.
@@ -692,7 +696,7 @@ V1 ships under **LGPL v3 with dynamic linking**:
 | Catch2 | BSL-1.0 | Compatible (tests only) |
 | ExprTk | MIT | Compatible |
 | moodycamel::ConcurrentQueue | BSD-2 or BSL | Compatible |
-| Crashpad | Apache 2.0 and associates | Compatible |
+| sentry-native | MIT | Compatible |
 
 ### 13.3 Compliance Checklist
 
@@ -727,10 +731,10 @@ An in-app performance panel (collapsed by default) shows:
 
 ### 14.3 Crash Reporting
 
-- Library: Crashpad (Linux is well supported).
-- Behavior: on crash, write a minidump to `~/.local/state/signalforge/crashdumps/`. On next launch, the user can choose to export a tarball of minidumps.
-- **V1 does not operate an upload backend.** Local export only.
-- systemd-coredump is a backup; not a hard dependency.
+- Library: sentry-native. Originally architecture v0.4 specified Crashpad, but Crashpad is GN-only with no upstream CMake support, making integration costly for a CMake-based project. ADR-002 records the switch.
+- Behavior: on crash, sentry-native's handler writes a minidump to `~/.local/state/signalforge/crashdumps/`. On next launch, the user is offered the option to package the dump as a tarball.
+- **V1 does not host an upload backend.** Local export only. The `sentry_options_t` DSN field is intentionally left unset — no network traffic occurs.
+- `systemd-coredump`, when system-enabled, acts as a secondary backup. Not a hard dependency.
 
 ### 14.4 Tracing
 
@@ -842,7 +846,7 @@ With 3 C++ engineers, the plan has generous buffer for experimental optimization
 - CMake project and module layout (`cmake_minimum_required 3.22`, `CMAKE_CXX_STANDARD 20`)
 - Main window and Dock frame
 - spdlog integration and embryonic performance panel
-- Crashpad integration validation
+- sentry-native integration validation
 - Driver interface, basic `SerialDriver` and `TcpDriver`
 - **Qt Quick integration spike report on Qt 6.10.2 (required)**, covering §8.5 in full
 - Confirm usage boundary for Qt 6.10-only APIs (§12.6)
@@ -1030,7 +1034,7 @@ All §8.4 metrics pass. In particular:
 1. Lock the source tree and module boundaries.
 2. Stand up the `QMainWindow` + Dock shell on Qt 6.10.2.
 3. Run the Qt Quick integration spike; reach a verdict before Sprint 2 closes.
-4. Wire up a minimum spdlog + Crashpad path.
+4. Wire up a minimum spdlog + sentry-native path.
 5. Define the Driver interface and `RawFrame` data structure.
 6. Build the first version of the Decode page model and a synthetic data flow.
 7. Build a proof-of-concept for the high-frequency chart component.
