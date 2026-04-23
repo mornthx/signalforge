@@ -422,3 +422,23 @@ QVariant roundtrip via registerMetatypes.
   layout. The thread-affinity contract (documented in class Doxygen)
   freezes with the class.
 
+### S11 — integration test: cross-thread lifecycle (close)
+
+- **Setup**: `QCoreApplication` spawned once per process via a
+  static-init holder; metatypes registered there. MockDriver is
+  constructed on main thread and `moveToThread()`'d onto a dedicated
+  `QThread`. Lifecycle methods are invoked via
+  `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` so they run
+  on the IO thread and their signals fire from that thread.
+- **Test 1** (driver lifecycle, 1000 frames): verifies
+  Idle → Open → Running; 1000 fabricated frames delivered to a
+  main-thread consumer via `Qt::QueuedConnection`; each slot
+  invocation asserts `QThread::currentThread() ==
+  QCoreApplication::instance()->thread()`; stop() → Open; close() →
+  Idle. 1010 assertions total.
+- **Test 2** (thread affinity): uses `Qt::DirectConnection` to capture
+  which thread a `frameReceived` signal fires from; asserts it is the
+  IO QThread, not the main thread.
+- **Tests green** under Debug and Release; debug-asan build clean.
+  Total count: 102 tests.
+
