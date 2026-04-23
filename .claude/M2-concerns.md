@@ -39,3 +39,41 @@ milestone/M2 at 6e1a2b5. Clarification 9 replaced "patch 5" with "§4.6".
 
 ---
 
+## Logger synchronous, not async
+
+**Background**: architecture §14.1 lists logging as "spdlog (async,
+rotating file sink)". M2 S9 requires `with_fields(...)` to attach
+structured fields to the next `SF_LOG_*` line on the same thread.
+
+**Technical conflict**: spdlog's async mode runs the pattern formatter
+on a background thread. A formatter that reads `thread_local` state
+set by the caller thread cannot see that state in async mode — each
+thread has its own TLS. spdlog's MDC header at
+`_deps/spdlog-src/include/spdlog/mdc.h` explicitly says "Not supported
+in async mode." The only supported alternatives within spdlog 1.14
+would either embed fields into the message payload (forbidden by spec
+§4.6.1 as "string-concatenated fields") or require a newer spdlog
+version with async MDC support (none available as of 1.14.1, the
+pinned version).
+
+**Decision**: switched the logger in `src/observability/logging.cpp`
+to synchronous (`spdlog::logger` instead of `spdlog::async_logger`).
+The custom `%J` pattern flag formatter runs on the caller thread,
+reads `thread_local` fields, and emits them into the `fields` JSON
+slot. Pattern integrity is preserved.
+
+**Impact**: each `SF_LOG_*` call now blocks on disk write (rotating
+sink's mutex + write syscall). V1 use cases log sparsely — at most a
+few hundred lines/minute during normal operation. For high-volume
+streams (e.g., per-frame trace), the caller would typically use trace
+level with SPDLOG_ACTIVE_LEVEL stripping, not per-frame INFO. If
+future milestones show logging as a hotspot, a re-evaluation with a
+newer spdlog (MDC-async support) or a custom queue design would be
+warranted.
+
+**Spec compatibility**: architecture v0.8 would ideally re-state §14.1
+to drop "async". This is a minor deviation; no ADR is required unless
+the human requests one at M2 close.
+
+---
+

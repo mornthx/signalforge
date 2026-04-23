@@ -2,11 +2,14 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <mutex>
-#include <spdlog/async.h>
+#include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace signalforge::observability {
 
@@ -16,12 +19,76 @@ constexpr std::string_view kLoggerName = "signalforge";
 constexpr std::string_view kLogFileName = "signalforge.log";
 constexpr std::size_t kMaxFileBytes = 10 * 1024 * 1024;  // 10 MB
 constexpr std::size_t kMaxFiles = 10;
-constexpr std::size_t kThreadPoolQueue = 8192;
-constexpr std::size_t kThreadPoolThreads = 1;
+
+// The pattern uses `%J` (custom flag) for the fields slot. FieldsFlag
+// writes `{}` when no fields have been attached and `{"k":"v",...}` when
+// `with_fields` has populated thread-local state.
 constexpr std::string_view kJsonPattern =
-    R"({"ts":"%Y-%m-%dT%H:%M:%S.%eZ","level":"%l","thread":%t,"module":"%n","event":"%v","fields":{}})";
+    R"({"ts":"%Y-%m-%dT%H:%M:%S.%eZ","level":"%l","thread":%t,"module":"%n","event":"%v","fields":%J})";
 
 std::once_flag g_init_flag;
+
+// Per-thread field state. with_fields() populates; the FieldsFlag
+// formatter consumes and clears.
+thread_local std::vector<std::pair<std::string, std::string>> g_thread_fields;
+
+void appendJsonEscaped(spdlog::memory_buf_t& dest, std::string_view value) {
+    for (char c : value) {
+        switch (c) {
+        case '"':
+            dest.append(std::string_view{"\\\""});
+            break;
+        case '\\':
+            dest.append(std::string_view{"\\\\"});
+            break;
+        case '\n':
+            dest.append(std::string_view{"\\n"});
+            break;
+        case '\r':
+            dest.append(std::string_view{"\\r"});
+            break;
+        case '\t':
+            dest.append(std::string_view{"\\t"});
+            break;
+        default:
+            dest.push_back(c);
+            break;
+        }
+    }
+}
+
+// Custom flag formatter bound to `%J` in kJsonPattern. Emits the
+// thread-local fields as a JSON object and clears them after use.
+class FieldsFlag : public spdlog::custom_flag_formatter {
+public:
+    void format(const spdlog::details::log_msg& /*msg*/, const std::tm& /*tm_time*/,
+                spdlog::memory_buf_t& dest) override {
+        if (g_thread_fields.empty()) {
+            dest.push_back('{');
+            dest.push_back('}');
+            return;
+        }
+        dest.push_back('{');
+        bool first = true;
+        for (const auto& [k, v] : g_thread_fields) {
+            if (!first) {
+                dest.push_back(',');
+            }
+            first = false;
+            dest.push_back('"');
+            appendJsonEscaped(dest, k);
+            dest.append(std::string_view{"\":\""});
+            appendJsonEscaped(dest, v);
+            dest.push_back('"');
+        }
+        dest.push_back('}');
+        g_thread_fields.clear();
+    }
+
+    std::unique_ptr<custom_flag_formatter> clone() const override {
+        return std::make_unique<FieldsFlag>();
+    }
+};
 
 std::filesystem::path resolve_log_dir() {
     if (const char* xdg = std::getenv("XDG_STATE_HOME"); xdg != nullptr && *xdg != '\0') {
@@ -60,13 +127,18 @@ void init_logging() {
         std::filesystem::create_directories(dir);
         const std::filesystem::path file = dir / kLogFileName;
 
-        spdlog::init_thread_pool(kThreadPoolQueue, kThreadPoolThreads);
-
         auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(file.string(), kMaxFileBytes, kMaxFiles);
-        sink->set_pattern(std::string{kJsonPattern});
 
-        auto logger = std::make_shared<spdlog::async_logger>(std::string{kLoggerName}, sink, spdlog::thread_pool(),
-                                                             spdlog::async_overflow_policy::block);
+        auto formatter = std::make_unique<spdlog::pattern_formatter>();
+        formatter->add_flag<FieldsFlag>('J').set_pattern(std::string{kJsonPattern});
+        sink->set_formatter(std::move(formatter));
+
+        // Synchronous logger: the FieldsFlag formatter reads thread_local
+        // field state, which requires the formatter to run on the caller's
+        // thread. spdlog's async mode does not carry thread_local through
+        // the queue (MDC header: "Not supported in async mode"). M2-concerns
+        // documents the deviation from architecture §14.1's "async" hint.
+        auto logger = std::make_shared<spdlog::logger>(std::string{kLoggerName}, sink);
 
         const auto level = resolve_level();
         logger->set_level(level);
@@ -76,6 +148,18 @@ void init_logging() {
         spdlog::set_default_logger(logger);
         spdlog::set_level(level);
     });
+}
+
+void with_fields(std::initializer_list<std::pair<std::string_view, std::string_view>> fields) {
+    g_thread_fields.clear();
+    g_thread_fields.reserve(fields.size());
+    for (const auto& [k, v] : fields) {
+        g_thread_fields.emplace_back(std::string{k}, std::string{v});
+    }
+}
+
+void clear_fields() {
+    g_thread_fields.clear();
 }
 
 }  // namespace signalforge::observability

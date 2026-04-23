@@ -360,3 +360,30 @@ QVariant roundtrip via registerMetatypes.
   under 4-producer + 1-reader load; clearForTesting exercised.
   Estimated ≥ 90%.
 
+### S9 — structured log fields / with_fields (close)
+
+- **Implementation**: `with_fields({{key,value},...})` writes to a
+  thread_local `std::vector<std::pair<std::string, std::string>>`.
+  A custom spdlog pattern flag `%J` is registered via
+  `spdlog::pattern_formatter::add_flag<FieldsFlag>('J')`. The FieldsFlag
+  formatter emits `{}` when empty and `{"k":"v",...}` when populated,
+  with JSON-escaping for `"`, `\`, `\n`, `\r`, `\t`. Fields clear on
+  consumption so the next line sees empty unless `with_fields` was
+  called again (Interpretation A per understanding §3.7).
+- **Logger switched to synchronous** (`spdlog::logger`, not
+  `async_logger`). Reason: async runs the formatter on a background
+  thread where the caller's thread_local is invisible. spdlog 1.14
+  MDC explicitly does not support async mode. Documented deviation in
+  `.claude/M2-concerns.md`.
+- **Tests** live in their own executable `with_fields_test` to
+  isolate `init_logging()`'s per-process idempotency from metrics
+  tests. A static initializer sets `XDG_STATE_HOME` to a unique tmp
+  path before any test runs. 7 cases covering empty slot, populated,
+  consume-after-one-line, per-thread isolation, replace semantics,
+  JSON-escape, and clear no-op. 87 tests pass across Debug and
+  Release. debug-asan build clean.
+- **Coverage**: every public function exercised; JSON-escape path
+  hit; multi-thread isolation verified. Estimated ≥ 85%.
+- **Not frozen** — logging.hpp is not in spec §6.1's enumerated
+  freeze surface.
+
