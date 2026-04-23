@@ -147,6 +147,7 @@ section is required.
 - **`frame_envelope.{hpp,cpp}`**: spec §2.1-3 lists a "frame envelope" wrapper but §6.1 does not enumerate any struct for it; the plan scoped it out. M4's frame pipeline will decide whether an envelope type is needed (e.g., carrying routing metadata) when wiring drivers to decoders.
 - **Logger async re-enable**: future spdlog upgrade that supports async MDC would let us restore async logging for free. Track upstream spdlog 1.15+.
 - **ExprTk, yaml-cpp FetchContent warnings**: unchanged from M0/M1; third-party projects use `cmake_minimum_required(2.x)` deprecated in CMake 3.28. Upstream fix is their responsibility.
+- **CI system-dependency management**: Each milestone has added apt-install lines to `.github/workflows/ci.yml` (M0: `g++-13`, `ninja-build`, `xvfb`; M2: `libcurl4-openssl-dev`). Over M3–M11 this list will grow. Consider extracting to a reusable composite action or a `scripts/ci-setup.sh` to prevent scattered per-milestone additions. Not blocking; housekeeping for V1.1 or M11.
 
 ## Suggestions for the next milestone (M3)
 
