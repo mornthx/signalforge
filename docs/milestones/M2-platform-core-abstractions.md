@@ -36,7 +36,7 @@ This is the most expensive-to-change milestone in V1. Precision at definition ti
 1. **Platform layer** under `src/platform/`:
    - `time_source.{hpp,cpp}` — monotonic + wall-clock utilities
    - `thread_utils.{hpp,cpp}` — thread naming, optional CPU affinity hint
-   - `crash_reporting.{hpp,cpp}` — Crashpad integration
+   - `crash_reporting.{hpp,cpp}` — sentry-native integration
    - `app_paths.{hpp,cpp}` — XDG-aware directory resolution for logs, crashdumps, config
 
 2. **Driver interface** at `src/drivers/driver_interface.hpp`:
@@ -63,7 +63,7 @@ This is the most expensive-to-change milestone in V1. Precision at definition ti
 6. **Crash-trigger tool** at `tools/crash_test/`:
    - Standalone executable that deliberately crashes in several ways (null deref, abort, unhandled exception)
    - Produces minidumps into the standard crashdump directory
-   - NOT integrated into unit tests (ASan would catch these before Crashpad does)
+   - NOT integrated into unit tests (ASan would catch these before the crash reporting backend does)
    - Documented README explaining manual verification procedure
 
 7. **Unit tests** for every public declaration, with coverage target **≥ 85%** (raised from V1 default of 70% — this is foundation code)
@@ -110,11 +110,11 @@ These are the decisions the human made in pre-M2 planning. They are written here
 
 **Rationale**: Simpler, lower indirection. A broadcast `BackpressureBroker` can be added in V1.5 if real-world workloads show cross-layer coordination needs.
 
-### 3.4 Crashpad integration is complete but crash-test tool is standalone
+### 3.4 Crash reporting integration is complete but crash-test tool is standalone
 
-**Decision**: M2 completes the full Crashpad init/shutdown lifecycle. A separate `tools/crash_test/` executable provides the deliberate-crash paths for manual verification. No deliberate-crash tests in `tests/unit/`.
+**Decision**: M2 completes the full crash reporting init/shutdown lifecycle. A separate `tools/crash_test/` executable provides the deliberate-crash paths for manual verification. No deliberate-crash tests in `tests/unit/`.
 
-**Rationale**: ASan in the `debug-asan` preset would catch deliberate crashes as violations, breaking the test. Crashpad's minidump path is complementary to ASan, not subject to it, so the verification lives outside the unit-test harness.
+**Rationale**: ASan in the `debug-asan` preset would catch deliberate crashes as violations, breaking the test. The crash reporting backend's minidump path is complementary to ASan, not subject to it, so the verification lives outside the unit-test harness.
 
 ### 3.5 Statistics structs carry reserved fields from day one
 
@@ -685,15 +685,15 @@ struct CrashReporterConfig {
     QString applicationName = "SignalForge";
     QString applicationVersion;   ///< From CMake-generated SIGNALFORGE_VERSION
     QString crashDumpDirectory;   ///< Must exist and be writable
-    QString handlerExecutable;    ///< Path to crashpad_handler binary
+    QString backendHandlerPath;   ///< Path to the crash handler binary; implementation-defined (e.g., sentry-native's crashpad_handler or equivalent).
 };
 
-/// Initialize Crashpad. Idempotent — subsequent calls log a warning and no-op.
+/// Initialize the crash reporting backend. Idempotent — subsequent calls log a warning and no-op.
 /// On failure (handler missing, dump dir inaccessible), logs an error and
 /// returns false; the application continues without crash reporting.
 [[nodiscard]] bool initCrashReporting(const CrashReporterConfig& config);
 
-/// Explicit shutdown. Crashpad's handler process continues running until
+/// Explicit shutdown. The crash reporting backend's handler process continues running until
 /// the parent exits naturally; this only releases the in-process registration.
 void shutdownCrashReporting();
 
@@ -703,7 +703,7 @@ void shutdownCrashReporting();
 }  // namespace signalforge::platform
 ```
 
-`crashpad_handler` is built from Crashpad's source fetched via `FetchContent`. The build system discovers its path and passes via `SIGNALFORGE_CRASHPAD_HANDLER_PATH` CMake variable.
+**Backend note (per ADR-002)**: V1 uses sentry-native. The `CrashReporter*` API above is backend-agnostic — the interface is the freeze scope, not the specific library. Implementation details (FetchContent tag, `sentry_options_t` setup, handler process management) are the M2 implementer's judgment per ADR-002's Open Items.
 
 #### 4.5.4 `app_paths.hpp`
 
@@ -857,7 +857,7 @@ Each mode first calls `initCrashReporting()` with the standard config, then trig
 2. Verify file size > 0
 3. Confirm `crashpad_handler` process spawned during crash (ps / journalctl)
 
-`README.md` is short and operator-facing; includes a troubleshooting section for the case where AppProtection interferes with Crashpad's handler (same class of risk as M0's C2).
+`README.md` is short and operator-facing; includes a troubleshooting section for the case where AppProtection interferes with the crash reporting backend's handler (same class of risk as M0's C2).
 
 ---
 
@@ -938,7 +938,7 @@ Verify: signal emission thread = driver's IO thread, consumer thread = test main
 
 ### 5.4 What is NOT tested in M2
 
-- Crashpad minidump actually triggers: manual verification via `tools/crash_test/`, not in unit tests
+- The crash reporting backend's minidump actually triggers: manual verification via `tools/crash_test/`, not in unit tests
 - Concrete driver behavior with real hardware: M3
 - Frame pipeline wiring from driver to decoder: M4
 
@@ -1008,7 +1008,7 @@ Sha256sum of frozen header files at close (for tamper detection):
 In addition to general triggers in `CLAUDE.md`:
 
 1. **Any ambiguity in interface design** (ownership, thread affinity, error propagation) that isn't resolved in this spec — HALT and ask. Do not guess.
-2. **Crashpad FetchContent or build failure** — HALT. Crashpad is complex and host-specific; if it fails to build on Ubuntu 24.04, I want to know.
+2. **Crash reporting backend (sentry-native) FetchContent or build failure** — HALT. If sentry-native fails to build on Ubuntu 24.04, I want to know.
 3. **C++20 `std::atomic<std::shared_ptr<T>>` unavailable or buggy on GCC 13** — HALT; do not fall back to custom implementation.
 4. **Coverage < 85% on a module** after a good-faith test-writing pass — HALT and ask whether to raise threshold or add edge-case tests.
 5. **Test flakiness under stress** — any stress test (see §5.2) that fails intermittently is a HALT, not a "retry until green" situation.
