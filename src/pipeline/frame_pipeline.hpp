@@ -143,6 +143,7 @@ private:
     std::atomic<std::uint64_t> framesReceived_{0};
     std::atomic<std::uint64_t> framesDropped_{0};
     std::atomic<std::uint64_t> errorsForwarded_{0};
+    std::atomic<std::uint32_t> ingressDepthPeak_{0};
 
     // Driver connection state
     signalforge::drivers::DriverInterface* driver_ = nullptr;

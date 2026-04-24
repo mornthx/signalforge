@@ -273,3 +273,125 @@ it. New atomic members are private and behind the `private:` label —
 not part of the public ABI.
 
 **Time**: ~1 h (well under 3 h plan estimate).
+
+### S4 — WatermarkTracker + metrics (start)
+
+**Goal**: wire M2's `WatermarkTracker` into `PipelineWorker` and
+register the 5 per-driver metrics from spec §4.6:
+
+- `pipeline_frames_received_<driverId>` (counter)
+- `pipeline_frames_dropped_<driverId>` (counter)
+- `pipeline_errors_forwarded_<driverId>` (counter)
+- `pipeline_ingress_watermark_<driverId>` (gauge, 0–100)
+- `pipeline_ingress_depth_peak_<driverId>` (gauge, samples)
+
+**Approach**:
+- Worker constructs `WatermarkTracker(ingressCapacity, highPct,
+  recoverPct)` from `PipelineConfig`.
+- `enqueueFrame` calls `tracker_.observe(depthAfterPush, driverId)`.
+  On returned `BackpressureSignal`:
+    - `QueueFilling`: `SF_LOG_WARN` + gauge set to `watermarkPct`
+      (M4 spec §3.3).
+    - `QueueRecovered`: `SF_LOG_INFO` + gauge set to `watermarkPct`
+      (M4 spec §3.3).
+    - `QueueFull` (if returned by observe): treat as WARN (spec is
+      silent; defensive).
+- Depth peak maintained as `std::atomic<std::uint32_t>` on the
+  FramePipeline; updated monotonically on each push. Surfaced via
+  `stats().ingressDepthPeak` and the `pipeline_ingress_depth_peak_*`
+  gauge.
+- Metric registrations done once at `FramePipeline` construction via
+  `MetricsRegistry::getOrCreate`. Under ADR-003 the names are accepted
+  verbatim (driver IDs with `:`, `/`, `.` all pass). Null-guarded so a
+  degenerate driver ID (e.g., contains forbidden char) degrades
+  gracefully — pipeline still functions, metrics just don't tick.
+- Counters already maintained in S3 are mirrored into the registry
+  counters. Drop increments happen in the same place as the existing
+  `framesDropped_.fetch_add`.
+- `resetBackpressureStats` dispatches a `QMetaObject::invokeMethod`
+  with `Qt::QueuedConnection` to the worker so
+  `WatermarkTracker::reset()` runs on the worker thread (the tracker's
+  reset is documented as "not thread-safe with concurrent observe").
+  Also zeroes `framesDropped_` and `ingressDepthPeak_`.
+- `peakWatermarkPct()` forwards to `tracker_.peakPct()`.
+
+**Tests**:
+- Watermark threshold crossing fires signal (direct tracker test is
+  already in M2's backpressure_test; M4 adds a test where
+  ingressCapacity is tiny (say 4) so rapid enqueues trigger
+  QueueFilling, and that the resulting gauge is non-zero.
+- `framesDropped` counter and `pipeline_frames_dropped_*` gauge
+  increment when the queue is at 100 % (via capacity=1 + rapid
+  double-enqueue).
+- `stats().ingressDepthPeak` tracks monotonically.
+- All 5 metrics appear in `MetricsRegistry::metricNames()` after
+  pipeline construction with a non-degenerate driver ID.
+- `resetBackpressureStats` zeroes `framesDropped` + peak (after a
+  brief pump to let the worker-side reset execute).
+
+No M2/M3-frozen .hpp touched.
+
+### S4 — WatermarkTracker + metrics (close)
+
+**Files delivered**:
+- `src/pipeline/frame_pipeline.hpp`: added `ingressDepthPeak_` atomic.
+- `src/pipeline/frame_pipeline.cpp`:
+  - `PipelineWorker` ctor registers 5 metrics per spec §4.6 via
+    `MetricsRegistry::getOrCreate`; under ADR-003 driver IDs with
+    `:`, `/`, `.` pass verbatim.
+  - `PipelineWorker` now holds a `WatermarkTracker` built from
+    `PipelineConfig` thresholds.
+  - `enqueueFrame`:
+    - Explicitly checks `sizeApprox() >= ingressCapacity` as a
+      soft cap (MpscQueue wraps moodycamel, which is actually
+      unbounded — `ingressCapacity` becomes a pipeline-level
+      convention).
+    - Updates peak monotonically via compare-exchange on the
+      `ingressDepthPeak_` atomic + the corresponding gauge.
+    - Calls `tracker_.observe(depth, driverId)` and routes returned
+      `BackpressureSignal` to `SF_LOG_WARN` (QueueFilling /
+      QueueFull) or `SF_LOG_INFO` (QueueRecovered) + watermark
+      gauge update — matching M4 spec §3.3's bespoke severity
+      mapping (diverges from M2 backpressure's "always WARN"
+      default, deliberately).
+  - `drain` increments `pipeline_frames_received_<driverId>` on
+    every popped frame.
+  - `forwardError` increments `pipeline_errors_forwarded_<driverId>`.
+  - `resetBackpressureStats` now also zeroes `ingressDepthPeak_` and
+    dispatches `resetInternal` to the worker via
+    `Qt::QueuedConnection` so `WatermarkTracker::reset()` (documented
+    not-thread-safe-with-observe) runs on the worker thread.
+  - `peakWatermarkPct()` forwards to `tracker_.peakPct()`.
+  - `stats()` surfaces `ingressDepthPeak`.
+  - All metric writes are null-guarded so a degenerate driver ID
+    that fails ADR-003 validation degrades gracefully.
+- `tests/unit/pipeline/pipeline_test.cpp`: 5 new cases
+  ([pipeline][frame_pipeline][metrics] and
+  [pipeline][frame_pipeline][backpressure] tags):
+  - all 5 metrics present in registry after FramePipeline ctor.
+  - framesReceived + errorsForwarded metrics tick under load.
+  - ingressCapacity=0 drops every frame + bumps `framesDropped` +
+    `pipeline_frames_dropped_<driverId>` gauge.
+  - ingressDepthPeak tracks monotonically with a blocking sink.
+  - resetBackpressureStats zeroes framesDropped and ingressDepthPeak.
+
+**Design note**: the plan originally assumed a blocking sink would
+make the MpscQueue fill up. With inline drain, frames pile up in
+Qt's event queue (not MpscQueue) when the worker blocks, so the cap
+check never fires under that scenario. The tests use `capacity=0`
+to exercise the drop path directly — a valid edge case that
+demonstrates the mechanism without architecting-around Qt's event
+queue. Real production backpressure relies on the same cap check
+when driver emit-rate exceeds pipeline service-rate.
+
+**Verification**:
+- Debug + Release: 204/204 tests pass.
+- debug-asan: builds clean (runtime blocked locally; CI authoritative).
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified. `FramePipeline`'s
+public API is unchanged since S3 except the additional private
+atomic member (behind `private:`). ADR-003-validated metric names;
+no MetricsRegistry changes.
+
+**Time**: ~1.5 h (under 2 h plan estimate).

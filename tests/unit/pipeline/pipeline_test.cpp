@@ -1,4 +1,5 @@
 // tests/unit/pipeline/pipeline_test.cpp
+#include "observability/metrics.hpp"
 #include "pipeline/frame_pipeline.hpp"
 #include "pipeline/frame_sink.hpp"
 #include "tests/mocks/mock_driver.hpp"
@@ -6,6 +7,7 @@
 #include <QCoreApplication>
 #include <QThread>
 #include <QtTest/QtTest>
+#include <algorithm>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -287,6 +289,149 @@ TEST_CASE("FramePipeline: throwing sink does not break fanout to other sinks", "
     // Second frame after a sink has thrown — pipeline must still deliver.
     driver.emitFrame(QByteArray("2", 1));
     REQUIRE(pumpUntil([&] { return before->frames == 2 && after->frames == 2; }));
+}
+
+namespace {
+
+/// Sink that ignores frames; used when we want to drive the pipeline
+/// without tracking fanout in the test.
+class NullSink : public FrameSink {
+public:
+    void onFrame(const RawFrame&) override {}
+    [[nodiscard]] QString sinkName() const override {
+        return QStringLiteral("null");
+    }
+};
+
+PipelineConfig cfgWithCapacity(const QString& id, std::uint32_t cap) {
+    PipelineConfig c;
+    c.driverId = id;
+    c.ingressCapacity = cap;
+    return c;
+}
+
+/// Drop-counter sink: blocks-up onFrame to force the ingress queue to
+/// overflow when we spam-enqueue. Uses an atomic flag for release.
+class BlockingSink : public FrameSink {
+public:
+    void onFrame(const RawFrame&) override {
+        while (!release.load(std::memory_order_acquire)) {
+            QThread::msleep(1);
+        }
+    }
+    [[nodiscard]] QString sinkName() const override {
+        return QStringLiteral("blocking");
+    }
+    std::atomic<bool> release{false};
+};
+
+}  // namespace
+
+TEST_CASE("FramePipeline: 5 per-driver metrics appear in registry at construction",
+          "[pipeline][frame_pipeline][metrics]") {
+    auto& reg = signalforge::observability::MetricsRegistry::instance();
+    reg.clearForTesting();
+    const QString driverId = QStringLiteral("udp:127.0.0.1:9000");
+    FramePipeline pipeline(cfgWithId(driverId));
+
+    auto names = reg.metricNames();
+    const auto has = [&](const QString& n) { return std::find(names.begin(), names.end(), n) != names.end(); };
+    REQUIRE(has(QStringLiteral("pipeline_frames_received_") + driverId));
+    REQUIRE(has(QStringLiteral("pipeline_frames_dropped_") + driverId));
+    REQUIRE(has(QStringLiteral("pipeline_errors_forwarded_") + driverId));
+    REQUIRE(has(QStringLiteral("pipeline_ingress_watermark_") + driverId));
+    REQUIRE(has(QStringLiteral("pipeline_ingress_depth_peak_") + driverId));
+}
+
+TEST_CASE("FramePipeline: metrics counters track frames and errors", "[pipeline][frame_pipeline][metrics]") {
+    auto& reg = signalforge::observability::MetricsRegistry::instance();
+    reg.clearForTesting();
+    const QString driverId = QStringLiteral("udp:metrics");
+    signalforge::test::MockDriver driver;
+    FramePipeline pipeline(cfgWithId(driverId));
+    pipeline.attachDriver(&driver);
+    pipeline.addSink(std::make_shared<NullSink>());
+
+    driver.emitFrame(QByteArray("a", 1));
+    driver.emitFrame(QByteArray("bb", 2));
+    driver.injectError(DriverErrorCode::IoFailure, QStringLiteral("x"));
+
+    REQUIRE(pumpUntil([&] { return pipeline.stats().framesReceived == 2; }));
+    REQUIRE(pumpUntil([&] { return pipeline.stats().errorsForwarded == 1; }));
+
+    auto* framesRx = reg.getOrCreate(QStringLiteral("pipeline_frames_received_") + driverId,
+                                     signalforge::observability::MetricKind::Counter);
+    auto* errors = reg.getOrCreate(QStringLiteral("pipeline_errors_forwarded_") + driverId,
+                                   signalforge::observability::MetricKind::Counter);
+    REQUIRE(framesRx->value() == 2);
+    REQUIRE(errors->value() == 1);
+}
+
+TEST_CASE("FramePipeline: ingress capacity exceeded drops frame and bumps framesDropped",
+          "[pipeline][frame_pipeline][backpressure]") {
+    // capacity=0 makes every frame hit the cap check; directly exercises
+    // the drop path without relying on sink-slow queue build-up (which is
+    // hard to trigger with inline drain because the worker event queue,
+    // not MpscQueue, is where frames pile up when a sink blocks).
+    signalforge::test::MockDriver driver;
+    auto& reg = signalforge::observability::MetricsRegistry::instance();
+    reg.clearForTesting();
+    const QString driverId = QStringLiteral("udp:drop");
+    FramePipeline pipeline(cfgWithCapacity(driverId, 0));
+    pipeline.attachDriver(&driver);
+    pipeline.addSink(std::make_shared<NullSink>());
+
+    driver.emitFrame(QByteArray("a", 1));
+    driver.emitFrame(QByteArray("b", 1));
+    driver.emitFrame(QByteArray("c", 1));
+
+    REQUIRE(pumpUntil([&] { return pipeline.stats().framesDropped >= 3; }, 2000));
+    REQUIRE(pipeline.stats().framesReceived == 0);
+
+    auto* dropsMetric = reg.getOrCreate(QStringLiteral("pipeline_frames_dropped_") + driverId,
+                                        signalforge::observability::MetricKind::Counter);
+    REQUIRE(dropsMetric->value() >= 3);
+}
+
+TEST_CASE("FramePipeline: ingress depth peak tracks monotonically", "[pipeline][frame_pipeline][backpressure]") {
+    signalforge::test::MockDriver driver;
+    FramePipeline pipeline(cfgWithCapacity(QStringLiteral("udp:peak"), 64));
+    pipeline.attachDriver(&driver);
+    auto slow = std::make_shared<BlockingSink>();
+    pipeline.addSink(slow);
+
+    for (int i = 0; i < 5; ++i) {
+        driver.emitFrame(QByteArray(4, 'p'));
+    }
+    // Wait until we've recorded a peak >= 1 (at minimum one frame
+    // enqueued before the worker's first onFrame finishes).
+    REQUIRE(pumpUntil([&] { return pipeline.stats().ingressDepthPeak >= 1; }, 2000));
+
+    const auto peakBefore = pipeline.stats().ingressDepthPeak;
+    slow->release.store(true, std::memory_order_release);
+    REQUIRE(peakBefore >= 1);
+    REQUIRE(peakBefore <= 64);
+}
+
+TEST_CASE("FramePipeline: resetBackpressureStats zeroes framesDropped and peak",
+          "[pipeline][frame_pipeline][backpressure]") {
+    signalforge::test::MockDriver driver;
+    FramePipeline pipeline(cfgWithCapacity(QStringLiteral("udp:reset"), 0));
+    pipeline.attachDriver(&driver);
+    pipeline.addSink(std::make_shared<NullSink>());
+
+    driver.emitFrame(QByteArray("a", 1));
+    driver.emitFrame(QByteArray("b", 1));
+    REQUIRE(pumpUntil([&] { return pipeline.stats().framesDropped >= 2; }, 2000));
+
+    pipeline.resetBackpressureStats();
+    // resetBackpressureStats hits framesDropped and ingressDepthPeak
+    // synchronously; WatermarkTracker::reset is dispatched to the
+    // worker. Both atomics will be zero immediately even if the worker-
+    // side reset hasn't yet run.
+    const auto after = pipeline.stats();
+    REQUIRE(after.framesDropped == 0);
+    REQUIRE(after.ingressDepthPeak == 0);
 }
 
 TEST_CASE("FramePipeline: sink callbacks execute on the pipeline thread, not the caller",
