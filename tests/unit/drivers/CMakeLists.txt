@@ -1,5 +1,7 @@
 add_executable(drivers_test
     driver_interface_test.cpp
+    driver_configs_test.cpp
+    io_worker_base_test.cpp
 )
 target_link_libraries(drivers_test
     PRIVATE
