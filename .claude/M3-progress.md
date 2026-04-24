@@ -52,3 +52,52 @@ No M2 frozen .hpp touched — only additive files under `src/drivers/`.
 - **Freeze scope**: no M2 frozen .hpp modified. Verified by diff.
 - **Time**: ~1 h (well under the 3 h plan estimate).
 
+### S2 — ReplayDriver skeleton (start)
+
+**Goal**: concrete `ReplayDriver` subclass of `DriverInterface` per spec
+§4.7 with a private `ReplayIoWorker`. Lifecycle is complete and correct;
+frame emission is deferred to M9 with `// TODO(M9):` markers at the
+insertion points. Produce `test_replay_driver_skeleton.cpp` and the
+`minimal_session.sfreplay` fixture.
+
+**Approach**: state is held as `std::atomic<DriverState>` in the driver
+itself (not the worker). Driver's public methods validate and dispatch
+via `QMetaObject::invokeMethod(worker, ..., Qt::QueuedConnection)` to
+worker slots that run on the IO thread. The worker does the file I/O
+(existence + 16-byte-non-zero check) then signals back; the driver's
+slots (bound via `Qt::QueuedConnection` so they run on the caller's
+thread) translate those signals into state transitions and emit the
+public `stateChanged`/`errorOccurred`. `write()` returns
+`NotConfigured` directly (read-only driver, no worker round-trip).
+
+No M2 frozen .hpp touched.
+
+### S2 — ReplayDriver skeleton (close)
+
+- **Files delivered**:
+  - `src/drivers/replay_driver.{hpp,cpp}` (ReplayIoWorker defined entirely
+    in the .cpp; moc include at file bottom)
+  - `tests/unit/drivers/replay_driver_test.cpp` (10 cases)
+  - `tests/integration/test_replay_driver_skeleton.cpp` (3 cases)
+  - `tests/integration/fixtures/minimal_session.sfreplay` (16 bytes of
+    0xAB so the non-zero-header check passes)
+- **Semantics**: ConfigInvalid (empty path) returned synchronously by
+  open() without state transition. Nonexistent file →
+  ResourceUnavailable asynchronously. File < 16 bytes or all-zero
+  header → ProtocolFailure. write() always returns NotConfigured (
+  read-only). Lifecycle: Idle → Opening → Open → Running → Stopping →
+  Open → Closing → Idle, plus any-state → Error → (close) → Idle.
+- **TODO(M9) markers** placed at `ReplayIoWorker::openOnIoThread` (full
+  metadata parse), `startOnIoThread` (timer + frame emission),
+  `stopOnIoThread` (timer teardown), and `onStarted` (initialization).
+  Grep-discoverable: `grep -r "TODO(M9)" src/drivers/replay_driver.cpp`
+  returns 4 hits.
+- **Tests**: 128 green (13 new cases) under Debug and Release.
+  debug-asan build clean.
+- **Coverage**: every control-flow branch in `openOnIoThread` exercised
+  (missing file / short / all-zero / valid); write-in-each-state tested;
+  close/stop idempotency tested; statistics zero-counter property tested.
+  Estimated ≥ 85% — spec §5.1 floor for ReplayDriver is 75%.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~1.5 h (under 3 h plan estimate).
+
