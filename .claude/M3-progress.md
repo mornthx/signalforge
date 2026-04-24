@@ -302,5 +302,54 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~1.5 h (under 3 h plan estimate).
 
+### S7 — UdpDriver + unit tests (start)
+
+**Goal**: `UdpDriver` over `QUdpSocket` on a dedicated IO thread per
+spec §4.4. Supports unicast (send-only, recv-only, or both) and
+multicast (group join on bind). Unlike TCP, UDP preserves framing: each
+datagram → one `RawFrame`.
+
+**Approach**: same pattern as the Tcp driver. `UdpConfig` validation at
+`open()` requires at least one of bind-intent (`localBindPort != 0` or
+`localBindAddress != "0.0.0.0"`) or send-intent (`!remoteHost.empty()`).
+Multicast group is validated against `QHostAddress::isMulticast()`.
+Write: `writeDatagram(payload, remoteHost, remotePort)`; with empty
+remoteHost, `write()` returns ConfigInvalid synchronously.
+
+No M2 frozen .hpp touched.
+
+### S7 — UdpDriver + unit tests (close)
+
+- **Files delivered**: `udp_driver.{hpp,cpp}` (UdpIoWorker lives in the
+  .cpp; moc include at bottom), `tests/unit/drivers/udp_driver_test.cpp`.
+- **CMake**: `signalforge_drivers` already links `Qt6::Network` from
+  M2; only adds `udp_driver.cpp` to the source list.
+- **Open pipeline**: validates config (needs bind-intent or send-intent);
+  worker binds via `QUdpSocket::bind(addr, port, ShareAddress)`; on
+  non-empty `multicastGroup`, sets `MulticastTtlOption` and calls
+  `joinMulticastGroup`. Failures emit `workerErrorOccurred` with the
+  Qt socket-error code mapped via `mapUdpError`.
+- **Error mapping** per spec §4.4:
+  AddressInUseError / SocketAddressNotAvailableError → ResourceUnavailable,
+  SocketAccessError → PermissionDenied, NetworkError → ResourceLost,
+  SocketTimeoutError → Timeout, others → IoFailure.
+- **Read**: each `readyRead` drains all pending datagrams via
+  `hasPendingDatagrams()` + `receiveDatagram()`. Each datagram yields
+  one `RawFrame` (framing preserved, per spec §4.4).
+- **Write**: `writeDatagram` — one Qt call per `RawFrame`. If
+  `config_.remoteHost` is empty, `UdpDriver::write()` short-circuits
+  to ConfigInvalid without reaching the worker.
+- **Tests**: 11 new unit cases — default state, neither-bind-nor-remote
+  rejection, remoteHost-without-port rejection, invalid multicast
+  address, bind-only opens, send-only opens, write-with-empty-remote,
+  write-in-wrong-state, idempotent close/stop, zeroed statistics,
+  config accessor. 166 tests green under Debug and Release.
+- **Coverage**: every branch in `validateConfig` exercised; open
+  succeeds for both bind-only and send-only paths; write-gate exercised
+  for both missing-remote and wrong-state cases. Estimated ≥ 85%.
+- **Freeze scope**: no M2 frozen .hpp modified. Qt6::Network already in
+  signalforge_drivers' PUBLIC link.
+- **Time**: ~2 h (under 4 h plan estimate).
+
 
 

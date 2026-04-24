@@ -4,6 +4,7 @@ add_library(signalforge_drivers STATIC
     replay_driver.cpp
     serial_driver.cpp
     tcp_driver.cpp
+    udp_driver.cpp
 )
 target_include_directories(signalforge_drivers PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(signalforge_drivers
