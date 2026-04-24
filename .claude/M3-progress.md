@@ -101,3 +101,54 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~1.5 h (under 3 h plan estimate).
 
+### S3 — SerialDriver + unit tests (start)
+
+**Goal**: deliver `SerialDriver` over `QSerialPort` on a dedicated IO
+thread. SerialConfig validation at open(); error mapping per spec §4.8
+(ResourceUnavailable for missing device / port-in-use, PermissionDenied
+for EACCES, ConfigInvalid for bad baud / dataBits, IoFailure for generic
+read/write errors). write() queues payload and always returns Success in
+Running state (async semantics per spec §3.2); TxStats tracks actual
+delivery.
+
+**Approach**: same pattern as ReplayDriver (atomic state in driver,
+worker signals mapped through driver slots). `SerialIoWorker` lives in
+.cpp with a `QSerialPort*` constructed lazily on the IO thread. Read
+path: `readyRead` → `readAll()` → construct RawFrame → emit
+workerFrameReceived. Write path: `write()` on driver validates state
++ queues payload into an internal QByteArray deque on the worker;
+emits a signal to the worker to drain; worker pops and writes to
+QSerialPort.
+
+Tests at unit level cover what's testable without a real device:
+ConfigInvalid paths (empty device, invalid baud), stateless
+transitions (open with bad config doesn't transition), write-state-
+gates. Integration (socat) is S4.
+
+No M2 frozen .hpp touched.
+
+### S3 — SerialDriver + unit tests (close)
+
+- **Files delivered**: `serial_driver.{hpp,cpp}` (SerialIoWorker lives
+  in the .cpp; moc include at bottom), `tests/unit/drivers/serial_driver_test.cpp`.
+- **CMake**: `signalforge_drivers` links `Qt6::SerialPort`.
+- **Error mapping** per spec §4.8: DeviceNotFoundError →
+  ResourceUnavailable, PermissionError → PermissionDenied, Open /
+  NotOpen → ResourceUnavailable, ResourceError → ResourceLost,
+  TimeoutError → Timeout, UnsupportedOperationError → ConfigInvalid,
+  others → IoFailure. Error messages follow spec §4.9 style.
+- **Validation** catches empty device, non-positive baud, dataBits
+  outside 5–8, stopBits ≠ 1/2, unknown parity/flowControl strings —
+  all ConfigInvalid without state transition.
+- **Tests**: 12 new unit cases covering every validation branch plus
+  async-error path (nonexistent device → Error state), write-in-wrong-
+  state, idempotent close/stop, zeroed stats, config() accessor. 140
+  tests green under Debug and Release. debug-asan build clean.
+- **Integration (socat-based)** is S4 territory; the unit tests stay
+  device-free.
+- **Coverage**: every `validateConfig` branch exercised; open-error
+  path exercised at async level; idempotent lifecycle covered.
+  Estimated ≥ 85%.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~2 h (under 5 h plan estimate).
+
