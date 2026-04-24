@@ -90,6 +90,24 @@ target_link_libraries(test_udp_driver_loopback
 )
 catch_discover_tests(test_udp_driver_loopback DISCOVERY_MODE PRE_TEST)
 
+add_executable(test_driver_error_paths
+    test_driver_error_paths.cpp
+)
+target_link_libraries(test_driver_error_paths
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+        signalforge_drivers
+        signalforge_frame
+)
+target_compile_definitions(test_driver_error_paths
+    PRIVATE
+        SIGNALFORGE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
+catch_discover_tests(test_driver_error_paths DISCOVERY_MODE PRE_TEST)
+
 add_executable(test_replay_driver_skeleton
     test_replay_driver_skeleton.cpp
 )

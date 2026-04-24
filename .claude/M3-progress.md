@@ -433,3 +433,47 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~3 h (under 3 h plan estimate, including ~1.5 h spent on
   Qt-race diagnosis).
+
+### S9 — Error-injection test suite (start)
+
+**Goal**: `tests/integration/test_driver_error_paths.cpp` covering spec
+§3.5 scenarios that aren't already implicitly covered by the per-driver
+unit and integration tests.
+
+**Approach**: six focused scenarios, each exercising a single corner:
+100× rapid open/close on ReplayDriver; close() during Open; write()
+after Error; close() after Error; stop() without start(); start()
+without open(). Overlap with existing coverage (mid-run Serial kill,
+mid-run TCP peer-close) is documented in the file header rather than
+duplicated.
+
+No M2 frozen .hpp touched.
+
+### S9 — Error-injection test suite (close)
+
+- **Files delivered**: `tests/integration/test_driver_error_paths.cpp`.
+- **Scenarios covered**:
+  1. 100 iterations of ReplayDriver open/close — exercises lifecycle
+     teardown / thread wait() budget repeatedly with no leaks.
+  2. `close()` issued while Open is still in flight — driver converges
+     to Idle regardless of whether open-in-worker landed first.
+  3. `write()` on a TCP driver that has transitioned to Error
+     (unreachable port) — returns `NotConfigured` synchronously, no
+     payload queued to the worker.
+  4. `close()` on a driver in Error state — returns to Idle cleanly.
+  5. `stop()` without `start()` — silent no-op, no `stateChanged`
+     emitted.
+  6. `start()` without `open()` — returns `NotConfigured`, state stays
+     Idle.
+- **Overlap documented** at the top of the file: mid-run Serial
+  disconnect (in `test_serial_driver_loopback.cpp` case 3) and mid-run
+  TCP peer-close (in `test_tcp_driver_echo.cpp` case 3) are not
+  duplicated.
+- **Tests**: 6 new integration cases; 175 total tests green under
+  Debug and Release. debug-asan builds clean.
+- **Coverage**: every error-taxonomy §4.8 row has at least one test
+  across the combined per-driver + S9 suites. Rapid open/close (100×)
+  is a regression harness for the thread-lifecycle budget.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~1.5 h (under 4 h plan estimate — most scenarios were
+  already natural extensions of established patterns).
