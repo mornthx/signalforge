@@ -6,9 +6,12 @@
 #include "drivers/tcp_driver.hpp"
 #include "drivers/udp_driver.hpp"
 #include "observability/logging.hpp"
+#include "pipeline/frame_pipeline.hpp"
+#include "pipeline/pipeline_manager.hpp"
 
 #include <QComboBox>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -83,7 +86,10 @@ QString stateColor(signalforge::drivers::DriverState s) {
 
 }  // namespace
 
-ConnectionManager::ConnectionManager(QWidget* parent) : QDialog(parent) {
+ConnectionManager::ConnectionManager(QWidget* parent) : ConnectionManager(nullptr, parent) {}
+
+ConnectionManager::ConnectionManager(signalforge::pipeline::PipelineManager* pipelineManager, QWidget* parent)
+    : QDialog(parent), pipelineManager_(pipelineManager) {
     signalforge::frame::registerMetatypes();
     signalforge::drivers::registerMetatypes();
     setWindowTitle(QStringLiteral("Connection Manager"));
@@ -105,6 +111,14 @@ ConnectionManager::~ConnectionManager() {
         while (driver_->state() != signalforge::drivers::DriverState::Idle &&
                std::chrono::steady_clock::now() < deadline) {
             QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        }
+        // If the stateChanged(Idle) callback did not already run (e.g.
+        // spin timeout), detach the pipeline here to avoid a dangling
+        // driver pointer inside the manager.
+        if (pipelineManager_ && !currentDriverId_.isEmpty()) {
+            pipelineManager_->detach(currentDriverId_);
+            currentDriverId_.clear();
+            pipeline_ = nullptr;
         }
     }
 }
@@ -364,6 +378,18 @@ void ConnectionManager::onConnectClicked() {
         return;
     }
 
+    if (pipelineManager_) {
+        signalforge::pipeline::PipelineConfig cfg;
+        cfg.driverId = makeDriverId(type);
+        pipeline_ = pipelineManager_->attach(driver_.get(), cfg);
+        if (pipeline_) {
+            currentDriverId_ = cfg.driverId;
+        } else {
+            SF_LOG_ERROR("ConnectionManager: PipelineManager::attach returned nullptr for driverId '{}'",
+                         cfg.driverId.toStdString());
+        }
+    }
+
     typeCombo_->setEnabled(false);
     connectButton_->setEnabled(false);
     disconnectButton_->setEnabled(true);
@@ -386,7 +412,15 @@ void ConnectionManager::onDriverStateChanged(signalforge::drivers::DriverState s
             driver_->start();  // auto-advance to Running for M3 preview
         }
     } else if (s == signalforge::drivers::DriverState::Idle) {
-        // close() completed — reset ownership and re-enable controls.
+        // close() completed — detach from pipeline manager (which
+        // destroys the pipeline and disconnects its worker), then reset
+        // ownership and re-enable controls. Detach before driver_.reset()
+        // so the pipeline manager sees a valid driver pointer to unwire.
+        if (pipelineManager_ && !currentDriverId_.isEmpty()) {
+            pipelineManager_->detach(currentDriverId_);
+            currentDriverId_.clear();
+            pipeline_ = nullptr;
+        }
         driver_.reset();
         typeCombo_->setEnabled(true);
         connectButton_->setEnabled(true);
@@ -435,6 +469,34 @@ void ConnectionManager::updateStateBadge(signalforge::drivers::DriverState s) {
     stateBadge_->setText(stateLabel(s));
     stateBadge_->setStyleSheet(
         QStringLiteral("color: white; background-color: %1; padding: 2px 8px;").arg(stateColor(s)));
+}
+
+QString ConnectionManager::makeDriverId(DriverType t) const {
+    // Format per plan §2 S6: `<driver-type>:<disambiguating-suffix>`.
+    // Uniqueness is required only across concurrent connections, which
+    // M3's single-connection dialog guarantees trivially. ADR-003 accepts
+    // `:` and `/` verbatim so no sanitization helper is needed.
+    switch (t) {
+    case DriverType::Serial:
+        return QStringLiteral("serial:") + serialDevice_->text();
+    case DriverType::Tcp:
+        return QStringLiteral("tcp:%1:%2").arg(tcpHost_->text()).arg(tcpPort_->value());
+    case DriverType::Udp: {
+        // Prefer remoteHost:port when set (send-configured drivers), else
+        // the local bind. This keeps the id readable across both modes.
+        const QString remote = udpRemoteHost_->text();
+        if (!remote.isEmpty()) {
+            return QStringLiteral("udp:%1:%2").arg(remote).arg(udpRemotePort_->value());
+        }
+        return QStringLiteral("udp:%1:%2").arg(udpLocalAddr_->text()).arg(udpLocalPort_->value());
+    }
+    case DriverType::Replay: {
+        const QFileInfo fi(replayPath_->text());
+        const QString base = fi.fileName();
+        return QStringLiteral("replay:") + (base.isEmpty() ? QStringLiteral("<unset>") : base);
+    }
+    }
+    return QStringLiteral("unknown");
 }
 
 }  // namespace signalforge::app

@@ -11,6 +11,7 @@ target_link_libraries(signalforge_app_ui
         Qt6::Widgets
         signalforge_frame
         signalforge_drivers
+        signalforge_pipeline
     PRIVATE
         signalforge_observability
         signalforge_platform

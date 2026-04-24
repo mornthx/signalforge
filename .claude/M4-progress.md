@@ -480,3 +480,95 @@ No M2/M3-frozen .hpp touched.
 public API enters the M4 freeze at M4 close.
 
 **Time**: ~45 min (under 3 h plan estimate).
+
+### S6 — ConnectionManager wiring (start)
+
+**Goal**: per plan §2 S6, wire the M3 Connection Manager UI to the
+new `PipelineManager` so each Connect creates a pipeline and each
+Disconnect destroys it. No new UI widgets — internal wiring only.
+
+**Approach**:
+- `MainWindow` gains a `std::unique_ptr<PipelineManager>` owned for
+  the process lifetime; allocated lazily in the menu slot (first
+  `File → Connection Manager...` open) and passed into the dialog's
+  new constructor overload.
+- `ConnectionManager` gains:
+  - New ctor overload `(PipelineManager*, QWidget* parent = nullptr)`.
+    Existing no-manager ctor kept (delegates with nullptr manager)
+    so existing integration tests are not broken.
+  - Member `PipelineManager* pipelineManager_` (non-owning).
+  - Member `QString currentDriverId_` capturing the id used at
+    `attach`, so `detach` uses the exact same string even if config
+    fields later change.
+  - `makeDriverId()` private helper producing:
+    - `serial:<device>` from serialDevice_
+    - `tcp:<host>:<port>` from tcp fields
+    - `udp:<localAddr>:<localPort>` or `udp:-:<remoteHost>:<remotePort>`
+      (implementer's judgement — covers both bind-only and
+      send-only configurations; uniqueness required only across
+      concurrent connections per spec §4.5)
+    - `replay:<basename>` from replayPath_
+  - `onConnectClicked`: after successful `driver_->open()`, if
+    `pipelineManager_` is set, call `attach(driver_.get(), cfg)` and
+    store the returned pipeline pointer (non-owning). If attach
+    returns nullptr (duplicate id, shouldn't happen in M3 single-
+    connection mode), log ERROR but keep the driver connected (the
+    connection still works — just no pipeline).
+  - `onDriverStateChanged(Idle)`: existing path releases driver
+    ownership; also `pipelineManager_->detach(currentDriverId_)` +
+    clear state. Must run before `driver_.reset()` because detach
+    implicitly disconnects worker; fine either order actually, but
+    safer to detach first.
+- `signalforge_app_ui` static library now links `signalforge_pipeline`.
+
+Minimal UI test coverage in S8 (extends M3 test file) will assert
+pipelineCount transitions, since offscreen Widget testing is already
+wired up.
+
+No M2/M3-frozen .hpp touched. `ConnectionManager` is explicitly
+non-frozen per M3-done §"Not frozen".
+
+### S6 — ConnectionManager wiring (close)
+
+**Files delivered**:
+- `src/app/main_window.{hpp,cpp}`: owns a
+  `std::unique_ptr<PipelineManager>` (lazy-constructed on first
+  menu open). Forward-declares `pipeline::PipelineManager`.
+- `src/app/connection_manager.{hpp,cpp}`:
+  - New ctor overload
+    `ConnectionManager(pipeline::PipelineManager*, QWidget*)`. The
+    original ctor delegates with nullptr manager so existing
+    M3 offscreen tests keep compiling unmodified.
+  - New members: `pipelineManager_` (non-owning), `pipeline_`
+    (non-owning; returned by `attach`), `currentDriverId_` (captures
+    the id used at attach so detach uses the same string).
+  - `onConnectClicked`: after driver `open()` success, if manager is
+    set, builds a `PipelineConfig` with the driverId from
+    `makeDriverId()` and calls `attach`. Failure is logged but the
+    connection continues without a pipeline.
+  - `onDriverStateChanged(Idle)`: detaches pipeline BEFORE resetting
+    `driver_`. Clears `currentDriverId_` and the pipeline pointer.
+  - Destructor: same detach path defensively, in case the Idle spin
+    times out.
+  - `makeDriverId(DriverType)` helper produces:
+    * `serial:<device>`
+    * `tcp:<host>:<port>`
+    * `udp:<remoteHost>:<remotePort>` (preferred, for send-configured
+      drivers) or `udp:<localAddr>:<localPort>` fallback
+    * `replay:<basename>` (from `QFileInfo::fileName`)
+    ADR-003 accepts `:`, `/`, `.` verbatim, so metric-name
+    concatenation works without sanitization.
+- `src/app/CMakeLists.txt`: `signalforge_app_ui` now PUBLIC-links
+  `signalforge_pipeline`.
+
+**Verification**:
+- Debug + Release: 211/211 tests pass (no new tests in S6; S8 adds
+  pipeline attach/detach assertions).
+- debug-asan: builds clean.
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified. `ConnectionManager`
+is explicitly not-frozen per M3-done.md "Not frozen". The new
+ctor overload is an additive extension preserving the existing API.
+
+**Time**: ~35 min (under 2 h plan estimate).

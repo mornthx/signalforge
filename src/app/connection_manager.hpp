@@ -19,6 +19,11 @@ class QPlainTextEdit;
 class QTimer;
 class QWidget;
 
+namespace signalforge::pipeline {
+class FramePipeline;
+class PipelineManager;
+}  // namespace signalforge::pipeline
+
 namespace signalforge::app {
 
 /// Preview-level Connection Manager dialog per M3 spec §4.6. Holds at
@@ -36,6 +41,14 @@ public:
     enum class DriverType { Serial = 0, Tcp = 1, Udp = 2, Replay = 3 };
 
     explicit ConnectionManager(QWidget* parent = nullptr);
+
+    /// Primary constructor once M4 lands. `pipelineManager` may be
+    /// nullptr for test contexts that exercise the dialog in isolation
+    /// (the existing M3 offscreen tests do this). When non-null, the
+    /// dialog attaches a `FramePipeline` for each connected driver on
+    /// `Connect` and detaches on `Disconnect`.
+    ConnectionManager(signalforge::pipeline::PipelineManager* pipelineManager, QWidget* parent);
+
     ~ConnectionManager() override;
 
     // Test hooks — called directly by the integration test to drive
@@ -110,6 +123,12 @@ private:
     std::unique_ptr<signalforge::drivers::DriverInterface> driver_;
     QString lastError_;
     int logLineCount_{0};
+
+    signalforge::pipeline::PipelineManager* pipelineManager_{nullptr};
+    signalforge::pipeline::FramePipeline* pipeline_{nullptr};
+    QString currentDriverId_;
+
+    [[nodiscard]] QString makeDriverId(DriverType t) const;
 
     static constexpr int kMaxLogLines = 200;
 };
