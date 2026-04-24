@@ -660,3 +660,49 @@ updated from the worker thread and read from main).
 
 **Time**: ~1.5 h (under 3 h plan estimate; the ReplayDriver-lifecycle
 timing issue cost ~20 min to diagnose).
+
+### S8 — ConnectionManager test extension (start)
+
+**Goal**: extend `tests/integration/test_connection_manager.cpp` with
+cases that verify the S6 pipeline-attach/detach wiring. The existing
+4 M3 test cases must stay green unmodified (they exercise the old
+no-manager ctor path).
+
+**Approach**: add TEST_CASEs that:
+1. Construct `PipelineManager` + `ConnectionManager(&manager, parent)`.
+   Set Replay driver type, session file, then `requestConnect()`.
+   Assert `manager.pipelineCount() == 1` and the driverId in
+   `manager.driverIds()` starts with `replay:`.
+2. `requestDisconnect()`, wait for Idle → assert `pipelineCount() == 0`.
+3. Reconnect with a different replay fixture → `pipelineCount() == 1`
+   again but with a different id.
+
+No M2/M3-frozen .hpp touched. No changes to M3's 4 existing cases.
+
+### S8 — ConnectionManager test extension (close)
+
+**Files delivered**:
+- `tests/integration/test_connection_manager.cpp`: 2 new TEST_CASEs,
+  M3's 4 existing cases untouched.
+  * `connect attaches, disconnect detaches`: verifies
+    `pipelineCount()` goes 0 → 1 after `requestConnect()` and back to
+    0 after `requestDisconnect()`. Asserts the driverId follows the
+    `replay:<basename>` convention from `makeDriverId`.
+  * `reconnect with different fixture yields fresh id`: connects
+    with `minimal_session.sfreplay`, disconnects, reconnects with
+    `minimal_session_alt.sfreplay`. Asserts the two driverIds
+    differ, proving detach + re-attach cycles correctly.
+- `tests/integration/fixtures/minimal_session_alt.sfreplay`: new
+  16-byte fixture (copy of `minimal_session.sfreplay`) so the
+  reconnect test can produce a distinct driverId.
+
+**Verification**:
+- Debug + Release: 217/217 tests pass (2 new cases; the 4 original
+  M3 cases remain identical).
+- debug-asan: builds clean.
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified. `ConnectionManager`
+is not-frozen per M3-done.md.
+
+**Time**: ~20 min (well under 1 h plan estimate).
