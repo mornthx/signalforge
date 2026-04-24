@@ -1,5 +1,6 @@
 add_library(signalforge_pipeline STATIC
     frame_pipeline.cpp
+    frame_pipeline.hpp
     frame_sink.hpp
 )
 target_include_directories(signalforge_pipeline PUBLIC ${CMAKE_SOURCE_DIR}/src)

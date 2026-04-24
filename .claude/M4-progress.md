@@ -112,3 +112,65 @@ header that enters the M4 freeze surface at M4 close.
 
 **Time**: ~30 min (well under the 2 h plan estimate — scope was
 already scoped tightly in the plan).
+
+### S2 — FramePipeline skeleton (start)
+
+**Goal**: per plan §2 S2, deliver the public `FramePipeline` header
+verbatim from spec §4.2, plus a skeleton `FramePipeline`
+implementation that:
+- owns a dedicated `QThread` named `PipelineWorker-<driverId>` (via
+  `IoWorkerBase` pattern reused from M3 drivers)
+- wraps an internal MPSC queue for frames
+- exposes `addSink` / `removeSink` / `sinkCount` with idempotent add
+- exposes `stats()` / `peakWatermarkPct()` / `resetBackpressureStats`
+  as no-op-ish stubs (real backpressure wiring in S4)
+- has `attachDriver` as a stub (real signal wiring in S3)
+- destructor joins the thread within 500 ms with `terminate()`
+  fallback, matching M3 driver pattern
+
+No M2/M3-frozen .hpp touched.
+
+### S2 — FramePipeline skeleton (close)
+
+**Files delivered**:
+- `src/pipeline/frame_pipeline.hpp` — public header per spec §4.2.
+  Freeze surface: `FramePipeline` class (ctor, `attachDriver`, sink
+  add/remove/count, `stats`, `peakWatermarkPct`,
+  `resetBackpressureStats`, `driverId`), `PipelineConfig` + `Stats`
+  struct layouts.
+- `src/pipeline/frame_pipeline.cpp` — S2 implementation with:
+  - internal `PipelineWorker` deriving from M3's `IoWorkerBase`,
+    holding an `MpscQueue<RawFrame>` as the ingress buffer.
+  - `FramePipeline` ctor spawns the worker thread named
+    `PipelineWorker-<driverId>` and starts it. Dtor quits + waits
+    500 ms with a `terminate()` fallback (M3 driver pattern).
+  - Sink registry: `std::vector<shared_ptr<FrameSink>>` guarded by
+    `std::mutex`. Idempotent addSink + nullptr addSink + noop-remove
+    all handled.
+  - `attachDriver` is a stub (driver signal wiring lands in S3).
+  - `stats`, `peakWatermarkPct`, `resetBackpressureStats` are stubs
+    returning zeros (backpressure + metric wiring lands in S4).
+- `src/utils/mpsc_queue.cpp` — adds
+  `template class MpscQueue<RawFrame>;` explicit instantiation, per
+  the file's own documented extension pattern (line 42–43 comment
+  invites this). MpscQueue's frozen **header** (M2-done.md) is
+  untouched; only the .cpp instantiation list is extended. Also
+  adds `#include "frame/raw_frame.hpp"` for the RawFrame type.
+- `src/pipeline/CMakeLists.txt` — adds `frame_pipeline.hpp` to
+  sources for AutoMOC visibility.
+- `tests/unit/pipeline/pipeline_test.cpp` — 7 new cases covering
+  FramePipeline construction, driverId round-trip, sink registry
+  (round-trip, idempotent addSink, nullptr ignore, unregistered
+  removeSink, multi-sink coexistence), and S2-skeleton Stats.
+
+**Verification**:
+- Debug + Release: 194/194 tests pass (11 cases now in pipeline_test).
+- debug-asan: builds clean.
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified. The MpscQueue
+extension lives in .cpp only; `src/utils/mpsc_queue.hpp` is bit-
+identical to M2. `FramePipeline` + `PipelineConfig` + `Stats` enter
+the M4 freeze at M4 close.
+
+**Time**: ~50 min (well under 4 h plan estimate).
