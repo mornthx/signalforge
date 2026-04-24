@@ -152,3 +152,59 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~2 h (under 5 h plan estimate).
 
+### S4 — Serial integration against socat virtual pair (start)
+
+**Socat availability verified**: `/usr/bin/socat` present.
+
+**Goal**: deliver an `SocatVirtualPair` RAII fixture and
+`tests/integration/test_serial_driver_loopback.cpp` covering the spec
+§5.3.1 scenarios:
+1. bidirectional 100-byte payload V0↔V1
+2. 1 MB throughput V0→V1 (smaller than spec's 1 MB-across-seconds
+   target — proves lossless delivery rather than rate)
+3. mid-run disconnect: kill socat, assert both drivers emit
+   errorOccurred(ResourceLost) (or a tolerable error) and transition
+   to Error
+
+**Approach**: fixture uses `QProcess` to spawn socat with
+`-d pty,raw,echo=0,link=/tmp/sf_ttyV0_<pid> pty,raw,echo=0,link=/tmp/sf_ttyV1_<pid>`.
+Constructor waits for both symlinks to appear (polling, 2 s budget)
+before returning. Destructor kills + waits for socat and removes the
+symlinks.
+
+No M2 frozen .hpp touched.
+
+### S4 — Serial integration against socat (close)
+
+- **Files delivered**: `tests/integration/socat_fixture.{hpp,cpp}` RAII
+  helper, `tests/integration/test_serial_driver_loopback.cpp` with 3
+  scenarios. Separate static library `signalforge_socat_fixture` so
+  later S9 error-injection tests can reuse the fixture.
+- **Fixture**: spawns `socat -d -d pty,raw,echo=0,link=/tmp/sf_ttyV0_<pid>
+  pty,raw,echo=0,link=/tmp/sf_ttyV1_<pid>` via QProcess; polls for
+  symlinks (≤ 2 s); throws `std::runtime_error` on timeout. Destructor
+  kills socat and removes symlinks. `killNow()` for mid-run simulation.
+- **Tests tagged** `[socat]` label so hosts without socat can skip
+  cleanly via `ctest -LE socat` (spec §5.7 portability requirement).
+- **Test scenarios**:
+  1. Bidirectional 100-byte payload V0 ↔ V1; both sides receive exactly
+     what the other sent.
+  2. Lossless bulk 256 KB transfer A→B with chunked writes + interleaved
+     event-pump so receive drains in parallel; received == payload.
+     (Smaller than the spec's 1 MB×10s throughput target since this
+     subtask verifies correctness, not rate; rate goes in S10
+     benchmarks.)
+  3. Mid-run socat kill: both drivers transition to Error and emit
+     `errorOccurred`.
+- **Tests**: 3 new integration cases (100 assertions). 143 total tests
+  pass under Debug and Release. debug-asan build clean.
+- **Observations**:
+  - Thread name is truncated from `SerialIO-sf_ttyV0_<pid>` (24 bytes)
+    to `SerialIO-sf_tty` (15-byte kernel comm limit). Logged as a
+    warning via existing `platform::thread_utils` behavior.
+  - Destructor warning fires at test teardown when `close()` is still
+    in the Closing pipeline. Acceptable for tests.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~2 h (under 3 h plan estimate).
+
+
