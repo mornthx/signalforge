@@ -26,9 +26,11 @@
 
 ## PR and merge state
 
-- **PR number**: (filled after `gh pr create`)
-- **PR URL**: (filled after `gh pr create`)
-- **CI status at PR creation**: (filled after CI run)
+- **PR number**: #4
+- **PR URL**: https://github.com/mornthx/signalforge/pull/4
+- **Head commit**: `12c234d` on `milestone/M3`
+- **CI status at PR creation**: ✓ green (run `24889827862`, 8m4s, all three matrix jobs)
+- **Merge SHA**: (filled after merge during Phase 3)
 - **Awaiting human action**: `approved, merge M3 and begin M4 bootstrap`
 
 ## Acceptance self-check per M3 spec §8
