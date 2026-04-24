@@ -2,9 +2,11 @@
 #include "observability/metrics.hpp"
 #include "pipeline/frame_pipeline.hpp"
 #include "pipeline/frame_sink.hpp"
+#include "pipeline/pipeline_manager.hpp"
 #include "tests/mocks/mock_driver.hpp"
 
 #include <QCoreApplication>
+#include <QSignalSpy>
 #include <QThread>
 #include <QtTest/QtTest>
 #include <algorithm>
@@ -22,6 +24,7 @@ using signalforge::frame::RawFrame;
 using signalforge::pipeline::FramePipeline;
 using signalforge::pipeline::FrameSink;
 using signalforge::pipeline::PipelineConfig;
+using signalforge::pipeline::PipelineManager;
 
 namespace {
 
@@ -448,4 +451,103 @@ TEST_CASE("FramePipeline: sink callbacks execute on the pipeline thread, not the
     REQUIRE(pumpUntil([&] { return sink->frames == 1; }));
     REQUIRE(sink->lastThread != nullptr);
     REQUIRE(sink->lastThread != mainThread);
+}
+
+namespace {
+
+PipelineConfig cfgFor(const QString& id) {
+    PipelineConfig c;
+    c.driverId = id;
+    return c;
+}
+
+}  // namespace
+
+TEST_CASE("PipelineManager: attach creates a pipeline and bumps count", "[pipeline][pipeline_manager]") {
+    signalforge::test::MockDriver driver;
+    PipelineManager manager;
+    REQUIRE(manager.pipelineCount() == 0);
+
+    auto* p = manager.attach(&driver, cfgFor(QStringLiteral("tcp:127.0.0.1:9001")));
+    REQUIRE(p != nullptr);
+    REQUIRE(manager.pipelineCount() == 1);
+    REQUIRE(manager.pipelineFor(QStringLiteral("tcp:127.0.0.1:9001")) == p);
+
+    manager.detach(QStringLiteral("tcp:127.0.0.1:9001"));
+    REQUIRE(manager.pipelineCount() == 0);
+    REQUIRE(manager.pipelineFor(QStringLiteral("tcp:127.0.0.1:9001")) == nullptr);
+}
+
+TEST_CASE("PipelineManager: duplicate driverId is refused with nullptr", "[pipeline][pipeline_manager]") {
+    signalforge::test::MockDriver driverA;
+    signalforge::test::MockDriver driverB;
+    PipelineManager manager;
+
+    REQUIRE(manager.attach(&driverA, cfgFor(QStringLiteral("udp:dup"))) != nullptr);
+    REQUIRE(manager.attach(&driverB, cfgFor(QStringLiteral("udp:dup"))) == nullptr);
+    REQUIRE(manager.pipelineCount() == 1);
+
+    manager.detach(QStringLiteral("udp:dup"));
+}
+
+TEST_CASE("PipelineManager: attach(nullptr) and empty driverId are refused", "[pipeline][pipeline_manager]") {
+    signalforge::test::MockDriver driver;
+    PipelineManager manager;
+
+    REQUIRE(manager.attach(nullptr, cfgFor(QStringLiteral("abc"))) == nullptr);
+    REQUIRE(manager.attach(&driver, cfgFor(QString())) == nullptr);
+    REQUIRE(manager.pipelineCount() == 0);
+}
+
+TEST_CASE("PipelineManager: detach on unknown driverId is a no-op", "[pipeline][pipeline_manager]") {
+    PipelineManager manager;
+    manager.detach(QStringLiteral("never-attached"));
+    REQUIRE(manager.pipelineCount() == 0);
+}
+
+TEST_CASE("PipelineManager: driverIds enumerates attached pipelines", "[pipeline][pipeline_manager]") {
+    signalforge::test::MockDriver a, b, c;
+    PipelineManager manager;
+    (void)manager.attach(&a, cfgFor(QStringLiteral("serial:/tmp/ttyV0")));
+    (void)manager.attach(&b, cfgFor(QStringLiteral("tcp:localhost:9000")));
+    (void)manager.attach(&c, cfgFor(QStringLiteral("replay:fixture.sfreplay")));
+
+    auto ids = manager.driverIds();
+    std::sort(ids.begin(), ids.end());
+    REQUIRE(ids.size() == 3);
+    REQUIRE(ids[0] == "replay:fixture.sfreplay");
+    REQUIRE(ids[1] == "serial:/tmp/ttyV0");
+    REQUIRE(ids[2] == "tcp:localhost:9000");
+}
+
+TEST_CASE("PipelineManager: pipelineAttached and pipelineDetached signals fire", "[pipeline][pipeline_manager]") {
+    signalforge::test::MockDriver driver;
+    PipelineManager manager;
+
+    QSignalSpy attachedSpy(&manager, &PipelineManager::pipelineAttached);
+    QSignalSpy detachedSpy(&manager, &PipelineManager::pipelineDetached);
+
+    auto* p = manager.attach(&driver, cfgFor(QStringLiteral("udp:signal")));
+    REQUIRE(p != nullptr);
+    REQUIRE(attachedSpy.count() == 1);
+    REQUIRE(attachedSpy.at(0).at(0).toString() == "udp:signal");
+    REQUIRE(qvariant_cast<FramePipeline*>(attachedSpy.at(0).at(1)) == p);
+
+    manager.detach(QStringLiteral("udp:signal"));
+    REQUIRE(detachedSpy.count() == 1);
+    REQUIRE(detachedSpy.at(0).at(0).toString() == "udp:signal");
+}
+
+TEST_CASE("PipelineManager: destructor destroys all attached pipelines", "[pipeline][pipeline_manager]") {
+    signalforge::test::MockDriver a, b;
+    {
+        PipelineManager manager;
+        (void)manager.attach(&a, cfgFor(QStringLiteral("x1")));
+        (void)manager.attach(&b, cfgFor(QStringLiteral("x2")));
+        REQUIRE(manager.pipelineCount() == 2);
+    }
+    // Manager out of scope: its destructor joins both pipeline threads
+    // within the 500 ms budget. The MockDrivers survive; reaching this
+    // line without hang or crash is the test.
+    SUCCEED("manager destructor completed cleanly");
 }

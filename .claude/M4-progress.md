@@ -395,3 +395,88 @@ atomic member (behind `private:`). ADR-003-validated metric names;
 no MetricsRegistry changes.
 
 **Time**: ~1.5 h (under 2 h plan estimate).
+
+### S5 — PipelineManager (start)
+
+**Goal**: deliver `src/pipeline/pipeline_manager.{hpp,cpp}` per spec
+§4.3. Central registry for `FramePipeline` instances; `attach` /
+`detach` / `pipelineFor` / `pipelineCount` / `driverIds` + two
+signals (`pipelineAttached` / `pipelineDetached`). Thread-safe.
+Owns all pipelines via `std::unique_ptr`.
+
+**Approach**:
+- Header verbatim per spec §4.3 with an additional `#include
+  <cstddef>` for `size_t` (not in spec's listing but required).
+- Implementation uses `std::unordered_map<QString, unique_ptr<FramePipeline>>`
+  under a `std::mutex`, mirroring MetricsRegistry's pattern.
+  QString keys require hashing — Qt provides `qHash` specialisation
+  that the map can use via a helper specialisation for
+  `std::hash<QString>` (or we use `std::string` keys derived from
+  `QString::toStdString()`, matching MetricsRegistry exactly).
+- `attach`:
+  - validates non-empty driverId and uniqueness
+  - constructs `FramePipeline` with the given config
+  - calls `pipeline->attachDriver(driver)` before inserting into the
+    map so the signal connection is in place by the time consumers
+    see `pipelineAttached`
+  - inserts + emits `pipelineAttached(driverId, pipeline)`
+- `detach`: erase under mutex (unique_ptr destructor joins the
+  thread), then emit `pipelineDetached` outside the lock (avoid
+  deadlock if a signal handler calls back into the manager).
+- Destructor: iterate and destroy all pipelines. Emit detached
+  signals? The spec says "Manager destruction detaches all pipelines"
+  — so yes, we emit. But on destruction the signal's consumers may
+  already be half-destroyed; safer to emit inside destructor with a
+  swap-then-destroy pattern.
+
+Tests cover: attach/detach round-trip, duplicate driverId rejection,
+pipelineFor lookup, pipelineCount and driverIds, signal emission
+correctness.
+
+No M2/M3-frozen .hpp touched.
+
+### S5 — PipelineManager (close)
+
+**Files delivered**:
+- `src/pipeline/pipeline_manager.hpp` — public header per spec §4.3.
+  Freeze surface: `PipelineManager` class (5 public methods),
+  `pipelineAttached(QString, FramePipeline*)` and
+  `pipelineDetached(QString)` signals.
+- `src/pipeline/pipeline_manager.cpp`:
+  - `attach` validates nullptr driver + empty driverId; constructs
+    `FramePipeline`, calls `attachDriver`, inserts under mutex, emits
+    `pipelineAttached` outside the lock. Duplicate driverId → the
+    just-built pipeline is dropped (thread joins on scope exit) and
+    nullptr returned.
+  - `detach` erases under mutex, releases the unique_ptr outside the
+    lock (so the ≤500 ms thread-join budget doesn't block other
+    callers), emits `pipelineDetached`.
+  - `pipelineFor` / `pipelineCount` / `driverIds` — thread-safe
+    accessors.
+  - Destructor: swap-then-destroy pattern — move the map out under
+    lock, then destroy pipelines with the lock released. Emits
+    `pipelineDetached` for each, matching the "manager destruction
+    detaches all pipelines" contract.
+  - Uses `std::unordered_map<std::string, unique_ptr<FramePipeline>>`
+    keyed on `QString::toStdString()`, mirroring MetricsRegistry.
+- `src/pipeline/CMakeLists.txt`: adds `pipeline_manager.cpp` +
+  `pipeline_manager.hpp` to sources.
+- `tests/unit/pipeline/pipeline_test.cpp`: 7 new cases:
+  * attach creates + bumps count + pipelineFor works; detach removes
+  * duplicate driverId returns nullptr + count unchanged
+  * attach(nullptr driver) and attach(empty driverId) both refused
+  * detach on unknown id is a no-op
+  * driverIds enumerates all attached
+  * pipelineAttached / pipelineDetached signals fire with the right
+    driverId + pipeline pointer
+  * destructor destroys all attached pipelines cleanly
+
+**Verification**:
+- Debug + Release: 211/211 tests pass.
+- debug-asan: builds clean (runtime blocked locally; CI authoritative).
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified. `PipelineManager`'s
+public API enters the M4 freeze at M4 close.
+
+**Time**: ~45 min (under 3 h plan estimate).
