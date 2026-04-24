@@ -18,7 +18,7 @@ jobs:
       - name: Install GCC 13
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13 ninja-build xvfb libcurl4-openssl-dev
+          sudo apt-get install -y g++-13 ninja-build xvfb libcurl4-openssl-dev socat
 
       - name: Install Qt 6.10.2
         uses: jurplel/install-qt-action@v4

@@ -1,5 +1,11 @@
 add_executable(drivers_test
     driver_interface_test.cpp
+    driver_configs_test.cpp
+    io_worker_base_test.cpp
+    replay_driver_test.cpp
+    serial_driver_test.cpp
+    tcp_driver_test.cpp
+    udp_driver_test.cpp
 )
 target_link_libraries(drivers_test
     PRIVATE

@@ -1,7 +1,13 @@
 add_library(signalforge_drivers STATIC
     driver_interface.cpp
+    io_worker_base.cpp
+    replay_driver.cpp
+    serial_driver.cpp
+    tcp_driver.cpp
+    udp_driver.cpp
 )
 target_include_directories(signalforge_drivers PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(signalforge_drivers
-    PUBLIC Qt6::Core signalforge_frame
+    PUBLIC Qt6::Core Qt6::Network Qt6::SerialPort signalforge_frame
+    PRIVATE signalforge_platform signalforge_observability
 )
