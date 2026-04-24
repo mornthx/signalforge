@@ -221,3 +221,64 @@ Per CLAUDE.md §Git operation protocol Phase 3, the next session will:
 7. Stop for Phase 4 human review.
 
 This session does not perform any of the above.
+
+## Post-close fix: main.cpp application integration (2026-04-24)
+
+Phase 2 human review of PR #3 found that `src/app/main.cpp` on
+`milestone/M2` was the unmodified M0 version — it did not call the
+`registerMetatypes()` free functions nor initialize sentry-native
+crash reporting. The completion report above claims these integrations
+exist; at report time they were absent from the application entrypoint.
+
+**What was missing at the originally-reported done state**:
+
+- `signalforge::frame::registerMetatypes()` call (required for
+  `DriverInterface::frameReceived` signals to round-trip across thread
+  boundaries in real app runs)
+- `signalforge::drivers::registerMetatypes()` call (required for
+  `DriverState` and `DriverError` in queued signal connections)
+- `signalforge::platform::initCrashReporting()` and matching
+  `shutdownCrashReporting()` (sentry-native lifecycle)
+
+**Why the 102 unit + integration tests did not catch this**: each
+test binary constructs its own `QApplication` and calls the
+`registerMetatypes()` free functions in its own setup. The tests
+exercise the library interfaces; they do not spawn the real
+`signalforge` executable and verify its startup path. M2's acceptance
+criteria §8 did not include an application-level smoke test.
+
+**What was added**:
+
+- `src/app/main.cpp`: init sequence now calls
+  `init_logging → frame::registerMetatypes → drivers::registerMetatypes →
+  initCrashReporting → QApplication → MainWindow → exec → shutdownCrashReporting`.
+  Adds a `--headless-smoke-test` CLI flag used by the new integration
+  test; crash-reporting init failure logs `SF_LOG_WARN` and continues
+  (nice-to-have semantics per human decision; spec §14.3 prioritizes
+  local dump generation, not upload).
+- `src/app/CMakeLists.txt`: links `signalforge_platform`,
+  `signalforge_frame`, `signalforge_drivers` (previously linked only
+  Qt6::Widgets and `signalforge_observability`).
+- `tests/integration/test_app_smoke.cpp`: spawns the built
+  `signalforge` binary under `QT_QPA_PLATFORM=offscreen` with a
+  redirected `XDG_STATE_HOME`; asserts exit code 0, empty stderr
+  (no "ERROR" text), and log file creation under the redirected XDG
+  state home.
+
+**Test count after fix**: 103 (100 unit + 3 integration including
+the new smoke test); green under Debug and Release. debug-asan build
+clean; runtime remains blocked by the host's `/etc/ld.so.preload`
+per the pre-existing note in `.claude/M2-concerns.md`.
+
+**Freeze surface unchanged**: no `.hpp` file was modified; the
+sha256sums recorded earlier in this document remain valid.
+
+**Process observation — governance follow-up** (also carried forward
+under Open Issues): milestone acceptance criteria should include an
+application-level smoke test alongside unit coverage. A unit-level
+≥ 85% coverage target validates module interfaces but does not
+exercise the `main()` integration path. Future milestones may add
+an executable-level smoke check (offscreen launch, clean exit,
+expected log lines) as a ctest entry so that "done.md claims" and
+"binary behavior" remain aligned by construction.
+

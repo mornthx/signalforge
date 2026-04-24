@@ -478,3 +478,24 @@ QVariant roundtrip via registerMetatypes.
   re-running the same command and comparing.
 - Next step: commit, push, create PR, wait for CI green, stop.
 
+## 2026-04-24 — Post-close fix session
+
+- Root cause: M2 closure committed `src/app/main.cpp` as the original
+  M0 version, missing M2's `registerMetatypes()` and
+  `initCrashReporting()` integrations. Unit tests did not cover this —
+  application-level smoke testing was absent from acceptance criteria.
+- Applied: `main.cpp` now calls `frame::registerMetatypes()`,
+  `drivers::registerMetatypes()`, and `initCrashReporting()` in the
+  correct order; `shutdownCrashReporting()` is called after
+  `app.exec()` returns. A `--headless-smoke-test` CLI flag exits
+  cleanly after init for the ctest smoke check.
+  `tests/integration/test_app_smoke.cpp` spawns the binary headless
+  and asserts clean launch-to-exit. `src/app/CMakeLists.txt` now
+  links the frame, drivers, and platform libraries.
+- Verification: Debug / Release / debug-asan all build clean. ctest
+  runs 103 tests (previous 102 + new smoke), all pass under Debug and
+  Release. debug-asan runtime remains blocked per host preload (CI
+  authoritative).
+- Commits: `ad59a1b` (app fix + smoke test), plus this docs amendment
+  commit.
+
