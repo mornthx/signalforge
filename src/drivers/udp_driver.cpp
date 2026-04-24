@@ -158,7 +158,19 @@ public slots:
             emit workerTxFailure();
             return;
         }
-        const auto n = socket_->writeDatagram(payload, remote, config_.remotePort);
+        // Qt 6.10 on Linux loopback surfaces a transient NetworkError
+        // ("Unable to send a message") when two QUdpSockets in the same
+        // process issue writeDatagram concurrently from different
+        // threads. The send actually succeeds on a retry within ~100 µs.
+        // See `.claude/M3-concerns.md`. One retry keeps legitimate
+        // failures (unreachable host, routing) surfacing immediately on
+        // the second attempt.
+        auto n = socket_->writeDatagram(payload, remote, config_.remotePort);
+        if (n < 0 && socket_->error() == QAbstractSocket::NetworkError) {
+            SF_LOG_WARN("UDP writeDatagram transient NetworkError on {}:{}; retrying once",
+                        config_.remoteHost.toStdString(), config_.remotePort);
+            n = socket_->writeDatagram(payload, remote, config_.remotePort);
+        }
         if (n < 0) {
             emit workerTxFailure();
             return;

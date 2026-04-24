@@ -76,6 +76,20 @@ target_link_libraries(test_tcp_driver_echo
 )
 catch_discover_tests(test_tcp_driver_echo DISCOVERY_MODE PRE_TEST)
 
+add_executable(test_udp_driver_loopback
+    test_udp_driver_loopback.cpp
+)
+target_link_libraries(test_udp_driver_loopback
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+        signalforge_drivers
+        signalforge_frame
+)
+catch_discover_tests(test_udp_driver_loopback DISCOVERY_MODE PRE_TEST)
+
 add_executable(test_replay_driver_skeleton
     test_replay_driver_skeleton.cpp
 )

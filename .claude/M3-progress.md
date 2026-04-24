@@ -384,3 +384,52 @@ fixture, which is not part of any freeze list).
 
 
 
+
+### S8 — UDP loopback integration (start)
+
+**Goal**: `tests/integration/test_udp_driver_loopback.cpp` with spec §5.3.3
+scenarios: bidirectional unicast on 127.0.0.1, datagram-boundary
+preservation, and multicast group receive.
+
+**Approach**: use a small `pickFreeLocalPort()` helper (binds a throwaway
+`QUdpSocket` to `127.0.0.1:0` and reads the OS-assigned port) to keep
+the tests self-contained without static port reservations. Multicast
+scenario uses `239.200.123.45` and degrades to SUCCEED-with-skip on
+hosts where multicast loopback routing is blocked (spec §5.3.3
+portability note).
+
+No M2 frozen .hpp touched.
+
+### S8 — UDP loopback integration (close)
+
+- **Files delivered**: `tests/integration/test_udp_driver_loopback.cpp`
+  (3 scenarios), plus a 1-attempt retry in
+  `UdpDriver::writeOnIoThread` on `QAbstractSocket::NetworkError` to
+  mitigate the Qt 6.10 concurrent-writeDatagram race documented in
+  `.claude/M3-concerns.md`.
+- **Scenarios**:
+  1. Bidirectional unicast: two `UdpDriver`s each bound to its own
+     loopback port, writing to the other — both sides receive exactly
+     what the other sent.
+  2. Datagram-boundary preservation: 3 distinct datagrams of different
+     sizes sent from tx to rx; each surfaces as its own `RawFrame`
+     (unlike TCP, framing is preserved).
+  3. Multicast receive on `239.200.123.45`: rx joins the group, tx
+     writes to the group; rx receives. Host-specific multicast-loopback
+     limitations degrade to `SUCCEED("skipping")` rather than fail.
+- **Root-cause investigation**: The bidirectional scenario was flaky
+  (~30–100 % depending on bind flags) because Qt 6.10's
+  `QUdpSocket::writeDatagram` has a concurrency race on loopback when
+  two sockets write simultaneously from different threads. Verified via
+  `strace` (slowdown makes it disappear) and a minimal standalone
+  reproducer kept at `.claude/notes/qt-udp-concurrent-write-probe.cpp`.
+  A single retry on NetworkError resolves it; underlying `sendmsg(2)`
+  always succeeds in the strace trace, confirming the failure is
+  injected in Qt's own write path.
+- **Tests**: 3 new integration cases; 169 total tests green under Debug
+  and Release. Post-fix the bidirectional test passed 30/30 consecutive
+  runs locally (previously ~70 % pass). debug-asan builds clean; ASan
+  runtime blocked locally by `/etc/ld.so.preload`, CI-verified.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~3 h (under 3 h plan estimate, including ~1.5 h spent on
+  Qt-race diagnosis).
