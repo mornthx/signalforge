@@ -30,3 +30,13 @@ target_link_libraries(bench_driver_footprint
         signalforge_drivers
         signalforge_frame
 )
+
+add_executable(bench_pipeline_throughput bench_pipeline_throughput.cpp)
+target_link_libraries(bench_pipeline_throughput
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        signalforge_drivers
+        signalforge_frame
+        signalforge_pipeline
+)
