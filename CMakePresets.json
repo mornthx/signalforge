@@ -78,6 +78,9 @@
             "configurePreset": "debug-asan",
             "output": {
                 "outputOnFailure": true
+            },
+            "environment": {
+                "LSAN_OPTIONS": "suppressions=${sourceDir}/tools/lsan_suppressions.txt:print_suppressions=0"
             }
         }
     ]

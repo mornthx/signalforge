@@ -590,3 +590,30 @@ No M2 frozen .hpp touched.
   rewrite.
 - **Time**: ~2.5 h (under 6 h plan estimate — reuse of existing driver
   signals saved most of the plumbing).
+
+### S11 follow-up — LSan suppressions for Qt Gui init leaks
+
+**Trigger**: S11 push (commit 29a8381) green on `debug` and `release`
+but failed on `debug-asan` (CI run 24888451352). The four new
+`test_connection_manager` cases tripped ASan's leak detector — but every
+reported stack originates in `libfreetype.so` and `libQt6Gui.so`
+font-database initialization, called once from
+`QApplication::QApplication` during offscreen platform bootstrap. None
+of the 195 allocations reach SignalForge code.
+
+**Resolution**: add `tools/lsan_suppressions.txt` with narrow,
+line-scoped `leak:` patterns for `libfreetype.so`, `libQt6Gui.so`,
+`FT_Init_FreeType`, `FT_Add_Module`, `FT_Add_Default_Modules`,
+`FT_New_Face`, and `QFreetypeFace`. Wire via
+`CMakePresets.json` → `testPresets.debug-asan.environment.LSAN_OPTIONS`
+so `ctest --preset debug-asan` picks it up everywhere without changing
+the CI step or test-level flags.
+
+**Scope**: third-party Qt+freetype init only. Our libraries
+(`signalforge_*`) are never suppressed — a real leak in driver or UI
+code would still fire. The suppressions file header documents each
+pattern's origin.
+
+**Local verification**: not possible — `/etc/ld.so.preload` blocks the
+host ASan runtime (documented in `.claude/M3-concerns.md`). CI is the
+authoritative gate; this commit's CI run will verify the fix.

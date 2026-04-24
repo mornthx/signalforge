@@ -1,0 +1,25 @@
+# LeakSanitizer suppressions for the debug-asan preset.
+#
+# These entries suppress leaks reported in third-party libraries that
+# are triggered by QApplication construction in offscreen mode (e.g.
+# during tests/integration/test_connection_manager.cpp). The leaks
+# originate inside libfreetype and libQt6Gui's one-shot font-database
+# initialization and are not reachable from SignalForge code.
+#
+# Scope is deliberately narrow — each line names a specific library or
+# Qt symbol that appears in the ASan stack trace reported by CI run
+# 24888451352 on 2026-04-24. Our own libraries (signalforge_*) are
+# never suppressed; a real leak in driver/UI code will still fail CI.
+
+# freetype — FT_Init_FreeType, FT_Add_Module, FT_New_Face, and the
+# internal font-face cache.
+leak:libfreetype.so
+leak:FT_Init_FreeType
+leak:FT_Add_Module
+leak:FT_Add_Default_Modules
+leak:FT_New_Face
+
+# Qt 6 Gui — font database and glyph cache init paths that bridge into
+# freetype.
+leak:QFreetypeFace
+leak:libQt6Gui.so
