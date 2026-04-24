@@ -207,4 +207,61 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~2 h (under 3 h plan estimate).
 
+### S5 — TcpDriver + unit tests (start)
+
+**Goal**: `TcpDriver` over `QTcpSocket` on a dedicated IO thread. Same
+pattern as Serial. Open semantics: validate `TcpConfig` (empty host or
+port=0 → ConfigInvalid), then `connectToHost`. Use `connected` /
+`errorOccurred` / `QTimer` for timeout — not `waitForConnected`
+(understanding §3.2 default).
+
+Error mapping per spec §4.3: host unresolvable / refused →
+ResourceUnavailable, timeout → Timeout, permission → PermissionDenied.
+Mid-run disconnect (peer close) → ResourceLost.
+
+Write: enqueue to worker; worker calls `socket->write()`. On write
+failure or UnconnectedState → errorOccurred(ResourceLost).
+
+Read: each `readyRead` yields one `RawFrame` with `payload =
+socket->readAll()`. Downstream handles re-framing.
+
+No M2 frozen .hpp touched.
+
+### S5 — TcpDriver + unit tests (close)
+
+- **Files delivered**: `tcp_driver.{hpp,cpp}` (TcpIoWorker lives in the
+  .cpp; moc include at bottom), `tests/unit/drivers/tcp_driver_test.cpp`.
+- **CMake**: `signalforge_drivers` already linked `Qt6::Network` from
+  M2; only adds `tcp_driver.cpp` to the source list.
+- **Open pipeline**: `QTcpSocket::connectToHost` triggered from the IO
+  thread; outcome observed via `connected` (success), `errorOccurred`
+  (failure), and a `QTimer` for the `connectTimeout` (understanding
+  §3.2 default — avoids `waitForConnected` to keep event-driven).
+- **Error mapping** per spec §4.3:
+  HostNotFoundError / ConnectionRefusedError → ResourceUnavailable,
+  RemoteHostClosedError / NetworkError → ResourceLost,
+  SocketAccessError → PermissionDenied,
+  SocketTimeoutError → Timeout, others → IoFailure. The
+  connectTimeout-elapsed path emits `Timeout` explicitly before the
+  socket's own error surfaces.
+- **Mid-run disconnect** distinguished from driver-initiated close via a
+  `running_` flag on the worker: peer-initiated `disconnected` while
+  `running_ == true` emits `errorOccurred(ResourceLost)`; during an
+  intentional close it is silent.
+- **Read**: each `readyRead` → one `RawFrame` with
+  `payload = socket->readAll()`. No re-framing (byte stream; M4 decoder
+  owns framing).
+- **Tests**: 9 new unit cases covering default state, empty host,
+  port=0, non-positive timeout, unreachable-port-async (127.0.0.1:59991
+  — accepts ResourceUnavailable, Timeout, or IoFailure since the
+  specific error depends on host stack), write-in-wrong-state, idempotent
+  close/stop on Idle, zeroed statistics, config accessor. 152 tests
+  green under Debug and Release. debug-asan build clean.
+- **Coverage**: every validateConfig branch exercised; open-error async
+  path exercised; write-state gate exercised; idempotent lifecycle
+  covered. Estimated ≥ 85%.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~1.5 h (under 3 h plan estimate).
+
+
 

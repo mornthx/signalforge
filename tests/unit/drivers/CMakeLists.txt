@@ -4,6 +4,7 @@ add_executable(drivers_test
     io_worker_base_test.cpp
     replay_driver_test.cpp
     serial_driver_test.cpp
+    tcp_driver_test.cpp
 )
 target_link_libraries(drivers_test
     PRIVATE
