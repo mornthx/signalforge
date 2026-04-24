@@ -3,6 +3,10 @@
 #include <QMainWindow>
 #include <memory>
 
+namespace signalforge::pipeline {
+class PipelineManager;
+}
+
 namespace signalforge::app {
 
 class ConnectionManager;
@@ -18,6 +22,7 @@ private slots:
     void openConnectionManager();
 
 private:
+    std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
     std::unique_ptr<ConnectionManager> connectionManager_;
 };
 

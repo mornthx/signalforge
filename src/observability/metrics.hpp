@@ -58,6 +58,25 @@ private:
     std::atomic<std::int64_t> value_{0};
 };
 
+/// Returns true when `name` is acceptable as a metric key.
+///
+/// Rejected:
+/// - empty string
+/// - any whitespace (QChar::isSpace) or Other_Control category
+/// - quote / backslash / angle brackets (`"`, `'`, `\`, `<`, `>`) —
+///   these characters break log parsing, JSON / YAML serialization, and
+///   HTML display in downstream consumers
+///
+/// Accepted: everything else, including `:`, `/`, `.`, `-`, `@`, `[`,
+/// `]`, Unicode letters/digits. Metric names are not query-language
+/// identifiers in this project — they appear only in the internal
+/// snapshot API, log output, and (future) UI display, so the validation
+/// is intentionally permissive.
+///
+/// See ADR-003 for the rationale (considered and rejected: Prometheus-
+/// style `[a-zA-Z_][a-zA-Z0-9_]*`; sanitization with information loss).
+[[nodiscard]] bool isValidMetricName(const QString& name);
+
 /// Process-wide registry of named metrics. Producers call `getOrCreate()`
 /// to obtain a `Metric*` and then use its atomic accessors directly. The
 /// M5 performance panel will consume `snapshot()` at ~30Hz.
@@ -82,6 +101,11 @@ public:
     /// different `kind`, the existing metric is returned unchanged — the
     /// first registrant wins. The returned pointer is owned by the
     /// registry and valid for the process lifetime.
+    ///
+    /// Returns `nullptr` if `name` fails `isValidMetricName` (logs ERROR
+    /// once). Callers should treat a nullptr return as a misconfigured
+    /// name and skip tracking that metric — `add()` / `set()` must not
+    /// be invoked on a nullptr.
     Metric* getOrCreate(const QString& name, MetricKind kind);
 
     /// Snapshot all metrics as (name, value) pairs. Each pair is a

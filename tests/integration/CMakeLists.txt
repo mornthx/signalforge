@@ -109,6 +109,56 @@ target_compile_definitions(test_connection_manager
 )
 catch_discover_tests(test_connection_manager DISCOVERY_MODE PRE_TEST)
 
+add_executable(test_pipeline_driver_integration
+    test_pipeline_driver_integration.cpp
+)
+target_link_libraries(test_pipeline_driver_integration
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+        signalforge_pipeline
+        signalforge_drivers
+        signalforge_frame
+)
+target_compile_definitions(test_pipeline_driver_integration
+    PRIVATE
+        SIGNALFORGE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
+catch_discover_tests(test_pipeline_driver_integration DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_pipeline_fanout
+    test_pipeline_fanout.cpp
+)
+target_link_libraries(test_pipeline_fanout
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+        signalforge_pipeline
+        signalforge_drivers
+        signalforge_frame
+)
+catch_discover_tests(test_pipeline_fanout DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_pipeline_backpressure
+    test_pipeline_backpressure.cpp
+)
+target_link_libraries(test_pipeline_backpressure
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+        signalforge_pipeline
+        signalforge_drivers
+        signalforge_frame
+        signalforge_observability
+)
+catch_discover_tests(test_pipeline_backpressure DISCOVERY_MODE PRE_TEST)
+
 add_executable(test_driver_error_paths
     test_driver_error_paths.cpp
 )

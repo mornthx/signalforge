@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include "app/connection_manager.hpp"
+#include "pipeline/pipeline_manager.hpp"
 
 #include <QAction>
 #include <QMenuBar>
@@ -20,8 +21,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 MainWindow::~MainWindow() = default;
 
 void MainWindow::openConnectionManager() {
+    if (!pipelineManager_) {
+        pipelineManager_ = std::make_unique<signalforge::pipeline::PipelineManager>(this);
+    }
     if (!connectionManager_) {
-        connectionManager_ = std::make_unique<ConnectionManager>(this);
+        connectionManager_ = std::make_unique<ConnectionManager>(pipelineManager_.get(), this);
         connectionManager_->setModal(false);
     }
     connectionManager_->show();

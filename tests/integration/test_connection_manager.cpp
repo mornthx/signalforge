@@ -11,6 +11,7 @@
 // without a display (CI runners, laptops with lid closed).
 #include "app/connection_manager.hpp"
 #include "drivers/driver_interface.hpp"
+#include "pipeline/pipeline_manager.hpp"
 
 #include <QApplication>
 #include <QByteArray>
@@ -24,6 +25,7 @@
 
 using signalforge::app::ConnectionManager;
 using signalforge::drivers::DriverState;
+using signalforge::pipeline::PipelineManager;
 
 namespace {
 
@@ -118,4 +120,60 @@ TEST_CASE("connection manager: invalid replay path surfaces via error path", "[i
     // the Connect button.
     REQUIRE(cm.currentState() == DriverState::Idle);
     REQUIRE(!cm.lastErrorMessage().isEmpty());
+}
+
+TEST_CASE("connection manager + pipeline: connect attaches, disconnect detaches", "[integration][ui][pipeline]") {
+    PipelineManager manager;
+    ConnectionManager cm(&manager, nullptr);
+
+    cm.setDriverType(ConnectionManager::DriverType::Replay);
+    cm.setReplaySessionFile(QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay"));
+
+    REQUIRE(manager.pipelineCount() == 0);
+
+    cm.requestConnect();
+    REQUIRE(waitForState(cm, DriverState::Running, 3000));
+    REQUIRE(manager.pipelineCount() == 1);
+
+    const auto ids = manager.driverIds();
+    REQUIRE(ids.size() == 1);
+    REQUIRE(ids.front().startsWith(QStringLiteral("replay:")));
+    REQUIRE(ids.front().contains(QStringLiteral("minimal_session.sfreplay")));
+
+    cm.requestDisconnect();
+    REQUIRE(waitForState(cm, DriverState::Idle, 3000));
+    REQUIRE(manager.pipelineCount() == 0);
+}
+
+TEST_CASE("connection manager + pipeline: reconnect with different fixture yields fresh id",
+          "[integration][ui][pipeline]") {
+    PipelineManager manager;
+    ConnectionManager cm(&manager, nullptr);
+
+    cm.setDriverType(ConnectionManager::DriverType::Replay);
+
+    // First connect — uses the original fixture.
+    cm.setReplaySessionFile(QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay"));
+    cm.requestConnect();
+    REQUIRE(waitForState(cm, DriverState::Running, 3000));
+    REQUIRE(manager.pipelineCount() == 1);
+    const QString firstId = manager.driverIds().front();
+    REQUIRE(firstId.contains(QStringLiteral("minimal_session.sfreplay")));
+
+    cm.requestDisconnect();
+    REQUIRE(waitForState(cm, DriverState::Idle, 3000));
+    REQUIRE(manager.pipelineCount() == 0);
+
+    // Second connect — uses the alt fixture; yields a distinct driver id.
+    cm.setReplaySessionFile(QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session_alt.sfreplay"));
+    cm.requestConnect();
+    REQUIRE(waitForState(cm, DriverState::Running, 3000));
+    REQUIRE(manager.pipelineCount() == 1);
+    const QString secondId = manager.driverIds().front();
+    REQUIRE(secondId.contains(QStringLiteral("minimal_session_alt.sfreplay")));
+    REQUIRE(secondId != firstId);
+
+    cm.requestDisconnect();
+    REQUIRE(waitForState(cm, DriverState::Idle, 3000));
+    REQUIRE(manager.pipelineCount() == 0);
 }

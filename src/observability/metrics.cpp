@@ -1,11 +1,29 @@
 // src/observability/metrics.cpp
 #include "observability/metrics.hpp"
 
+#include "observability/logging.hpp"
+
 #include <mutex>
 #include <string>
 #include <unordered_map>
 
 namespace signalforge::observability {
+
+bool isValidMetricName(const QString& name) {
+    if (name.isEmpty()) {
+        return false;
+    }
+    for (const QChar c : name) {
+        if (c.isSpace() || c.category() == QChar::Other_Control) {
+            return false;
+        }
+        const ushort u = c.unicode();
+        if (u == '"' || u == '\'' || u == '\\' || u == '<' || u == '>') {
+            return false;
+        }
+    }
+    return true;
+}
 
 namespace {
 
@@ -30,6 +48,10 @@ MetricsRegistry& MetricsRegistry::instance() {
 }
 
 Metric* MetricsRegistry::getOrCreate(const QString& name, MetricKind kind) {
+    if (!isValidMetricName(name)) {
+        SF_LOG_ERROR("MetricsRegistry: rejected invalid metric name '{}'; see ADR-003 for policy", name.toStdString());
+        return nullptr;
+    }
     const std::string key = name.toStdString();
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if (auto it = impl_->metrics.find(key); it != impl_->metrics.end()) {

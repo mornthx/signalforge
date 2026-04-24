@@ -1,6 +1,8 @@
 // src/utils/mpsc_queue.cpp
 #include "utils/mpsc_queue.hpp"
 
+#include "frame/raw_frame.hpp"
+
 #include <concurrentqueue.h>
 #include <new>
 #include <utility>
@@ -42,5 +44,6 @@ template <typename T> std::size_t MpscQueue<T>::sizeApprox() const noexcept {
 // Explicit instantiations. Add new T entries here when another TU needs
 // MpscQueue<U>; templates are not visible outside this TU otherwise.
 template class MpscQueue<int>;
+template class MpscQueue<signalforge::frame::RawFrame>;
 
 }  // namespace signalforge::utils
