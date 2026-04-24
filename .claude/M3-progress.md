@@ -525,3 +525,68 @@ No M2 frozen .hpp touched.
   Q3 Linux/glibc). CC code is ASan-clean.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~2 h (under 5 h plan estimate).
+
+### S11 — Connection Manager UI preview (start)
+
+**Goal**: deliver `src/app/connection_manager.{hpp,cpp}` per spec §4.6
+— QDialog with driver-type selector, per-type config stack,
+Connect/Disconnect buttons, color-coded state badge, frame log
+(hex-dump, capped at 200 entries), throughput stats updated every 1 s.
+Wire into `MainWindow` via a File menu. Offscreen integration test
+verifies lifecycle, form switching, and error paths.
+
+**Approach**: hand-coded C++ widgets (no .ui file). Extract the UI
+classes into a new `signalforge_app_ui` static library so the
+integration test can link against them without cross-compiling
+`main.cpp`. Expose a small set of test hooks (`setDriverType`,
+`setReplaySessionFile`, `requestConnect`, `requestDisconnect`,
+`currentState`, `lastErrorMessage`) that the test calls directly rather
+than synthesising GUI events — keeps the test deterministic and quick.
+
+No M2 frozen .hpp touched.
+
+### S11 — Connection Manager UI preview (close)
+
+- **Files delivered**:
+  - `src/app/connection_manager.{hpp,cpp}` — QDialog per §4.6
+  - `src/app/main_window.{hpp,cpp}` — adds File → Connection
+    Manager... menu entry (Ctrl+M), lazy-instantiated modeless dialog
+  - `src/app/CMakeLists.txt` — extracts UI into
+    `signalforge_app_ui` static library; `signalforge` executable now
+    just contains `main.cpp` and links the library
+  - `tests/integration/test_connection_manager.cpp` — 4 cases
+- **UI structure**: QComboBox (Serial/TCP/UDP/Replay) drives a
+  QStackedWidget of four QFormLayout pages. Each page holds exactly
+  the fields required to build the matching Config struct. Connect
+  constructs the concrete driver, wires its signals with
+  `Qt::QueuedConnection`, and calls `open()`. On `stateChanged(Open)`
+  the dialog auto-calls `start()` so the flow converges to Running
+  without another click (preview-level convenience). On
+  `stateChanged(Idle)` after a close, ownership is released and the
+  Connect button re-enables.
+- **Non-blocking close**: `Disconnect` only queues `close()` on the
+  driver and relies on the stateChanged(Idle) callback to release
+  ownership. No `thread_->wait()` call happens on the UI thread except
+  during the dialog's own destructor, which uses a 150 ms bounded
+  event-loop spin (well under spec §7-5's 200 ms UI-block ceiling).
+- **Frame log**: `QPlainTextEdit` with `setMaximumBlockCount(200)` —
+  Qt drops oldest lines automatically when the cap is reached. Each
+  line is a truncated hex dump (first 64 bytes) plus `sourceId` and
+  payload size.
+- **Tests**: 4 offscreen integration cases using `QT_QPA_PLATFORM=offscreen`:
+  1. Dialog constructs cleanly, title is "Connection Manager", state Idle.
+  2. Changing `DriverType` flips the `QStackedWidget` to the matching
+     page.
+  3. Replay connect with a valid session file drives state
+     Idle→Opening→Open→Running in < 1 s, then disconnect returns to
+     Idle.
+  4. Empty Replay path yields `ConfigInvalid` synchronously — dialog
+     stays in Idle, error label populated.
+- **Build metric**: 179 total tests green under Debug and Release.
+  debug-asan builds clean.
+- **Freeze scope**: no M2 frozen .hpp modified. The new
+  `signalforge_app_ui` library exports a private API that downstream
+  milestones (M7's full Connection Manager) will extend rather than
+  rewrite.
+- **Time**: ~2.5 h (under 6 h plan estimate — reuse of existing driver
+  signals saved most of the plumbing).
