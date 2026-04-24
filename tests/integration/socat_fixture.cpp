@@ -4,12 +4,17 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 #include <QStringList>
 #include <chrono>
 #include <cstdlib>
 #include <thread>
 
 namespace signalforge::test {
+
+bool SocatVirtualPair::isAvailable() {
+    return !QStandardPaths::findExecutable(QStringLiteral("socat")).isEmpty();
+}
 
 SocatVirtualPair::SocatVirtualPair(int bootTimeoutMs) {
     const auto pid = ::getpid();

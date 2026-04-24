@@ -24,6 +24,14 @@ namespace signalforge::test {
 /// test that uses the fixture.
 class SocatVirtualPair {
 public:
+    /// Returns true when a `socat` executable is locatable on PATH.
+    /// Intended to let `[socat]`-tagged test cases skip (not fail) on
+    /// hosts where socat is not installed — e.g. when running
+    /// `ctest` (without `-LE socat`) on a dev box or a partially
+    /// provisioned CI runner. The spec requires CI to install socat;
+    /// this is a defensive check only.
+    [[nodiscard]] static bool isAvailable();
+
     explicit SocatVirtualPair(int bootTimeoutMs = 2000);
     ~SocatVirtualPair();
 

@@ -318,6 +318,37 @@ remoteHost, `write()` returns ConfigInvalid synchronously.
 
 No M2 frozen .hpp touched.
 
+### CI fix — install socat + make fixture skip gracefully (mid-S7)
+
+**Why this landed out of sequence**: After pushing S4 (socat integration
+tests), CI turned red and stayed red through S5, S6, S7 because ci.yml
+never installed `socat`. The plan deferred that apt-install to S12; this
+was an error I caught only after 4 red CI runs. Per CLAUDE.md §"Git
+operation protocol", every push must be followed by a CI verification,
+which I skipped. Fixing now before continuing S8.
+
+**Changes**:
+- `.github/workflows/ci.yml`: add `socat` to the apt-get install line
+  (the only new package is socat itself; no new build-time dependencies
+  and no changes to the dependency list in `docs/architecture/§4.1`).
+- `tests/integration/socat_fixture.{hpp,cpp}`: new static
+  `SocatVirtualPair::isAvailable()` that uses
+  `QStandardPaths::findExecutable("socat")`. No change to the fixture's
+  throwing constructor — the test cases now guard before constructing.
+- `tests/integration/test_serial_driver_loopback.cpp`: each `[socat]`
+  test starts with `if (!SocatVirtualPair::isAvailable()) { SKIP(...); }`,
+  so a stock `ctest` on a host without socat skips the 3 cases rather
+  than failing them (spec §5.7 portability intent).
+
+**Local verification**:
+- With socat: 166/166 tests green under Debug and Release.
+- Simulated "no socat" (`PATH=/nonexistent`): 3/3 [socat] cases skipped
+  cleanly, 0 failures in the affected binary.
+
+**Freeze scope**: no M2 frozen .hpp modified. No interface signature
+changes (only a new static method on the test-only `SocatVirtualPair`
+fixture, which is not part of any freeze list).
+
 ### S7 — UdpDriver + unit tests (close)
 
 - **Files delivered**: `udp_driver.{hpp,cpp}` (UdpIoWorker lives in the

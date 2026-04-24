@@ -63,6 +63,9 @@ SerialConfig cfgFor(const QString& device) {
 }  // namespace
 
 TEST_CASE("serial loopback: bidirectional short payload via socat pair", "[integration][serial][socat]") {
+    if (!SocatVirtualPair::isAvailable()) {
+        SKIP("socat executable not found on PATH; install socat to run this test");
+    }
     SocatVirtualPair pair;
 
     SerialDriver a{cfgFor(pair.side0())};
@@ -107,6 +110,9 @@ TEST_CASE("serial loopback: bidirectional short payload via socat pair", "[integ
 }
 
 TEST_CASE("serial loopback: lossless bulk transfer (256 KB A→B)", "[integration][serial][socat]") {
+    if (!SocatVirtualPair::isAvailable()) {
+        SKIP("socat executable not found on PATH; install socat to run this test");
+    }
     SocatVirtualPair pair;
 
     SerialDriver a{cfgFor(pair.side0())};
@@ -155,6 +161,9 @@ TEST_CASE("serial loopback: lossless bulk transfer (256 KB A→B)", "[integratio
 }
 
 TEST_CASE("serial loopback: mid-run socat disconnect triggers error", "[integration][serial][socat]") {
+    if (!SocatVirtualPair::isAvailable()) {
+        SKIP("socat executable not found on PATH; install socat to run this test");
+    }
     auto pair = std::make_unique<SocatVirtualPair>();
 
     SerialDriver a{cfgFor(pair->side0())};
