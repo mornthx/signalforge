@@ -477,3 +477,51 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~1.5 h (under 4 h plan estimate — most scenarios were
   already natural extensions of established patterns).
+
+### S10 — Performance benchmarks (start)
+
+**Goal**: deliver `tests/benchmark/{CMakeLists.txt, bench_driver_throughput.cpp,
+bench_driver_latency.cpp, bench_driver_footprint.cpp, run_baselines.sh,
+results/M3-baseline.md}` per spec §5.4 and M3-plan S10. Benchmarks are
+gated behind `-DSIGNALFORGE_BENCHMARKS=ON`, not part of ctest, not run
+in CI (spec §5.7).
+
+**Approach**: plain C++/Qt harnesses with no new dependency. Each
+executable writes one JSON-line per scenario to stdout; `run_baselines.sh`
+aggregates them into `M3-baseline.md`. Thresholds evaluated against
+spec §5.4 tables; any miss categorized per §5.5.
+
+No M2 frozen .hpp touched.
+
+### S10 — Performance benchmarks (close)
+
+- **Files delivered**:
+  - `tests/benchmark/CMakeLists.txt` (gated)
+  - `tests/benchmark/bench_driver_throughput.cpp` — TCP/UDP/Serial
+  - `tests/benchmark/bench_driver_latency.cpp` — TCP/UDP percentiles
+  - `tests/benchmark/bench_driver_footprint.cpp` — RSS deltas
+  - `tests/benchmark/run_baselines.sh`
+  - `tests/benchmark/results/M3-baseline.md` (committed)
+- **Root-level CMake**: new option `SIGNALFORGE_BENCHMARKS=OFF`
+  gating an `add_subdirectory(benchmark)` from `tests/CMakeLists.txt`.
+- **Results on this host** (Ubuntu 24.04, kernel 6.8):
+  - TCP localhost echo: **149 MB/s** (threshold 100 MB/s) ✓
+  - UDP localhost unicast 1 KB: **198 600 /s** (threshold 50 000 /s) ✓
+  - Serial 115 200 / 921 600 via socat: **~21 MB/s** each (thresholds
+    11 KB/s / 90 KB/s) ✓ — socat PTY doesn't enforce baud; numbers
+    reflect PTY pipe bandwidth, documented §5.5 Category 4.
+  - TCP p99 latency: **0.24 ms** (threshold 2 ms) ✓
+  - UDP p99 latency: **0.19 ms** (threshold 1 ms) ✓
+  - TCP construct footprint: **64 KB** (threshold 500 KB) ✓
+  - UDP construct footprint: **0 KB** ✓
+  - Replay construct footprint: **940 KB** ⚠ miss — §5.5 Category 2:
+    first-driver-in-process pays Qt thread + metatype + spdlog + sentry
+    one-time costs. Subsequent drivers clean up (TCP = 64 KB, UDP = 0 KB).
+  - TCP 100-cycle RSS growth: **640 KB** (threshold 1 MB) ✓
+  - Replay 100-cycle RSS growth: **512 KB** (threshold 500 KB) ⚠ 12 KB
+    over — §5.5 Category 3: glibc ptmalloc arena caching. ASan CI run
+    (`24884515293`) reports no driver-path leaks.
+- **No HALT**: every threshold miss has a §5.5 category (Q1/Q2 Qt, or
+  Q3 Linux/glibc). CC code is ASan-clean.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~2 h (under 5 h plan estimate).

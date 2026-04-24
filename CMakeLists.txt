@@ -16,6 +16,8 @@ qt_standard_project_setup()
 
 include(cmake/dependencies.cmake)
 
+option(SIGNALFORGE_BENCHMARKS "Build the M3 driver benchmark executables (throughput/latency/footprint)" OFF)
+
 enable_testing()
 
 add_subdirectory(src/platform)
