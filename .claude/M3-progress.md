@@ -263,5 +263,44 @@ No M2 frozen .hpp touched.
 - **Freeze scope**: no M2 frozen .hpp modified.
 - **Time**: ~1.5 h (under 3 h plan estimate).
 
+### S6 — TCP echo integration (start)
+
+**Goal**: deliver an in-process TCP echo server fixture
+(`echo_server_fixture.{hpp,cpp}`) and `tests/integration/test_tcp_driver_echo.cpp`
+covering spec §5.3.2 scenarios: short bidirectional payload, lossless
+bulk round-trip, and peer-side abrupt close → ResourceLost.
+
+**Approach**: `EchoServer` wraps a `QTcpServer` bound to `127.0.0.1`
+on an ephemeral port (port() readable after `listen()`). For each
+incoming connection, the server hooks `readyRead` to echo `readAll()`
+back, and `disconnected` to `deleteLater`. `closeAllClients()`
+aborts each active `QTcpSocket*` for mid-run simulation. Packaged as
+a separate static library `signalforge_echo_server_fixture` so future
+UDP / error-path tests can reuse it.
+
+No M2 frozen .hpp touched.
+
+### S6 — TCP echo integration (close)
+
+- **Files delivered**:
+  - `tests/integration/echo_server_fixture.{hpp,cpp}` (new static
+    library `signalforge_echo_server_fixture`)
+  - `tests/integration/test_tcp_driver_echo.cpp` (3 scenarios)
+- **Test scenarios**:
+  1. Short bidirectional: 100-byte payload echoed back exactly.
+  2. Lossless bulk 256 KB round-trip with chunked writes + interleaved
+     event-pump (correctness check; rate goes in S10).
+  3. Peer-side `abort()` mid-run → driver transitions to Error and
+     emits `errorOccurred` with `ResourceLost` or `IoFailure`.
+- **Tests**: 3 new integration cases. 155 total tests pass under Debug
+  and Release. No `[socat]` label — the fixture is fully in-process,
+  so the test executes on every host.
+- **Coverage**: exercises read path (`readyRead` → `RawFrame`), write
+  path under `Running`, state machine Idle→Open→Running→Idle, and the
+  peer-drop error branch. Combined with S5 unit tests, TcpDriver
+  exceeds the 75 % floor in §5.1.
+- **Freeze scope**: no M2 frozen .hpp modified.
+- **Time**: ~1.5 h (under 3 h plan estimate).
+
 
 

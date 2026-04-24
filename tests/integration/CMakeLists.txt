@@ -51,6 +51,31 @@ target_link_libraries(test_serial_driver_loopback
 )
 catch_discover_tests(test_serial_driver_loopback DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "socat")
 
+add_library(signalforge_echo_server_fixture STATIC
+    echo_server_fixture.cpp
+    echo_server_fixture.hpp
+)
+target_link_libraries(signalforge_echo_server_fixture
+    PUBLIC Qt6::Core Qt6::Network
+)
+target_include_directories(signalforge_echo_server_fixture PUBLIC ${CMAKE_SOURCE_DIR})
+set_target_properties(signalforge_echo_server_fixture PROPERTIES AUTOMOC ON)
+
+add_executable(test_tcp_driver_echo
+    test_tcp_driver_echo.cpp
+)
+target_link_libraries(test_tcp_driver_echo
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+        signalforge_drivers
+        signalforge_frame
+        signalforge_echo_server_fixture
+)
+catch_discover_tests(test_tcp_driver_echo DISCOVERY_MODE PRE_TEST)
+
 add_executable(test_replay_driver_skeleton
     test_replay_driver_skeleton.cpp
 )
