@@ -572,3 +572,91 @@ is explicitly not-frozen per M3-done.md "Not frozen". The new
 ctor overload is an additive extension preserving the existing API.
 
 **Time**: ~35 min (under 2 h plan estimate).
+
+### S7 — integration tests (start)
+
+**Goal**: per plan §2 S7 + spec §5.3, three integration tests under
+`tests/integration/`:
+1. `test_pipeline_driver_integration.cpp` — end-to-end with real
+   drivers:
+   - Scenario 1: ReplayDriver skeleton + pipeline lifecycle; sink
+     observes onLifecycle transitions, no frames.
+   - Scenario 2: two UdpDrivers on localhost; register counting sink
+     with driver A's pipeline; driver B sends N datagrams; sink sees
+     exactly N.
+2. `test_pipeline_backpressure.cpp` — slow sink causes watermark
+   crossing. Uses a driver that emits synthetic frames rapidly (we'll
+   use UdpDriver flood since driver_lifecycle_with_mock exists).
+   Actually, simpler: register a CountingSink + a BlockingSink with a
+   pipeline that has high ingressCapacity. Emit many frames via
+   driver — watch watermark metric cross threshold.
+3. `test_pipeline_fanout.cpp` — 3 sinks registered; 50 frames via
+   UdpDriver loopback; each sink sees 50 frames.
+
+**Approach**:
+- Reuse M3's `UdpDriver` + `signalforge_echo_server_fixture` for
+  TCP-like scenarios; UDP loopback uses the `udp_loopback` helper
+  pattern from M3's `test_udp_driver_loopback.cpp`.
+- Tests run under `test_pipeline_*` binaries; each is a separate
+  Catch2 executable linking `signalforge_pipeline` +
+  `signalforge_drivers` + `signalforge_frame` +
+  `signalforge_mocks` (where handy) + `Qt6::Network`.
+- Existing unit tests in `tests/unit/pipeline/pipeline_test.cpp`
+  already cover the fanout+exception isolation+stats logic at unit
+  level. S7 integration tests assert the same behaviour through a
+  real driver (UdpDriver) to exercise the Qt::QueuedConnection hop
+  and the MpscQueue contention under real-world timing.
+
+No M2/M3-frozen .hpp touched.
+
+### S7 — integration tests (close)
+
+**Files delivered**:
+- `tests/integration/test_pipeline_driver_integration.cpp` (2 cases):
+  * ReplayDriver skeleton lifecycle: open → start → stop → close
+    across a pipeline worker. Sink observes Opening / Open / Running /
+    Idle transitions via atomic flags (thread-safe across the worker
+    boundary). No frames, as expected for the skeleton.
+  * Two UdpDrivers on localhost: B→A; sink on A's pipeline receives
+    100 frames; framesReceived ≥ 100, framesDropped == 0.
+- `tests/integration/test_pipeline_fanout.cpp` (1 case):
+  * 3 sinks registered with driver A's pipeline; B sends 50 frames;
+    every sink receives 50 frames with correct payload size.
+- `tests/integration/test_pipeline_backpressure.cpp` (1 case):
+  * Slow sink (1 ms per onFrame) + 100-frame burst; confirms no
+    frame loss, counter metric ≥ 100, framesDropped == 0.
+- `tests/integration/CMakeLists.txt`: 3 new executables wired into
+  `catch_discover_tests`.
+
+**Design note on backpressure** (documented inline in
+`test_pipeline_backpressure.cpp` header and in `.claude/M4-plan.md`
+annotation):
+
+> With the inline-drain design, the MpscQueue rarely accumulates
+> because every `enqueueFrame` slot invocation drains to empty before
+> returning. Burst backlog instead accumulates in Qt's worker-thread
+> event queue. This is an intentional latency-vs-observability
+> trade-off: the integration test therefore verifies that a slow sink
+> does not lose frames, rather than trying to exercise the 80 %
+> watermark crossing. Threshold-crossing behaviour is unit-tested at
+> the `WatermarkTracker::observe` level in M2's backpressure_test,
+> and the capacity-exhausted drop path is covered by the S4
+> `ingressCapacity=0` unit test.
+
+**Fix during S7**: the ReplayDriver lifecycle test initially asserted
+a fixed `lifecycle >= 6` count, which raced with the async arrival of
+the final Idle transition (it was event #7). Rewrote using atomic
+per-state flags and a compound `pumpUntil` predicate that waits for
+all four required states to arrive, avoiding both the race and a
+separate thread-safety concern (the previous test used a `QVector`
+updated from the worker thread and read from main).
+
+**Verification**:
+- Debug + Release: 215/215 tests pass (4 new integration cases).
+- debug-asan: builds clean (runtime blocked locally; CI authoritative).
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified.
+
+**Time**: ~1.5 h (under 3 h plan estimate; the ReplayDriver-lifecycle
+timing issue cost ~20 min to diagnose).
