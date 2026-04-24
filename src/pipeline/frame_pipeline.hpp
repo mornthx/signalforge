@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -65,6 +66,12 @@ struct PipelineConfig {
 class FramePipeline : public QObject {
     Q_OBJECT
     Q_DISABLE_COPY_MOVE(FramePipeline)
+
+    // Worker is an internal implementation detail defined in the .cpp; it
+    // needs read access to the sink list and write access to the stats
+    // counters. Kept as friend rather than exposing those as public API so
+    // the class contract stays the one in §6.1 (freeze surface).
+    friend class PipelineWorker;
 
 public:
     /// Construct a pipeline for a driver. Pipeline is created in a "ready"
@@ -131,6 +138,11 @@ private:
     // Sink registry. Guarded by sinkMutex_.
     mutable std::mutex sinkMutex_;
     std::vector<std::shared_ptr<FrameSink>> sinks_;
+
+    // Stats counters. Worker updates; accessors read via stats().
+    std::atomic<std::uint64_t> framesReceived_{0};
+    std::atomic<std::uint64_t> framesDropped_{0};
+    std::atomic<std::uint64_t> errorsForwarded_{0};
 
     // Driver connection state
     signalforge::drivers::DriverInterface* driver_ = nullptr;

@@ -174,3 +174,102 @@ identical to M2. `FramePipeline` + `PipelineConfig` + `Stats` enter
 the M4 freeze at M4 close.
 
 **Time**: ~50 min (well under 4 h plan estimate).
+
+### S3 — driver wiring + frame fanout + sink exception isolation (start)
+
+**Goal**: complete `attachDriver` and the worker's drain/forward
+logic so a live `DriverInterface` delivers frames to every
+registered sink on the pipeline's thread, with exception isolation
+(spec §7.4 HALT trigger — a throwing sink must not crash the
+pipeline).
+
+**Approach**:
+- `attachDriver` connects the three driver signals
+  (`frameReceived` / `errorOccurred` / `stateChanged`) to worker
+  slots with `Qt::QueuedConnection`, so the worker is the first
+  thread-affinity transition point.
+- Worker slot `enqueueFrame(RawFrame)`: push to MPSC; if push fails
+  (full), increment drop counter + log WARN (real metrics in S4).
+  Post a single-shot `drain()` via
+  `QMetaObject::invokeMethod(Qt::QueuedConnection)`; batched enqueues
+  collapse to one drain event.
+- Worker slot `drain()`: while MPSC pops a frame, snapshot sinks
+  under mutex, release, iterate, call each sink's `onFrame` inside a
+  `try { ... } catch (const std::exception&) { ... } catch (...)
+  { ... }` — logged at ERROR, no rethrow (spec §3.1).
+- Worker slots `forwardError(DriverError)` and
+  `forwardState(DriverState)` call sinks directly (not queued
+  through MPSC since they are rare events per spec §4.4). Same
+  try/catch isolation per sink.
+- Uses the same sink-snapshot pattern (take a copy of `sinks_`
+  under lock, release lock before iterating) so a sink's
+  `removeSink` during an in-flight callback does not block the
+  worker, and a sink that has already been removed is not
+  mid-called (the shared_ptr snapshot pins it until the frame
+  batch finishes).
+
+**Tests** (unit-level using a MockDriver):
+- Fanout: 3 sinks → frame emission results in 3 onFrame calls.
+- Error forwarding: driver errorOccurred → all sinks onError.
+- State forwarding: driver stateChanged → all sinks onLifecycle.
+- Sink exception isolation: middle sink throws; other two still
+  called; pipeline stays alive; next frame still fanned out.
+- Cross-thread affinity: worker slots execute on the pipeline thread
+  (not main), verified via QThread::currentThread().
+
+No M2/M3-frozen .hpp touched. M3's `MockDriver` (from
+`tests/mocks/mock_driver.hpp`) is reused.
+
+### S3 — driver wiring + frame fanout + sink exception isolation (close)
+
+**Files delivered**:
+- `src/pipeline/frame_pipeline.hpp`:
+  - Added `friend class PipelineWorker;` so the internal worker can
+    access `sinks_ / sinkMutex_ / framesReceived_ / framesDropped_ /
+    errorsForwarded_` without exposing them as public API.
+  - Added three atomic `std::uint64_t` counters for stats; bumped
+    `stats()` to surface them.
+- `src/pipeline/frame_pipeline.cpp`:
+  - `PipelineWorker` gained three `public slots`: `enqueueFrame`,
+    `forwardError`, `forwardState`. Each drains sinks on the pipeline
+    thread with per-sink `try / catch(std::exception&) / catch(...)`
+    isolation + ERROR log on throw.
+  - `enqueueFrame` pushes to MPSC then `drain()` inline — single
+    worker-thread hop per frame batch. A full queue increments
+    `framesDropped_` and logs WARN.
+  - `forwardError` / `forwardState` bypass the MPSC (rare events).
+  - Worker holds `FramePipeline*` back-pointer to read the sink list
+    and update counters.
+  - `attachDriver`: connects driver's three signals to worker slots
+    with `Qt::QueuedConnection`. nullptr and double-attach are
+    rejected + logged.
+  - Destructor: disconnects worker from driver before thread join to
+    avoid late-signal-into-half-destroyed-worker.
+  - `resetBackpressureStats` now resets `framesDropped_` (peak
+    watermark still S4).
+- `tests/unit/pipeline/pipeline_test.cpp` + `CMakeLists.txt`:
+  - Links `signalforge_mocks` + `Qt6::Test`.
+  - Adds `CountingSink` / `ThrowingSink` helpers + `pumpUntil` wait
+    helper.
+  - 5 new cases:
+    * fanout to 3 sinks (each receives one onFrame with matching
+      payload; framesReceived=1, framesDropped=0)
+    * errorOccurred fans out to every sink; `errorsForwarded=1`
+    * stateChanged fans out at every transition (open → Opening →
+      Open, sink sees 2 onLifecycle calls)
+    * throwing sink isolated — siblings still called; pipeline alive
+      after; next frame still delivered
+    * sink callbacks run on the pipeline thread, not main
+
+**Verification**:
+- Debug + Release: 199/199 tests pass.
+- debug-asan: builds clean (runtime blocked locally; CI authoritative).
+- clang-format: clean.
+
+**Freeze scope**: no M2/M3-frozen .hpp modified. The `friend class
+PipelineWorker` line inside the M4-frozen `FramePipeline` declaration
+is a pre-freeze implementation choice; the freeze snapshot captures
+it. New atomic members are private and behind the `private:` label —
+not part of the public ABI.
+
+**Time**: ~1 h (well under 3 h plan estimate).
