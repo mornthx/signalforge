@@ -8,4 +8,7 @@ target_link_libraries(signalforge
     PRIVATE
         Qt6::Widgets
         signalforge_observability
+        signalforge_platform
+        signalforge_frame
+        signalforge_drivers
 )

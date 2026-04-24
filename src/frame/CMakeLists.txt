@@ -1,5 +1,6 @@
 add_library(signalforge_frame STATIC
-    placeholder.cpp
+    raw_frame.cpp
+    backpressure.cpp
 )
 target_include_directories(signalforge_frame PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(signalforge_frame PUBLIC Qt6::Core)
