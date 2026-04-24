@@ -157,6 +157,49 @@ TEST_CASE("MetricsRegistry: getOrCreate and snapshot concurrent are safe", "[obs
     REQUIRE(names.size() == 4 * 1000);
 }
 
+TEST_CASE("isValidMetricName: accepts permissive set per ADR-003", "[observability][metrics]") {
+    using signalforge::observability::isValidMetricName;
+    REQUIRE(isValidMetricName(QStringLiteral("snake_case")));
+    REQUIRE(isValidMetricName(QStringLiteral("pipeline_frames_received_serial:/tmp/ttyV0")));
+    REQUIRE(isValidMetricName(QStringLiteral("tcp_rx_bytes_localhost:9000")));
+    REQUIRE(isValidMetricName(QStringLiteral("metric.with.dots")));
+    REQUIRE(isValidMetricName(QStringLiteral("metric-with-dashes")));
+    REQUIRE(isValidMetricName(QStringLiteral("metric@host")));
+    REQUIRE(isValidMetricName(QStringLiteral("metric[index]")));
+    REQUIRE(isValidMetricName(QStringLiteral("队列_水位")));
+}
+
+TEST_CASE("isValidMetricName: rejects tooling-hostile characters per ADR-003", "[observability][metrics]") {
+    using signalforge::observability::isValidMetricName;
+    REQUIRE_FALSE(isValidMetricName(QString()));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric with space")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric\twith\ttab")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric\nwith\nnewline")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric\"with\"quote")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric'with'apostrophe")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric\\with\\backslash")));
+    REQUIRE_FALSE(isValidMetricName(QStringLiteral("metric<with>angle")));
+}
+
+TEST_CASE("MetricsRegistry: getOrCreate returns nullptr on invalid name", "[observability][metrics]") {
+    auto& r = freshRegistry();
+    REQUIRE(r.getOrCreate(QString(), MetricKind::Counter) == nullptr);
+    REQUIRE(r.getOrCreate(QStringLiteral("metric with space"), MetricKind::Counter) == nullptr);
+    REQUIRE(r.getOrCreate(QStringLiteral("metric<with>angle"), MetricKind::Gauge) == nullptr);
+    REQUIRE(r.metricNames().empty());  // No side effect on rejected names
+}
+
+TEST_CASE("MetricsRegistry: getOrCreate accepts separator-rich driver IDs per ADR-003", "[observability][metrics]") {
+    auto& r = freshRegistry();
+    const QString name = QStringLiteral("pipeline_frames_received_tcp:127.0.0.1:9000");
+    auto* a = r.getOrCreate(name, MetricKind::Counter);
+    REQUIRE(a != nullptr);
+    REQUIRE(a->name() == name);
+    auto* b = r.getOrCreate(name, MetricKind::Counter);
+    REQUIRE(b == a);
+}
+
 TEST_CASE("MetricsRegistry: clearForTesting empties the registry", "[observability][metrics]") {
     auto& r = MetricsRegistry::instance();
     r.clearForTesting();
