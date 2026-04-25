@@ -351,3 +351,93 @@ itself is not frozen per spec §6.2.
   crash the producer; the same discipline applies to a SignalValueSink.
 
 **Time**: ~2 h (under 6 h plan estimate).
+
+---
+
+### S4 — DecoderRegistrar (start)
+
+**Goal**: per plan §2 S4 + spec §4.6, deliver:
+
+1. `src/decode/decoder_registrar.{hpp,cpp}`:
+   - QObject listening on `PipelineManager::pipelineAttached`.
+   - Constructor takes `PipelineManager*` and a
+     `std::unordered_map<QString, QString>` driver-type → schema-path.
+   - Hard-coded for M5 (M9 replaces with UI-driven selection).
+   - Driver type extracted from driverId prefix before the `:`.
+   - On a recognized type, validates the schema file via
+     `SchemaValidator::validateFile`; on success constructs a
+     `SchemaDecoder` (shared_ptr) and registers via `pipeline->addSink`.
+   - On `pipelineDetached`, releases the decoder for that driverId.
+   - Optional process-wide `LoggingSignalValueSink` wired as the
+     default for M5; M6 will replace.
+   - Spec §7.6: validate + construct must complete < 100 ms on the
+     calling (UI / event-loop) thread; for typical schemas this is
+     milliseconds.
+2. 3 unit tests per plan: empty map → no decoders attached;
+   unrecognized type → skip with INFO log; valid map → decoder
+   registered + sinkCount increments.
+
+No M2/M3/M4-frozen .hpp touched. PipelineManager and FramePipeline
+are M4-frozen and consumed via their public API only.
+
+### S4 — DecoderRegistrar (close)
+
+**Files delivered**:
+- `src/decode/decoder_registrar.{hpp,cpp}`:
+  - `DecoderRegistrar` is a `QObject` taking `PipelineManager*`, a
+    `std::unordered_map<QString, QString>` driver-type → schema-path,
+    and an optional `std::shared_ptr<SignalValueSink>` default sink.
+  - Connects to `pipelineAttached` and `pipelineDetached` signals at
+    construction (auto-disconnects via `QObject` parent-child cleanup
+    when destroyed).
+  - `onPipelineAttached`: extracts the type prefix via `driverTypeOf`,
+    looks up the schema path, runs `SchemaValidator::validateFile`,
+    constructs `SchemaDecoder`, attaches the default sink (if any),
+    registers via `pipeline->addSink`, and tracks the decoder under
+    its `driverId`.
+  - `onPipelineDetached`: releases the decoder for that `driverId`;
+    `SchemaDecoder` destructor unregisters the sink cleanly.
+  - Unknown types or empty/missing schema paths log INFO and skip
+    silently (per spec §4.6 — not every driver has a schema in M5).
+  - Validation failures log a per-error ERROR including filePath +
+    line + fieldPath + message; the pipeline is not blocked.
+- `src/decode/CMakeLists.txt`: added `decoder_registrar.{cpp,hpp}` to
+  sources, set `AUTOMOC ON` (the registrar is the first QObject in
+  this static lib).
+- `tests/unit/decode/decoder_test.cpp`: added 4 cases:
+  - `driverTypeOf` splits on the first `:` (handles `tcp:host:port`,
+    plain `nocolon`, etc.).
+  - Empty schema map yields no decoders (no signal slots fire).
+  - Unknown driver type is skipped (no decoder created even when
+    the slot is invoked manually with a bogus `driverId`).
+  - Valid map + canonical schema: `onPipelineAttached` invocation
+    creates a decoder, registers it as a sink (so `sinkCount` rises
+    to 1), and `onPipelineDetached` cleans it up.
+- `tests/unit/decode/decoder_test.cpp` also gained a `CoreAppHolder`
+  fixture (mirrors the pipeline test) to provide a `QCoreApplication`
+  + register Qt metatypes for the FramePipeline path.
+
+**Build verification**:
+- Debug (C++23): clean.
+- Release (C++23): clean.
+- debug-asan (C++23): clean.
+
+**Test verification**:
+- Debug: 232/232 tests pass (+ 4 DecoderRegistrar cases).
+- Release: 232/232 tests pass.
+- debug-asan: runtime still blocked locally by `/etc/ld.so.preload`.
+
+**Format**: `clang-format --dry-run -Werror` clean on changed files.
+
+**Spec §7.6 (UI thread block ≤ 100 ms)**: validate + construct
+measured in microseconds for the canonical example (the Debug build
+runs the full test in ~13 ms wall-clock for the registrar TC, which
+includes pipeline + manager + decoder construction and signal
+delivery). No HALT trigger.
+
+**Freeze scope**: no M2/M3/M4-frozen .hpp modified. The registrar is
+not part of the M5 freeze surface (see spec §6.2).
+
+**Time**: ~1 h (under 2 h plan estimate; the slot-invocation test
+pattern via `QMetaObject::invokeMethod` keeps the tests
+deterministic without needing an event-loop spin).

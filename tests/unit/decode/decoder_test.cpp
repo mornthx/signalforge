@@ -1,14 +1,42 @@
 // tests/unit/decode/decoder_test.cpp
 #include "decode/decoder_interface.hpp"
+#include "decode/decoder_registrar.hpp"
 #include "decode/logging_signal_value_sink.hpp"
 #include "decode/schema_decoder.hpp"
 #include "decode/schema_validator.hpp"
+#include "drivers/driver_interface.hpp"
 #include "frame/raw_frame.hpp"
+#include "pipeline/frame_pipeline.hpp"
+#include "pipeline/pipeline_manager.hpp"
 
+#include <QCoreApplication>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <memory>
 
+namespace {
+
+class CoreAppHolder {
+public:
+    CoreAppHolder() {
+        signalforge::frame::registerMetatypes();
+        signalforge::drivers::registerMetatypes();
+        if (QCoreApplication::instance() == nullptr) {
+            static int argc = 1;
+            static char argv0[] = "decoder_test";
+            static char* argv[] = {argv0, nullptr};
+            app_ = std::make_unique<QCoreApplication>(argc, argv);
+        }
+    }
+
+private:
+    std::unique_ptr<QCoreApplication> app_;
+};
+[[maybe_unused]] CoreAppHolder g_app;
+
+}  // namespace
+
+using signalforge::decoder::DecoderRegistrar;
 using signalforge::decoder::Endianness;
 using signalforge::decoder::FieldEncoding;
 using signalforge::decoder::LoggingSignalValueSink;
@@ -295,4 +323,56 @@ TEST_CASE("SchemaDecoder: unmatched frame emits nothing", "[decoder][schema_deco
 
     decoder.onFrame(frame);
     REQUIRE(sink->signalsReceived() == 0);
+}
+
+TEST_CASE("DecoderRegistrar: driverTypeOf splits on first colon", "[decoder][registrar]") {
+    REQUIRE(DecoderRegistrar::driverTypeOf(QStringLiteral("serial:0")) == QStringLiteral("serial"));
+    REQUIRE(DecoderRegistrar::driverTypeOf(QStringLiteral("tcp:127.0.0.1:9000")) == QStringLiteral("tcp"));
+    REQUIRE(DecoderRegistrar::driverTypeOf(QStringLiteral("udp:foo")) == QStringLiteral("udp"));
+    REQUIRE(DecoderRegistrar::driverTypeOf(QStringLiteral("nocolon")).isEmpty());
+}
+
+TEST_CASE("DecoderRegistrar: empty schema map does not attach decoders", "[decoder][registrar]") {
+    signalforge::pipeline::PipelineManager manager;
+    DecoderRegistrar registrar(&manager, /*map=*/{}, /*sink=*/nullptr);
+    REQUIRE(registrar.decoderCount() == 0);
+}
+
+TEST_CASE("DecoderRegistrar: unknown driver type is skipped, no decoder attached", "[decoder][registrar]") {
+    signalforge::pipeline::PipelineManager manager;
+    DecoderRegistrar registrar(&manager, {{QStringLiteral("serial"), QStringLiteral("/tmp/never-read.yaml")}}, nullptr);
+    // Directly invoke the slot via signal name (private slot but we can test
+    // by emitting from the manager).  The pipeline pointer is irrelevant
+    // here because the registrar bails on the unknown type before touching it.
+    QMetaObject::invokeMethod(&registrar, "onPipelineAttached", Qt::DirectConnection,
+                              Q_ARG(QString, QStringLiteral("usb:0")),
+                              Q_ARG(signalforge::pipeline::FramePipeline*, nullptr));
+    REQUIRE(registrar.decoderCount() == 0);
+}
+
+TEST_CASE("DecoderRegistrar: valid schema attaches decoder on pipelineAttached", "[decoder][registrar]") {
+    using signalforge::pipeline::FramePipeline;
+    using signalforge::pipeline::PipelineConfig;
+    using signalforge::pipeline::PipelineManager;
+
+    const QString schemaPath = QStringLiteral(SIGNALFORGE_REPO_ROOT "/schemas/decoder_schema_v1.yaml");
+    PipelineConfig cfg;
+    cfg.driverId = QStringLiteral("replay:fixture");
+    FramePipeline pipeline(cfg);
+
+    PipelineManager manager;
+    DecoderRegistrar registrar(&manager, {{QStringLiteral("replay"), schemaPath}},
+                               std::make_shared<LoggingSignalValueSink>());
+
+    REQUIRE(pipeline.sinkCount() == 0);
+    REQUIRE(registrar.decoderCount() == 0);
+
+    QMetaObject::invokeMethod(&registrar, "onPipelineAttached", Qt::DirectConnection, Q_ARG(QString, cfg.driverId),
+                              Q_ARG(FramePipeline*, &pipeline));
+
+    REQUIRE(registrar.decoderCount() == 1);
+    REQUIRE(pipeline.sinkCount() == 1);
+
+    QMetaObject::invokeMethod(&registrar, "onPipelineDetached", Qt::DirectConnection, Q_ARG(QString, cfg.driverId));
+    REQUIRE(registrar.decoderCount() == 0);
 }
