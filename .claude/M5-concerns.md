@@ -183,3 +183,55 @@ single oversize PR.
 **Status**: open. Will be closed at M5 review along with the tiered
 rule's adoption (or by an explicit one-time waiver in the M5-done.md
 review).
+
+---
+
+## 5. `tools/schema_lint/` integrated into main build, not standalone
+
+**When**: S9.
+
+**What the spec says** (M5 §4.7):
+
+> Structure matches `tools/crash_test/` pattern (standalone CMake,
+> not wired into main build):
+
+**Why crash_test is standalone**: `tools/crash_test/` pins a specific
+sentry-native version independently of the main project so it can be
+built and run out of tree, providing a sentry-free reference point
+for crash-handler validation. The reason is sentry-specific.
+
+**Why it does not apply to schema_lint**: schema_lint depends on the
+in-tree `SchemaValidator` (per spec §4.7 itself: "Links against
+`signalforge_decoder` (contains `SchemaValidator`)"). Linking against
+an in-tree static library is incompatible with an out-of-tree CMake
+project, unless schema_lint either:
+
+1. Recompiles `schema_validator.cpp` + `schema.hpp` directly into the
+   schema_lint binary (duplicates the build surface), or
+2. Re-fetches yaml-cpp + nlohmann_json + Qt independently (duplicates
+   FetchContent declarations).
+
+Both options are worse than wiring `tools/schema_lint/` into the main
+build via `add_subdirectory`. The latter:
+
+- Builds with the same toolchain + flags as the rest of the project
+  (consistent UBSan/ASan instrumentation, same Qt path).
+- Tracks every change to `SchemaValidator` automatically (any
+  rebuild invalidates the schema_lint binary, so it cannot drift).
+- Adds ~50 ms to the link phase of the main build; negligible.
+
+**Resolution**: schema_lint lives at `tools/schema_lint/` with its
+own CMakeLists.txt subdirectory, but is wired into the main build via
+`add_subdirectory(tools/schema_lint)` in the root CMakeLists.txt.
+The binary lands at `build/<preset>/tools/schema_lint/schema_lint`.
+
+The spec wording ("matches `tools/crash_test/` pattern") is read as
+"has its own subdirectory under tools/", not "must be out-of-tree".
+This interpretation is consistent with §4.7's other requirement that
+schema_lint link against `signalforge_decoder`.
+
+**Impact**: minor — the spec author and the implementer would
+reach the same conclusion; this concerns entry simply records the
+ambiguity resolution for milestone review.
+
+**Status**: resolved in S9. Approval acknowledged at M5 close.

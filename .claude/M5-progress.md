@@ -721,3 +721,77 @@ Run-to-run variance < 0.4 %. Both scenarios well above thresholds.
 
 **Time**: ~1 h (under 2 h plan estimate; both scenarios passed
 first run, no optimization pass needed).
+
+---
+
+### S9 — schema_lint CLI (start + close)
+
+**Files delivered**:
+- `tools/schema_lint/main.cpp` — CLI per spec §4.7. Accepts a yaml
+  path + optional `--json` flag; supports `--help`/`-h`. Calls
+  `SchemaValidator::validateFile` and emits either human-readable
+  (`OK:` / `FAIL:` + per-error file:line — fieldPath: message lines)
+  or machine-readable JSON output.
+  Exit codes: 0 valid / 1 invalid / 2 usage error.
+- `tools/schema_lint/CMakeLists.txt` — `add_executable(schema_lint
+  main.cpp)`; PRIVATE links Qt6::Core, signalforge_decoder,
+  signalforge_frame, nlohmann_json::nlohmann_json.
+- `tools/schema_lint/README.md` — usage examples for valid + invalid
+  schemas, JSON-output sample, deployment guidance.
+- `CMakeLists.txt` (root): added `add_subdirectory(tools/schema_lint)`
+  before the tests subdirectory.
+- `.claude/M5-concerns.md` entry #5 — documents the deviation from
+  spec's "matches `tools/crash_test/` pattern (standalone)" wording:
+  schema_lint must link against the in-tree `signalforge_decoder`
+  per spec §4.7 itself, so it lives under the main build graph
+  rather than as an out-of-tree project. Approval acknowledged.
+
+**Smoke-test results** (Debug build):
+
+```
+$ schema_lint examples/schemas/temperature_sensor.yaml
+OK: .../temperature_sensor.yaml (1 layout, 6 fields)        exit=0
+
+$ schema_lint examples/schemas/modbus_style.yaml
+OK: .../modbus_style.yaml (2 layouts, 10 fields)            exit=0
+
+$ schema_lint .../missing_version.yaml
+FAIL: ...
+  /abs/path:2 — schema_version: 'schema_version' is required (must be 1)
+                                                            exit=1
+
+$ schema_lint .../bit_overlap.yaml
+FAIL: ...
+  /abs/path:11 — layouts[0].fields[0].bit_fields:
+      bit ranges overlap at bits [0, 2) and [1, 3)
+                                                            exit=1
+
+$ schema_lint .../temperature_sensor.yaml --json
+{"errors":[],"fields":6,"layouts":1,"path":"...","valid":true}
+                                                            exit=0
+
+$ schema_lint .../missing_version.yaml --json
+{"errors":[{"field":"schema_version","line":2,"message":"...",...}],
+ "path":"...","valid":false}                                exit=1
+
+$ schema_lint
+Usage: schema_lint <file.yaml> [--json] ...               exit=2
+
+$ schema_lint /tmp/never.yaml
+schema_lint: file does not exist: /tmp/never.yaml           exit=2
+```
+
+JSON output is valid JSON (verified by visual inspection; key ordering
+is alphabetical via nlohmann's default).
+
+**Build verification**:
+- Debug: schema_lint binary builds clean.
+- Release: schema_lint binary builds clean.
+- debug-asan: schema_lint binary builds clean.
+- 265/265 ctest pass (no regressions).
+
+**Format**: clean.
+
+**Freeze scope**: no M2/M3/M4-frozen .hpp modified.
+
+**Time**: ~1 h (under 2 h plan estimate).
