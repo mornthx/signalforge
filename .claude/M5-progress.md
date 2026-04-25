@@ -664,3 +664,60 @@ signalforge_frame, signalforge_observability) and the
 consume only public API.
 
 **Time**: ~1 h (under 4 h plan estimate).
+
+---
+
+### S8 — Benchmark + M5-baseline.md (start)
+
+**Goal**: per plan §2 S8 + spec §7.4, deliver:
+
+1. `tests/benchmark/bench_decoder_throughput.cpp`:
+   - Pre-build a vector of RawFrames with realistic payloads.
+   - Scenario A "simple": 4–5 numeric fields, no bit fields / strings.
+     Target ≥ 100k frames/s.
+   - Scenario B "complex": bit fields + scale/offset + fixed_string.
+     Target ≥ 50k frames/s.
+   - Tight loop over the pre-built frames; measure wall-clock.
+   - Sink: cheap atomic-counter sink (no logging, no allocations).
+   - JSON-line output per scenario + a summary line.
+2. Add to `tests/benchmark/CMakeLists.txt`.
+3. Run with the release preset under `SIGNALFORGE_BENCHMARKS=ON`,
+   capture output, write `tests/benchmark/results/M5-baseline.md`.
+
+**§7.4 HALT gate**: simple < 100k OR complex < 50k → HALT with
+profile breakdown. Plan §3 mitigation: one optimization pass; if
+still below, HALT.
+
+### S8 — Benchmark + M5-baseline.md (close)
+
+**Files delivered**:
+- `tests/benchmark/bench_decoder_throughput.cpp` — runs two
+  scenarios for 5 s each through a tight in-process loop over
+  pre-built RawFrames, with a counter-only sink. JSON-line output;
+  exit code reflects threshold pass/fail.
+- `tests/benchmark/CMakeLists.txt` — added the new executable
+  (PRIVATE deps: Qt6::Core, signalforge_decoder, signalforge_frame).
+- `tests/benchmark/results/M5-baseline.md` — two-run baseline doc
+  with raw JSON, threshold evaluation table, sanity checks, and
+  reproduction instructions.
+
+**Measured (release, host: Ubuntu 24.04 / GCC 13)**:
+
+| Scenario | Frames/sec | Signals/sec | Target | Headroom |
+|---|---|---|---|---|
+| Simple (5 fields, all numeric) | **410 768** | 2 053 839 | 100 000 | 4.1× |
+| Complex (numeric + 4-slice bitfield + float32 + fixed_string + scale/offset) | **398 250** | 3 982 497 | 50 000 | 8.0× |
+
+Run-to-run variance < 0.4 %. Both scenarios well above thresholds.
+
+**§7.4 verdict**: ✓ pass; no HALT; no §5.5 mitigation needed.
+
+**Build verification**:
+- Debug: clean; 265/265 tests still pass after S8 changes (no
+  production-code change in this subtask).
+- Release + `SIGNALFORGE_BENCHMARKS=ON`: bench binary builds clean.
+
+**Format**: clean.
+
+**Time**: ~1 h (under 2 h plan estimate; both scenarios passed
+first run, no optimization pass needed).
