@@ -30,13 +30,12 @@ Phase 5 ran entirely on 2026-04-25, taking ~10 h of focused work
 
 ## PR and merge state
 
-- **PR number**: (filled in below after `gh pr create`)
-- **PR URL**: (filled in)
-- **Head commit at PR creation**: (filled in — `1eb4d2e` plus this
-  done.md commit on top)
+- **PR number**: #6
+- **PR URL**: https://github.com/mornthx/signalforge/pull/6
+- **Head commit at PR creation**: `7d53d66` on `milestone/M5`
 - **CI status at PR creation**: **deferred — billing-blocked**.
   GitHub Actions quota reset is awaited (see §CI verification status).
-- **Mergeable**: (filled in once GitHub answers)
+- **Mergeable**: status reported by GitHub when CI resumes.
 - **Merge SHA**: (filled after merge during Phase 3)
 - **Awaiting human action**: `approved, merge M5 and begin M6 bootstrap`
 
