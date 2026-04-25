@@ -193,3 +193,28 @@ target_compile_definitions(test_replay_driver_skeleton
         SIGNALFORGE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
 )
 catch_discover_tests(test_replay_driver_skeleton DISCOVERY_MODE PRE_TEST)
+
+# M5 decoder integration tests.  All consume schemas under
+# ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/{valid,invalid}_schemas/.
+foreach(decoder_test
+    test_schema_decoder_basic
+    test_schema_decoder_bit_fields
+    test_schema_decoder_endianness
+    test_schema_decoder_unmatched
+    test_schema_validator_errors
+)
+    add_executable(${decoder_test} ${decoder_test}.cpp)
+    target_link_libraries(${decoder_test}
+        PRIVATE
+            Catch2::Catch2WithMain
+            Qt6::Core
+            signalforge_decoder
+            signalforge_frame
+            signalforge_observability
+    )
+    target_compile_definitions(${decoder_test}
+        PRIVATE
+            SIGNALFORGE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    )
+    catch_discover_tests(${decoder_test} DISCOVERY_MODE PRE_TEST)
+endforeach()

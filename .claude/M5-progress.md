@@ -610,3 +610,57 @@ implementation tweak (Bool ordering) is in
 `schema_validator.cpp` (not frozen per spec §6.2).
 
 **Time**: ~1.5 h (under 4 h plan estimate).
+
+---
+
+### S7 — Integration tests (start + close)
+
+**Files delivered** (all under `tests/integration/`):
+
+- `test_schema_decoder_basic.cpp` (2 cases): loads
+  `valid_schemas/temperature_sensor.yaml` via SchemaValidator,
+  constructs SchemaDecoder, attaches LoggingSignalValueSink, feeds a
+  hand-built 16-byte frame, asserts 9 signals emit (5 top-level +
+  4 bit slices) with correct per-type counts (2 bool, 5 int64,
+  2 double for the scaled fields). Second case verifies validation
+  failure on `missing_endianness.yaml`.
+
+- `test_schema_decoder_bit_fields.cpp` (1 case): exercises bit
+  fields at every tested width (1, 2, 8, cross-byte 4) by decoding a
+  3-byte frame with a 16-bit bitfield container.
+
+- `test_schema_decoder_endianness.cpp` (3 cases): little-endian
+  layout default, big-endian layout default, per-field override of
+  the layout default — same payload bytes decoded three ways.
+
+- `test_schema_decoder_unmatched.cpp` (1 case): feeds three foreign-
+  magic frames + one matched frame; asserts the unmatched counter
+  rises by 3 and the sink receives only the 2 signals from the
+  matched frame.
+
+- `test_schema_validator_errors.cpp` (7 cases): each invalid_schemas
+  fixture exercised individually with field-path + message-content
+  assertions, plus a sweep test that every fixture has at least one
+  1-based line number reported.
+
+CMakeLists wiring uses a `foreach()` loop to declare all 5 test
+binaries with the same dependencies (Qt6::Core, signalforge_decoder,
+signalforge_frame, signalforge_observability) and the
+`SIGNALFORGE_FIXTURES_DIR` macro.
+
+**Build verification**:
+- Debug (C++23): clean.
+- Release (C++23): clean.
+- debug-asan (C++23): clean.
+
+**Test verification**:
+- Debug: 265/265 tests pass (+ 14 integration cases).
+- Release: 265/265 tests pass.
+- debug-asan: runtime still blocked locally by `/etc/ld.so.preload`.
+
+**Format**: clean.
+
+**Freeze scope**: no M2/M3/M4-frozen .hpp modified. Integration tests
+consume only public API.
+
+**Time**: ~1 h (under 4 h plan estimate).
