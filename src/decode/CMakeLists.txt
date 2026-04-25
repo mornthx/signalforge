@@ -3,6 +3,8 @@ add_library(signalforge_decoder STATIC
     logging_signal_value_sink.cpp
     logging_signal_value_sink.hpp
     schema.hpp
+    schema_decoder.cpp
+    schema_decoder.hpp
     schema_validator.cpp
     schema_validator.hpp
 )

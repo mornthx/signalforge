@@ -1,0 +1,443 @@
+#include "decode/schema_decoder.hpp"
+
+#include "observability/logging.hpp"
+#include "observability/metrics.hpp"
+
+#include <QString>
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <utility>
+
+namespace signalforge::decoder {
+
+namespace {
+
+using signalforge::observability::Metric;
+using signalforge::observability::MetricKind;
+using signalforge::observability::MetricsRegistry;
+
+QString registerMetricName(const QString& base, const QString& driverId) {
+    return QStringLiteral("decoder_%1_%2").arg(base, driverId);
+}
+
+Metric* registerMetric(const QString& base, const QString& driverId, MetricKind kind) {
+    return MetricsRegistry::instance().getOrCreate(registerMetricName(base, driverId), kind);
+}
+
+QString signalIdFor(const QString& driverId, const QString& fieldName) {
+    return QStringLiteral("%1/%2").arg(driverId, fieldName);
+}
+
+QString signalIdFor(const QString& driverId, const QString& fieldName, const QString& bitName) {
+    return QStringLiteral("%1/%2/%3").arg(driverId, fieldName, bitName);
+}
+
+bool encodingIsFloat(FieldEncoding e) noexcept {
+    return e == FieldEncoding::Float32 || e == FieldEncoding::Float64;
+}
+
+bool encodingIsSignedInt(FieldEncoding e) noexcept {
+    return e == FieldEncoding::Int8 || e == FieldEncoding::Int16 || e == FieldEncoding::Int32 ||
+           e == FieldEncoding::Int64;
+}
+
+bool encodingIsUnsignedInt(FieldEncoding e) noexcept {
+    return e == FieldEncoding::Uint8 || e == FieldEncoding::Uint16 || e == FieldEncoding::Uint32 ||
+           e == FieldEncoding::Uint64;
+}
+
+bool encodingIsNumeric(FieldEncoding e) noexcept {
+    return encodingIsFloat(e) || encodingIsSignedInt(e) || encodingIsUnsignedInt(e);
+}
+
+/// Read `nBytes` bytes from `bytes` starting at `offset`, assemble into a
+/// uint64 according to `endianness`. Caller has already verified bounds.
+std::uint64_t readUnsigned(const std::uint8_t* bytes, int nBytes, Endianness endianness) noexcept {
+    std::uint64_t v = 0;
+    if (endianness == Endianness::Little) {
+        for (int i = 0; i < nBytes; ++i) {
+            v |= static_cast<std::uint64_t>(bytes[i]) << (i * 8);
+        }
+    } else {
+        for (int i = 0; i < nBytes; ++i) {
+            v = (v << 8) | static_cast<std::uint64_t>(bytes[i]);
+        }
+    }
+    return v;
+}
+
+/// Sign-extend the low `nBytes * 8` bits of `raw` to 64 bits.
+std::int64_t signExtend(std::uint64_t raw, int nBytes) noexcept {
+    if (nBytes <= 0 || nBytes >= 8) {
+        return static_cast<std::int64_t>(raw);
+    }
+    const int shift = (8 - nBytes) * 8;
+    const std::int64_t s = static_cast<std::int64_t>(raw << shift);
+    return s >> shift;
+}
+
+/// Assemble bytes into a 32-bit floating-point representation, then promote
+/// to double. `endianness` swaps the byte order if needed.
+double readFloat32(const std::uint8_t* bytes, Endianness endianness) noexcept {
+    std::uint8_t buf[4];
+    if (endianness == Endianness::Little) {
+        std::memcpy(buf, bytes, 4);
+    } else {
+        buf[0] = bytes[3];
+        buf[1] = bytes[2];
+        buf[2] = bytes[1];
+        buf[3] = bytes[0];
+    }
+    float f = 0.0f;
+    std::memcpy(&f, buf, sizeof(f));
+    return static_cast<double>(f);
+}
+
+double readFloat64(const std::uint8_t* bytes, Endianness endianness) noexcept {
+    std::uint8_t buf[8];
+    if (endianness == Endianness::Little) {
+        std::memcpy(buf, bytes, 8);
+    } else {
+        for (int i = 0; i < 8; ++i) {
+            buf[i] = bytes[7 - i];
+        }
+    }
+    double d = 0.0;
+    std::memcpy(&d, buf, sizeof(d));
+    return d;
+}
+
+QString hexPrefix(const QByteArray& payload, int maxBytes = 16) {
+    const int n = std::min<int>(maxBytes, static_cast<int>(payload.size()));
+    QString out;
+    out.reserve(n * 3);
+    for (int i = 0; i < n; ++i) {
+        out += QStringLiteral("%1").arg(static_cast<unsigned char>(payload.at(i)), 2, 16, QLatin1Char('0'));
+        if (i + 1 < n) {
+            out += QLatin1Char(' ');
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+SchemaDecoder::SchemaDecoder(Schema schema, QString driverId)
+    : schema_(std::move(schema)), driverId_(std::move(driverId)) {
+    mDecoded_ = registerMetric(QStringLiteral("frames_decoded"), driverId_, MetricKind::Counter);
+    mUnmatched_ = registerMetric(QStringLiteral("frames_unmatched"), driverId_, MetricKind::Counter);
+    mMalformed_ = registerMetric(QStringLiteral("frames_malformed"), driverId_, MetricKind::Counter);
+    mEmitted_ = registerMetric(QStringLiteral("signals_emitted"), driverId_, MetricKind::Counter);
+    mLastDecodeUs_ = registerMetric(QStringLiteral("last_decode_us"), driverId_, MetricKind::Gauge);
+
+    layoutCache_.reserve(schema_.layouts.size());
+    for (const Layout& layout : schema_.layouts) {
+        CachedLayout cached;
+        cached.fields.reserve(layout.fields.size());
+        for (const FieldDef& field : layout.fields) {
+            CachedField cf;
+            if (field.encoding == FieldEncoding::BitField) {
+                cf.bitFieldMetaIndices.reserve(field.bitFields.size());
+                for (const BitFieldDef& bit : field.bitFields) {
+                    SignalMetadata meta;
+                    meta.id = signalIdFor(driverId_, field.name, bit.name);
+                    meta.name = bit.name;
+                    meta.unit = field.unit;
+                    meta.type = (bit.bitCount == 1) ? SignalType::Bool : SignalType::Int64;
+                    meta.description = bit.description;
+                    cf.bitFieldMetaIndices.push_back(static_cast<int>(metadataCatalog_.size()));
+                    metadataCatalog_.push_back(std::move(meta));
+                }
+            } else if (field.encoding == FieldEncoding::FixedString) {
+                SignalMetadata meta;
+                meta.id = signalIdFor(driverId_, field.name);
+                meta.name = field.name;
+                meta.unit = field.unit;
+                meta.type = SignalType::String;
+                meta.description = field.description;
+                cf.metaIndex = static_cast<int>(metadataCatalog_.size());
+                metadataCatalog_.push_back(std::move(meta));
+            } else if (encodingIsNumeric(field.encoding)) {
+                SignalMetadata meta;
+                meta.id = signalIdFor(driverId_, field.name);
+                meta.name = field.name;
+                meta.unit = field.unit;
+                const bool transformed = field.scale.has_value() || field.offsetTransform.has_value();
+                if (encodingIsFloat(field.encoding) || transformed) {
+                    meta.type = SignalType::Double;
+                } else {
+                    meta.type = SignalType::Int64;
+                }
+                meta.description = field.description;
+                meta.scale = field.scale;
+                meta.offset = field.offsetTransform;
+                cf.metaIndex = static_cast<int>(metadataCatalog_.size());
+                metadataCatalog_.push_back(std::move(meta));
+            }
+            cached.fields.push_back(std::move(cf));
+        }
+        layoutCache_.push_back(std::move(cached));
+    }
+}
+
+SchemaDecoder::~SchemaDecoder() {
+    std::shared_ptr<SignalValueSink> sink;
+    {
+        std::lock_guard lock(sinkMutex_);
+        sink = sink_;
+    }
+    if (sink) {
+        try {
+            sink->onSignalsUnregistered(driverId_);
+        } catch (const std::exception& e) {
+            SF_LOG_ERROR("SchemaDecoder[{}]: sink threw on unregister: {}", driverId_.toStdString(), e.what());
+        }
+    }
+}
+
+QString SchemaDecoder::schemaId() const {
+    return schema_.id;
+}
+
+std::vector<SignalMetadata> SchemaDecoder::signalMetadata() const {
+    return metadataCatalog_;
+}
+
+void SchemaDecoder::setSignalSink(std::shared_ptr<SignalValueSink> sink) {
+    std::shared_ptr<SignalValueSink> previous;
+    {
+        std::lock_guard lock(sinkMutex_);
+        if (sink_ == sink) {
+            SF_LOG_WARN("SchemaDecoder[{}]: setSignalSink called twice with the same pointer; ignoring",
+                        driverId_.toStdString());
+            return;
+        }
+        previous = sink_;
+        sink_ = sink;
+    }
+    if (previous) {
+        try {
+            previous->onSignalsUnregistered(driverId_);
+        } catch (const std::exception& e) {
+            SF_LOG_ERROR("SchemaDecoder[{}]: previous sink threw on unregister: {}", driverId_.toStdString(), e.what());
+        }
+    }
+    if (sink) {
+        try {
+            sink->onSignalsRegistered(driverId_, metadataCatalog_);
+        } catch (const std::exception& e) {
+            SF_LOG_ERROR("SchemaDecoder[{}]: sink threw on register: {}", driverId_.toStdString(), e.what());
+        }
+    }
+}
+
+QString SchemaDecoder::sinkName() const {
+    return QStringLiteral("SchemaDecoder(%1)").arg(driverId_);
+}
+
+void SchemaDecoder::onFrame(const signalforge::frame::RawFrame& frame) {
+    const auto t0 = std::chrono::steady_clock::now();
+
+    std::shared_ptr<SignalValueSink> sink;
+    {
+        std::lock_guard lock(sinkMutex_);
+        sink = sink_;
+    }
+
+    const bool matched = tryDecodeFrame(frame, std::move(sink));
+
+    const auto t1 = std::chrono::steady_clock::now();
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    if (mLastDecodeUs_ != nullptr) {
+        mLastDecodeUs_->set(static_cast<std::int64_t>(us));
+    }
+
+    if (!matched) {
+        if (mUnmatched_ != nullptr) {
+            mUnmatched_->add(1);
+        }
+        SF_LOG_WARN("SchemaDecoder[{}]: no layout matched (size={}, prefix={})", driverId_.toStdString(),
+                    frame.payload.size(), hexPrefix(frame.payload).toStdString());
+    }
+}
+
+bool SchemaDecoder::layoutMatches(const LayoutMatch& match, const QByteArray& payload) noexcept {
+    if (match.bytes.empty()) {
+        return false;
+    }
+    const int needed = match.offset + static_cast<int>(match.bytes.size());
+    if (payload.size() < needed) {
+        return false;
+    }
+    const auto* data = reinterpret_cast<const std::uint8_t*>(payload.constData()) + match.offset;
+    for (std::size_t i = 0; i < match.bytes.size(); ++i) {
+        if (data[i] != match.bytes[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, std::shared_ptr<SignalValueSink> sink) {
+    const QByteArray& payload = frame.payload;
+
+    for (std::size_t li = 0; li < schema_.layouts.size(); ++li) {
+        const Layout& layout = schema_.layouts[li];
+        if (!layoutMatches(layout.match, payload)) {
+            continue;
+        }
+        if (payload.size() < layout.minPayloadBytes) {
+            if (mMalformed_ != nullptr) {
+                mMalformed_->add(1);
+            }
+            SF_LOG_WARN("SchemaDecoder[{}]: layout '{}' matched but size {} < min_payload_bytes {}",
+                        driverId_.toStdString(), layout.name.toStdString(), payload.size(), layout.minPayloadBytes);
+            return true;  // matched even though malformed; do not fall through to unmatched.
+        }
+
+        const CachedLayout& cached = layoutCache_[li];
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.constData());
+        const int payloadSize = payload.size();
+        std::int64_t emittedThisFrame = 0;
+
+        for (std::size_t fi = 0; fi < layout.fields.size(); ++fi) {
+            const FieldDef& field = layout.fields[fi];
+            const CachedField& cf = cached.fields[fi];
+            const Endianness end = field.endianness.value_or(layout.endianness);
+
+            if (field.offset + field.sizeBytes > payloadSize) {
+                if (mMalformed_ != nullptr) {
+                    mMalformed_->add(1);
+                }
+                SF_LOG_WARN("SchemaDecoder[{}]: field '{}' at offset {} size {} exceeds payload size {}",
+                            driverId_.toStdString(), field.name.toStdString(), field.offset, field.sizeBytes,
+                            payloadSize);
+                return true;
+            }
+
+            const std::uint8_t* fieldBytes = bytes + field.offset;
+
+            if (field.encoding == FieldEncoding::BitField) {
+                const std::uint64_t raw = readUnsigned(fieldBytes, field.sizeBytes, end);
+                for (std::size_t bi = 0; bi < field.bitFields.size(); ++bi) {
+                    const BitFieldDef& bit = field.bitFields[bi];
+                    const int meta = cf.bitFieldMetaIndices[bi];
+                    const QString& sigId = metadataCatalog_[meta].id;
+                    const std::uint64_t mask =
+                        (bit.bitCount >= 64) ? ~std::uint64_t{0} : ((std::uint64_t{1} << bit.bitCount) - 1);
+                    const std::uint64_t slice = (raw >> bit.bitStart) & mask;
+                    SignalValue value;
+                    if (bit.bitCount == 1) {
+                        value = SignalValue{slice != 0};
+                    } else {
+                        value = SignalValue{static_cast<std::int64_t>(slice)};
+                    }
+                    if (sink) {
+                        try {
+                            sink->onSignal(frame.recvAt, sigId, value);
+                            ++emittedThisFrame;
+                        } catch (const std::exception& e) {
+                            SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
+                        }
+                    } else {
+                        ++emittedThisFrame;
+                    }
+                }
+                continue;
+            }
+
+            if (field.encoding == FieldEncoding::FixedString) {
+                const QByteArray slice(reinterpret_cast<const char*>(fieldBytes), field.sizeBytes);
+                int len = slice.indexOf('\0');
+                if (len < 0) {
+                    len = field.sizeBytes;
+                }
+                const QString text = QString::fromUtf8(slice.constData(), len);
+                const QString& sigId = metadataCatalog_[cf.metaIndex].id;
+                if (sink) {
+                    try {
+                        sink->onSignal(frame.recvAt, sigId, SignalValue{text});
+                        ++emittedThisFrame;
+                    } catch (const std::exception& e) {
+                        SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
+                    }
+                } else {
+                    ++emittedThisFrame;
+                }
+                continue;
+            }
+
+            if (encodingIsFloat(field.encoding)) {
+                const double raw = (field.encoding == FieldEncoding::Float32) ? readFloat32(fieldBytes, end)
+                                                                              : readFloat64(fieldBytes, end);
+                double value = raw;
+                if (field.scale.has_value()) {
+                    value *= *field.scale;
+                }
+                if (field.offsetTransform.has_value()) {
+                    value += *field.offsetTransform;
+                }
+                const QString& sigId = metadataCatalog_[cf.metaIndex].id;
+                if (sink) {
+                    try {
+                        sink->onSignal(frame.recvAt, sigId, SignalValue{value});
+                        ++emittedThisFrame;
+                    } catch (const std::exception& e) {
+                        SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
+                    }
+                } else {
+                    ++emittedThisFrame;
+                }
+                continue;
+            }
+
+            // Integer encodings.
+            const std::uint64_t raw = readUnsigned(fieldBytes, field.sizeBytes, end);
+            std::int64_t intRaw;
+            if (encodingIsSignedInt(field.encoding)) {
+                intRaw = signExtend(raw, field.sizeBytes);
+            } else {
+                intRaw = static_cast<std::int64_t>(raw);
+            }
+
+            const bool transformed = field.scale.has_value() || field.offsetTransform.has_value();
+            const QString& sigId = metadataCatalog_[cf.metaIndex].id;
+            SignalValue value;
+            if (transformed) {
+                double v = static_cast<double>(intRaw);
+                if (field.scale.has_value()) {
+                    v *= *field.scale;
+                }
+                if (field.offsetTransform.has_value()) {
+                    v += *field.offsetTransform;
+                }
+                value = SignalValue{v};
+            } else {
+                value = SignalValue{intRaw};
+            }
+            if (sink) {
+                try {
+                    sink->onSignal(frame.recvAt, sigId, value);
+                    ++emittedThisFrame;
+                } catch (const std::exception& e) {
+                    SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
+                }
+            } else {
+                ++emittedThisFrame;
+            }
+        }
+
+        if (mDecoded_ != nullptr) {
+            mDecoded_->add(1);
+        }
+        if (mEmitted_ != nullptr && emittedThisFrame > 0) {
+            mEmitted_->add(emittedThisFrame);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+}  // namespace signalforge::decoder

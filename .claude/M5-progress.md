@@ -236,3 +236,118 @@ full §5.2 error matrix and verify the < 20% threshold.
 **Time**: ~2 h (under 6 h plan estimate; the spec's duplicate `offset`
 member required the deviation entry but the resolution was
 straightforward).
+
+---
+
+### S3 — SchemaDecoder (start)
+
+**Goal**: per plan §2 S3, deliver:
+
+1. `src/decode/schema_decoder.{hpp,cpp}` per spec §4.2:
+   - Implements `DecoderInterface` (and therefore `FrameSink`).
+   - Holds a pre-validated `Schema` + `driverId`.
+   - `tryDecodeFrame`: iterates layouts; first whose `match.bytes`
+     equal the payload at `match.offset` wins.
+   - `extractField`: dispatch on `FieldEncoding`:
+     - `Int8/16/32/64`, `Uint8/16/32/64` — endianness-aware byte
+       assembly into `int64_t`. Sign-extend signed types. Apply
+       `scale` / `offset_transform` linear transform → emit `double`
+       when transform present, otherwise `int64_t`.
+     - `Float32/Float64` — endianness-aware byte assembly + memcpy to
+       float/double; cast/promote to `double`. Apply transform if
+       present.
+     - `BitField` — read container as little-endian/big-endian uint64,
+       shift right by `bit_start`, mask `bit_count` bits. Emit `bool`
+       for `bit_count == 1`, else `int64_t`.
+     - `FixedString` — extract byte range, honor null terminator,
+       decode as UTF-8 → `QString`.
+   - Metric registration at ctor (5 metrics per spec §3.10):
+     - `decoder_frames_decoded_<driverId>` (counter)
+     - `decoder_frames_unmatched_<driverId>` (counter)
+     - `decoder_frames_malformed_<driverId>` (counter)
+     - `decoder_signals_emitted_<driverId>` (counter)
+     - `decoder_last_decode_us_<driverId>` (gauge)
+   - Unmatched frames: SF_LOG_WARN with first 16 hex bytes; counter
+     incremented; no signal emitted.
+   - Malformed frames: SF_LOG_WARN with reason; counter incremented.
+   - `setSignalSink` is mutex-protected; idempotent (warn on duplicate).
+2. Update `src/decode/CMakeLists.txt`.
+3. 1–2 spot-check unit tests in `tests/unit/decode/decoder_test.cpp`
+   (full §5.2 coverage deferred to S6).
+
+No M2/M3/M4-frozen .hpp touched.
+
+### S3 — SchemaDecoder (close)
+
+**Files delivered**:
+- `src/decode/schema_decoder.hpp` — `SchemaDecoder` concrete decoder
+  inheriting `DecoderInterface`. Pre-computed `CachedLayout` /
+  `CachedField` structures map field declarations to metadata indices
+  (one per signal; one per bit slice for BitField parents) so that
+  `onFrame` does no per-frame metadata-construction work.
+- `src/decode/schema_decoder.cpp`:
+  - Constructor: registers 5 metrics under namespace
+    `decoder_<metric>_<driverId>` per spec §3.10. Walks the schema
+    once to build `metadataCatalog_` + the `layoutCache_`.
+  - `setSignalSink`: mutex-guarded; idempotent on duplicate pointer
+    (warns and ignores). On a real change, unregisters the previous
+    sink and registers the new one.
+  - `onFrame`: dispatches to `tryDecodeFrame`. Updates
+    `decoder_last_decode_us_<driverId>` gauge each call. Logs WARN
+    + increments `decoder_frames_unmatched_<driverId>` when no layout
+    matched.
+  - `tryDecodeFrame`: walks layouts in order; first whose magic
+    matches wins. Honors `min_payload_bytes` + per-field bounds
+    checks (both report through the malformed counter and a structured
+    SF_LOG_WARN). Per-field dispatch:
+    - **Numeric integers** (int8..uint64): byte assembly via
+      endianness-aware `readUnsigned`, sign-extension when signed,
+      linear transform `raw * scale + offset` applied when either is
+      present (output type promoted to `double`).
+    - **Floats** (float32/float64): byte-swap + memcpy into a stack
+      `float`/`double`, promoted/cast to `double`. Linear transform
+      applied if present.
+    - **BitField**: read sizeBytes-byte container with endianness;
+      shift + mask per slice. `bit_count == 1` → `bool` signal;
+      `bit_count > 1` → `int64_t` signal.
+    - **FixedString**: byte slice, null-terminator-honored UTF-8
+      decode → `QString` signal.
+  - Sink callbacks wrapped in try/catch; sink-thrown exceptions are
+    logged at ERROR but never propagated to the pipeline.
+  - Destructor: unregisters from the current sink (if any) safely.
+- `src/decode/CMakeLists.txt`: added new sources.
+- `tests/unit/decode/decoder_test.cpp`: added 3 spot-check cases:
+  - `signalMetadata` enumerates every field + bit field with correct
+    types (Int64 / Double / Bool inferred per the rules above).
+  - Matched frame produces all expected signals with correct counts
+    per type (alarm bool, mode/code int64, magic/counter int64,
+    temperature double).
+  - Unmatched frame emits no signals.
+
+**Build verification**:
+- Debug (C++23): clean.
+- Release (C++23): clean.
+- debug-asan (C++23): clean.
+
+**Test verification**:
+- Debug: 228/228 tests pass (+ 3 SchemaDecoder spot-checks).
+- Release: 228/228 tests pass.
+- debug-asan: runtime still blocked locally by `/etc/ld.so.preload`;
+  CI authoritative when quota resets.
+
+**Format**: `clang-format --dry-run -Werror` clean on changed files.
+
+**Freeze scope**: no M2/M3/M4-frozen .hpp modified. `DecoderInterface`
+(frozen at S1 + M5 close) is implemented but not changed. `SchemaDecoder`
+itself is not frozen per spec §6.2.
+
+**Notes**:
+- `SignalMetadata::offset` (frozen field) is populated from the
+  schema's `offsetTransform` (the linear-transform offset, named
+  per deviation #2). This bridge is internal to the decoder and
+  invisible to consumers.
+- One sink-call try/catch per signal is intentional: spec §FrameSink
+  and pipeline §error-handling guarantee that a faulty sink does not
+  crash the producer; the same discipline applies to a SignalValueSink.
+
+**Time**: ~2 h (under 6 h plan estimate).
