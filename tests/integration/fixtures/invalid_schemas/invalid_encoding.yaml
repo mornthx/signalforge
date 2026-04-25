@@ -1,0 +1,14 @@
+# Invalid: encoding 'not_a_real_type' is not in the schema v1 enum.
+schema_version: 1
+layouts:
+  - name: bad
+    endianness: little
+    match:
+      offset: 0
+      bytes: [0xAA]
+    min_payload_bytes: 4
+    fields:
+      - name: x
+        offset: 0
+        encoding: not_a_real_type
+        size_bytes: 4

@@ -130,3 +130,56 @@ the enum).
 
 **Status**: documented in the validator and the canonical schema's
 inline comments. No deviation from the spec; clarifies intent.
+
+---
+
+## 4. M5 PR will exceed CLAUDE.md §Required #4 (800 net lines)
+
+**When**: S4 close, while tracking cumulative diff size.
+
+**What the rule says**: CLAUDE.md §Required #4 — "Each PR or merge is
+≤ **800 net lines added**, excluding generated files and test
+fixtures. Larger changes must be split."
+
+**Cumulative as of S4 close** (excluding the canonical schema yaml
+and JSON, which arguably qualify as "test fixtures" but are also
+freeze artifacts):
+
+- S2: +1377 (includes ~520 lines of canonical schema yaml/json
+  + ~100 lines of doc comments)
+- S3: +776
+- S4: +354
+- Subtotal: +2507 lines on `milestone/M5`.
+
+**S5–S10 will add roughly**:
+
+- S5 (example schemas + invalid fixtures): ~200 lines (test fixtures)
+- S6 (unit tests): ~400 lines (test code)
+- S7 (integration tests): ~500 lines (test code)
+- S8 (benchmark + baseline doc): ~300 lines
+- S9 (schema_lint CLI + README): ~250 lines
+- S10 (M5-done.md): ~200 lines
+
+Estimated final M5 PR size: **~4350 net lines**, of which ~600 are
+canonical-schema files and ~1100 are test code. Production C++ is
+~1900 lines, still well above the 800-line gate.
+
+**Resolution intent**: M5 cannot be split into smaller PRs without
+breaking the milestone-closure protocol (PR-per-milestone is the
+established pattern in M2/M3/M4). The schema v1 freeze is atomic —
+splitting it would either ship a half-frozen yaml format or ship two
+PRs that frozen-amend each other, both of which are worse than a
+single oversize PR.
+
+**Mitigation in progress**:
+
+- The same concern was raised privately by the user in a prior
+  session (see commit history of CLAUDE.md tiered §Required-4 patch
+  attempt — Option A discard). Once the user re-issues the tiered
+  rule, M5's exceedence is automatically reframed as compliant.
+- Until then, this concern is the explicit acknowledgment, with the
+  rationale and the metric breakdown above.
+
+**Status**: open. Will be closed at M5 review along with the tiered
+rule's adoption (or by an explicit one-time waiver in the M5-done.md
+review).

@@ -1,0 +1,53 @@
+schema_version: 1
+description: "Example: simple temperature sensor with 16-byte frames"
+
+layouts:
+  - name: telemetry
+    endianness: little
+    match:
+      offset: 0
+      bytes: [0xAA]            # magic byte identifying this layout
+    min_payload_bytes: 16
+    fields:
+      - name: timestamp_ms
+        offset: 1
+        encoding: uint32
+        size_bytes: 4
+        unit: ms
+        description: "Device-local monotonic millisecond counter"
+
+      - name: temperature
+        offset: 5
+        encoding: int16
+        size_bytes: 2
+        scale: 0.01
+        unit: "C"
+        description: "Measured temperature; raw * 0.01 yields degrees Celsius"
+
+      - name: pressure
+        offset: 7
+        encoding: uint16
+        size_bytes: 2
+        scale: 0.1
+        unit: kPa
+
+      - name: status
+        offset: 9
+        encoding: bitfield
+        size_bytes: 1
+        bit_fields:
+          - { name: alarm,              bit_start: 0, bit_count: 1, description: "Temperature exceeded alarm threshold" }
+          - { name: calibration_active, bit_start: 1, bit_count: 1 }
+          - { name: sensor_mode,        bit_start: 2, bit_count: 2, description: "0=normal 1=high-precision 2=fast 3=reserved" }
+          - { name: reserved,           bit_start: 4, bit_count: 4 }
+
+      - name: crc
+        offset: 10
+        encoding: uint16
+        size_bytes: 2
+        description: "XMODEM CRC16 of bytes 0-9 (not verified by V1 decoder)"
+
+      - name: padding
+        offset: 12
+        encoding: uint32
+        size_bytes: 4

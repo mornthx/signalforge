@@ -1,0 +1,17 @@
+# Invalid: two bit_fields overlap (both touch bits 1..2).
+schema_version: 1
+layouts:
+  - name: bad
+    endianness: little
+    match:
+      offset: 0
+      bytes: [0xAA]
+    min_payload_bytes: 1
+    fields:
+      - name: status
+        offset: 0
+        encoding: bitfield
+        size_bytes: 1
+        bit_fields:
+          - { name: a, bit_start: 0, bit_count: 2 }
+          - { name: b, bit_start: 1, bit_count: 2 }   # overlaps with `a`

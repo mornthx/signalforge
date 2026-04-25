@@ -1,0 +1,16 @@
+# Invalid: bit_field range [5, 10) extends past the 8-bit container.
+schema_version: 1
+layouts:
+  - name: bad
+    endianness: little
+    match:
+      offset: 0
+      bytes: [0xAA]
+    min_payload_bytes: 1
+    fields:
+      - name: status
+        offset: 0
+        encoding: bitfield
+        size_bytes: 1
+        bit_fields:
+          - { name: too_wide, bit_start: 5, bit_count: 5 }   # 5+5 = 10 > 8 bits

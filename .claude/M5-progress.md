@@ -441,3 +441,68 @@ not part of the M5 freeze surface (see spec §6.2).
 **Time**: ~1 h (under 2 h plan estimate; the slot-invocation test
 pattern via `QMetaObject::invokeMethod` keeps the tests
 deterministic without needing an event-loop spin).
+
+---
+
+### S5 — Example schemas + invalid fixtures (start + close)
+
+**Goal**: per plan §2 S5, deliver:
+
+1. `examples/schemas/temperature_sensor.yaml` — verbatim from spec
+   §4.8 (16-byte telemetry frame with timestamp + temperature +
+   pressure + status bit field + crc + padding).
+2. `examples/schemas/modbus_style.yaml` — 2-layout schema with magic
+   byte at offset 1 (function code dispatch), big-endian, integer +
+   bit fields, including a cross-byte 8-bit `device_id` slice and a
+   16-bit bitfield container.
+3. `tests/integration/fixtures/valid_schemas/` — copies of the two
+   examples (consumed by S7 integration tests).
+4. `tests/integration/fixtures/invalid_schemas/` — six fixtures
+   exercising distinct §5.2 error categories:
+   - `missing_version.yaml`
+   - `missing_endianness.yaml`
+   - `invalid_encoding.yaml`
+   - `bit_overlap.yaml`
+   - `bit_overflow.yaml`
+   - `duplicate_field.yaml`
+
+**Verification**: all 8 fixtures were validated against the S2
+`SchemaValidator`; expected pass / fail outcomes matched, and every
+invalid fixture produced an actionable error message with a 1-based
+line number and the dotted field path:
+
+```
+OK   examples/schemas/temperature_sensor.yaml (valid)
+OK   examples/schemas/modbus_style.yaml (valid)
+OK   invalid_schemas/missing_version.yaml (invalid)
+    schema_version:2 — 'schema_version' is required (must be 1)
+OK   invalid_schemas/missing_endianness.yaml (invalid)
+    layouts[0].endianness:6 — 'endianness' is required at layout level
+    layouts[0].fields[0].endianness:12 — multi-byte field 'pressure' requires endianness
+OK   invalid_schemas/invalid_encoding.yaml (invalid)
+    layouts[0].fields[0].encoding:13 — invalid encoding 'not_a_real_type'
+OK   invalid_schemas/bit_overlap.yaml (invalid)
+    layouts[0].fields[0].bit_fields:11 — bit ranges overlap at bits [0, 2) and [1, 3)
+OK   invalid_schemas/bit_overflow.yaml (invalid)
+    layouts[0].fields[0].bit_fields[0]:16 — bit range [5, 10) does not fit in 8-bit container
+OK   invalid_schemas/duplicate_field.yaml (invalid)
+    layouts[0].fields[1].name:15 — duplicate field name 'counter' within layout
+```
+
+This is the §7.5 line-number coverage check: 6/6 invalid fixtures
+have valid 1-based line numbers (well above the 80% threshold).
+
+**No new tests in S5** — fixtures power S6 (unit) and S7 (integration).
+
+**Build verification**: not exercised. Per CLAUDE.md §Required #2
+exception, fixture-only commits do not require a rebuild when the
+build graph is unaffected. Build and test counts unchanged from S4.
+
+**Format**: yaml/json fixtures are user-authored format examples; not
+subject to clang-format.
+
+**Freeze scope**: yaml fixtures use schema v1 syntax exclusively.
+Examples and the canonical schema lock the v1 contract together at
+M5 close.
+
+**Time**: ~30 min.

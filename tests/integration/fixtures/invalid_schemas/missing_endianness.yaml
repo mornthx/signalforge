@@ -1,0 +1,15 @@
+# Invalid: layout has multi-byte field but no `endianness` (neither
+# layout-level nor field-level).
+schema_version: 1
+description: "missing endianness on multi-byte field"
+layouts:
+  - name: bad
+    match:
+      offset: 0
+      bytes: [0xAA]
+    min_payload_bytes: 2
+    fields:
+      - name: pressure
+        offset: 0
+        encoding: uint16
+        size_bytes: 2
