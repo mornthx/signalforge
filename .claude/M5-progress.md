@@ -139,3 +139,100 @@ does not affect M5 work).
 All M5 commits during this period will be tagged
 `[ci-skip-watch: billing-blocked]` in the commit body, and S10 close
 will enumerate them in `M5-done.md`.
+
+---
+
+### S2 — Schema data structures + SchemaValidator + yaml schema v1 canonical docs (start)
+
+**Goal**: per plan §2 S2, deliver:
+
+1. `src/decode/schema.hpp` — pure value types (Endianness,
+   FieldEncoding, BitFieldDef, FieldDef, LayoutMatch, Layout, Schema)
+   per spec §4.3.
+2. `src/decode/schema_validator.{hpp,cpp}` per spec §4.4:
+   - `std::expected<Schema, std::vector<ValidationError>>` result type
+     (C++23 `<expected>` — verified available in S1).
+   - yaml-cpp-driven parsing using `YAML::Node::Mark()` for line
+     numbers (-1 fallback documented per error class).
+   - Validation rules per spec §4.4 sequence (1–5).
+3. `schemas/decoder_schema_v1.yaml` — canonical example exercising
+   every encoding + endianness + bit fields with inline comments.
+4. `schemas/decoder_schema_v1.json` — JSON description of the meta-
+   schema (used as documentation; validator is hand-written, driven
+   by the spec).
+5. `src/decode/CMakeLists.txt`: link `yaml-cpp` PRIVATE; add new
+   sources.
+6. Minimal structural unit tests in `tests/unit/decode/decoder_test.cpp`
+   (2–3 cases verifying validator round-trip on the canonical example
+   + a basic invalid input rejection); the full §5.2 enumerated
+   coverage lands in S6.
+
+No M2/M3/M4-frozen .hpp touched. yaml-cpp is already a project
+dependency (no new top-level dep per CLAUDE.md §Forbidden #1).
+
+### S2 — Schema data structures + SchemaValidator + yaml schema v1 canonical docs (close)
+
+**Files delivered**:
+- `src/decode/schema.hpp` — `Endianness`, `FieldEncoding` (13
+  values frozen at M5 close), `BitFieldDef`, `FieldDef`, `LayoutMatch`,
+  `Layout`, `Schema`. `FieldDef::offsetTransform` chosen over the
+  spec's duplicate `offset` member name (deviation #2).
+- `src/decode/schema_validator.{hpp,cpp}` — `std::expected<Schema,
+  std::vector<ValidationError>>` result type. yaml-cpp `Mark()` line
+  numbers (1-based, -1 fallback). Validation pipeline:
+  - top-level `schema_version` (== 1) + `layouts` (non-empty seq)
+  - per layout: `name`, `endianness` (required), `match.offset`,
+    `match.bytes` (in [0,255]), `min_payload_bytes`, non-empty `fields`
+  - per field: `name` (unique within layout), `offset` (>=0), `encoding`
+    (one of 13), `size_bytes` (canonical for numeric, {1,2,4,8} for
+    bitfield, any positive for fixed_string), optional `endianness`
+    override, optional `scale` / `offset_transform` / `unit` /
+    `description`. Multi-byte numeric requires resolvable endianness.
+    `bool` rejected as top-level encoding (use `bit_count: 1` inside a
+    `bitfield`). BitField parents require non-empty, non-overlapping,
+    in-range `bit_fields` with unique names.
+  - duplicate detection at every list (layouts, fields, bit_fields).
+- `schemas/decoder_schema_v1.yaml` — canonical example exercising all
+  13 encodings, both endiannesses (per-layout default + per-field
+  override), single-bit/multi-bit/cross-byte bit fields, scale +
+  offset_transform, fixed_string, multi-layout dispatch.
+- `schemas/decoder_schema_v1.json` — JSON-Schema description of the
+  meta-schema (used as documentation; validator is hand-written).
+- `src/decode/CMakeLists.txt` — added new sources; linked
+  `yaml-cpp::yaml-cpp` PRIVATE.
+- `tests/unit/decode/CMakeLists.txt` — `SIGNALFORGE_REPO_ROOT`
+  compile-time path so the canonical schema test can locate the
+  source-tree yaml file.
+- `tests/unit/decode/decoder_test.cpp` — added 4 SchemaValidator
+  cases (rejected empty content; minimal valid round-trip; missing
+  layout endianness flagged; canonical v1 schema validates cleanly).
+- `.claude/M5-concerns.md` entries #2 (`offset` rename) and #3 (`bool`
+  reserved for bit-field children only).
+
+**Build verification**:
+- Debug (C++23): clean.
+- Release (C++23): clean.
+- debug-asan (C++23): clean.
+
+**Test verification**:
+- Debug: 225/225 tests pass (+ 4 new SchemaValidator cases).
+- Release: 225/225 tests pass.
+- debug-asan: runtime still blocked locally by `/etc/ld.so.preload`;
+  CI authoritative when quota resets.
+
+**Format**: `clang-format --dry-run -Werror` clean on changed files.
+
+**Freeze scope**: no M2/M3/M4-frozen .hpp modified. The `Schema` struct
+is internal representation (not frozen per spec §6.2). Schema v1 yaml
+format and `SchemaValidator` public API + `ValidationResult` /
+`ValidationError` enter the M5 freeze at M5 close.
+
+**§7.5 (line numbers) preliminary**: yaml-cpp's `Mark()` returns valid
+positions for all syntax errors observed in S2 unit tests; -1 only
+appears in synthetic missing-key cases where the parent map's mark is
+substituted (which is the documented behavior). S6 will exercise the
+full §5.2 error matrix and verify the < 20% threshold.
+
+**Time**: ~2 h (under 6 h plan estimate; the spec's duplicate `offset`
+member required the deviation entry but the resolution was
+straightforward).
