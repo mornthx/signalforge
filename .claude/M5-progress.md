@@ -98,3 +98,44 @@ confirm on the Ubuntu 24.04 matrix.
 
 **Time**: ~1 h (under 3 h plan estimate; the `signals` Qt-macro fix
 cost ~10 min).
+
+---
+
+## CI verification status
+
+### S1 push 2026-04-25 (initial)
+
+S1 commit `d5e9317` pushed to `milestone/M5`. CI run 24908582887
+canceled in 3s with billing block: "The job was not started because
+recent account payments have failed or your spending limit needs to
+be increased." All three matrix jobs (Debug, Release, debug-asan)
+canceled.
+
+Local verification on the push:
+- Debug + Release + debug-asan: build clean.
+- Debug + Release: 221/221 tests pass.
+- debug-asan: runtime blocked by host `/etc/ld.so.preload`; CI is
+  the authoritative gate.
+- `clang-format --dry-run -Werror` clean on changed files.
+
+Per session instructions: stop and await user direction.
+
+### Update 2026-04-25 (continued)
+
+Repository made public during this session. GitHub Actions usage on
+the account had already crossed the 2000-minute monthly free tier
+(1200 minutes consumed before signalforge transitioned to public;
+specific source breakdown not investigated). Public-repo unlimited-
+minutes policy applies prospectively but does NOT retroactively
+clear the current month's quota at the account level.
+
+Decision: continue M5 with local-only verification through the end
+of this billing month. Quota resets on the 1st of the next month, at
+which point CI will resume automatically on the next push.
+
+License: MIT (commit `8183ff5` is on `main`, not `milestone/M5`; it
+does not affect M5 work).
+
+All M5 commits during this period will be tagged
+`[ci-skip-watch: billing-blocked]` in the commit body, and S10 close
+will enumerate them in `M5-done.md`.
