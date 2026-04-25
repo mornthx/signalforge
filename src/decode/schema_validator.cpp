@@ -162,7 +162,14 @@ bool validateField(const YAML::Node& fieldNode, FieldDef& out, std::optional<End
     }
 
     if (enc != nullptr) {
-        if (enc->sizeBytes != 0) {
+        if (enc->encoding == FieldEncoding::Bool) {
+            // `bool` is reserved as a child encoding of bitfield (bit_count: 1);
+            // it is not a valid top-level field encoding.  See concerns.md #3.
+            addError(errors, filePath, line, fieldPath + ".encoding",
+                     QStringLiteral(
+                         "encoding 'bool' is only valid inside a 'bitfield' field's 'bit_fields' (use bit_count: 1)"));
+            ok = false;
+        } else if (enc->sizeBytes != 0) {
             // Numeric type with a canonical size.
             if (sizeProvided && parsedSize != enc->sizeBytes) {
                 addError(errors, filePath, line, fieldPath + ".size_bytes",
@@ -195,12 +202,6 @@ bool validateField(const YAML::Node& fieldNode, FieldDef& out, std::optional<End
             } else {
                 out.sizeBytes = parsedSize;
             }
-        } else {
-            // Bool encoding is reserved for use only inside BitField parents.
-            addError(errors, filePath, line, fieldPath + ".encoding",
-                     QStringLiteral(
-                         "encoding 'bool' is only valid inside a 'bitfield' field's 'bit_fields' (use bit_count: 1)"));
-            ok = false;
         }
     }
 

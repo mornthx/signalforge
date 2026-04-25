@@ -506,3 +506,107 @@ Examples and the canonical schema lock the v1 contract together at
 M5 close.
 
 **Time**: ~30 min.
+
+---
+
+### S6 — Unit tests ≥ 85 % (start)
+
+**Goal**: per plan §2 S6 + spec §5.2, expand
+`tests/unit/decode/decoder_test.cpp` to cover every enumerated case:
+
+- **SchemaValidator** (~10 cases): minimal valid; missing
+  `schema_version`; wrong `schema_version` (e.g., 2); missing layout
+  `endianness` with multi-byte field; invalid `encoding` enum;
+  `size_bytes` inconsistent with encoding; duplicate field names;
+  bit-field overlap; bit-field overflow; bit-field zero count.
+- **SchemaDecoder** (~9 cases): construct + signalMetadata; magic
+  match → expected signals; unknown magic → unmatched counter;
+  short payload → malformed counter, no signals; multi-layout
+  dispatch (two magics → two layouts); per-field endianness override
+  vs layout default; bit_count == 1 → bool, bit_count > 1 → int64;
+  scale/offset applied to numeric; `fixed_string` extraction (null
+  terminator honored).
+- **LoggingSignalValueSink**: existing 4 cases already cover the §5.2
+  list; no expansion needed.
+
+S6 also runs the existing fixtures from S5 against the validator to
+exercise the file-loading path (vs in-memory yaml), giving line-number
+coverage from real files.
+
+No M2/M3/M4-frozen .hpp touched.
+
+### S6 — Unit tests ≥ 85 % (close)
+
+**Files delivered**:
+- `tests/unit/decode/decoder_test.cpp` expanded with 19 new cases:
+
+  **SchemaValidator** (12 cases — exceeds the ~10 plan estimate):
+  - schema_version != 1 reports "supports versions: [1]" with the
+    declared version inline.
+  - Invalid encoding string surfaces both the offending value and
+    the full allowed-list in the message.
+  - size_bytes mismatched with encoding reports the encoding's
+    canonical size in the message ("expected 2" for uint16).
+  - Duplicate field names within a layout are flagged.
+  - Bit-field range overlap is detected and reported with the
+    overlapping bit ranges in the message.
+  - Bit-field overflow is detected with the offending range.
+  - bit_count == 0 is rejected at the bit_count fieldPath.
+  - `bool` as top-level encoding is rejected with a message
+    pointing the user to `bit_count: 1` inside a `bitfield`.
+  - Validator + invalid_encoding fixture reports a valid 1-based
+    line number.
+  - Every invalid_schemas/* fixture validates to a non-empty error
+    list (smoke test for the full §5.2 fixture set).
+  - examples/temperature_sensor.yaml validates cleanly with 6 fields.
+  - examples/modbus_style.yaml validates cleanly with 2 layouts.
+
+  **SchemaDecoder** (7 cases — covers the §5.2 list):
+  - Short-payload frame (matched magic but below min_payload_bytes)
+    is malformed; emits no signals.
+  - Multi-layout dispatch: two distinct magics route to two layouts;
+    consecutive frames produce one signal each.
+  - Per-field endianness override vs layout default: little-endian
+    layout with one big-endian field; both decode correctly.
+  - Scale + offset_transform applied to int16 produces the expected
+    double signal (raw 2000 * 0.01 - 10.0 = 10.0).
+  - fixed_string honors the null terminator: `"fw-42\0"` + garbage
+    decodes to `"fw-42"`.
+  - Cross-byte bit field (size 2 container with bits 0..7 + 4..11
+    + 12..15 slices) extracts correctly via little-endian assembly.
+  - float32 little-endian decode (1.5 → 0x3FC00000 byte sequence).
+
+  **LoggingSignalValueSink**: existing 4 cases already cover §5.2.
+
+**Validator change**: bumped `bool` encoding rejection to fire before
+the numeric-canonical-size branch (it had been unreachable because
+`bool` has `sizeBytes == 1` and was being absorbed by the numeric
+path). The new ordering checks for `Bool` explicitly first. This is
+not a freeze deviation — `bool` was always intended as a bitfield-
+child-only encoding per spec §3.4 and concerns.md #3.
+
+**Build verification**:
+- Debug (C++23): clean.
+- Release (C++23): clean.
+- debug-asan (C++23): clean.
+
+**Test verification**:
+- Debug: 251/251 tests pass (+ 19 new).
+- Release: 251/251 tests pass.
+- debug-asan: runtime still blocked locally by `/etc/ld.so.preload`.
+
+**Coverage**: not measured numerically (no llvm-cov / gcov harness in
+this build). The §5.2 enumeration is exhaustively covered by the 19
+new tests + 4 pre-existing sink tests + 4 spot-check decoder tests
+from S3 = 27 cases on the decoder modules. All branches of the
+validator's encoding switch and BitField sub-validation are touched
+by at least one test. Quantitative coverage will be the CI gate when
+quota resets.
+
+**Format**: clean.
+
+**Freeze scope**: no M2/M3/M4-frozen .hpp modified. The validator
+implementation tweak (Bool ordering) is in
+`schema_validator.cpp` (not frozen per spec §6.2).
+
+**Time**: ~1.5 h (under 4 h plan estimate).
