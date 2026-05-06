@@ -165,6 +165,15 @@ const std::unordered_set<std::string>& forbiddenFunctionNames() {
             return cap;
         }
     }
+    // Operator-level reject: ternary `?:` is not a function name and
+    // is not blocked by exprtk's disable_all_control_structures (which
+    // only covers if/switch/for/while/repeat/return). The `?` character
+    // is only used by the ternary operator in our dialect; flagging it
+    // here gives the user the same actionable error format as other
+    // whitelist violations (spec §3.1 / decision M7.1-B).
+    if (formula.contains(QLatin1Char('?'))) {
+        return QStringLiteral("?:");
+    }
     return std::nullopt;
 }
 

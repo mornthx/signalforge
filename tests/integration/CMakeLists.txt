@@ -239,3 +239,25 @@ foreach(buffer_test
     )
     catch_discover_tests(${buffer_test} DISCOVERY_MODE PRE_TEST)
 endforeach()
+
+# M7 expression-engine integration tests (spec §5.3).
+foreach(expression_test
+    test_expression_engine_basic
+    test_expression_engine_dependency_chain
+    test_expression_engine_cycle_rejection
+    test_expression_engine_type_promotion
+    test_expression_engine_qstring_rejection
+    test_expression_engine_restricted_syntax
+)
+    add_executable(${expression_test} ${expression_test}.cpp)
+    target_link_libraries(${expression_test}
+        PRIVATE
+            Catch2::Catch2WithMain
+            Qt6::Core
+            signalforge_buffer
+            signalforge_decoder
+            signalforge_expression
+            signalforge_observability
+    )
+    catch_discover_tests(${expression_test} DISCOVERY_MODE PRE_TEST)
+endforeach()

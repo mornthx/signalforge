@@ -803,3 +803,48 @@ Remaining uncovered branches in `expression_engine.cpp`:
 - ✓ Coverage ≥ 85% on `expression_engine.cpp` (85.71%)
 - ✓ Coverage ≥ 90% on `expression_validator.cpp` (93.71%)
 - ✓ All test cases pass under Debug and Release
+
+---
+
+### S9 — Integration tests (start)
+
+**Goal**: per plan §2 S9 + spec §5.3, deliver the 6 end-to-end
+expression-engine tests at `tests/integration/`.
+
+**New files** (one per scenario):
+
+1. `test_expression_engine_basic.cpp`: yaml → registrar → engine →
+   100 ticks → `power = v * i` derived signal published with value
+   24.0 (v=12, i=2).
+2. `test_expression_engine_dependency_chain.cpp`: 3-step chain
+   `c ← b ← a ← base_x`. With base_x=10, expected a=11, b=22, c=17.
+   200 ticks lets the publish cadence settle each level.
+3. `test_expression_engine_cycle_rejection.cpp`: 2-node cycle
+   x↔y. Asserts (a) registrar returns false, (b) error message
+   contains "cycle" and the cycle path (x → y → x), (c) no derived
+   signals are registered.
+4. `test_expression_engine_type_promotion.cpp` (2 cases): bool
+   source promotes to 1.0 (`flag * 5.0` → 5.0); int64 source
+   promotes to double (`counter / 4.0` with counter=42 → 10.5).
+5. `test_expression_engine_qstring_rejection.cpp`: QString-typed
+   base signal as a source produces a registration error containing
+   "QString" and references the offending expression id.
+6. `test_expression_engine_restricted_syntax.cpp` (4 cases):
+   `if(...)`, `while(...)`, ternary `? :`, `for(...)` all rejected
+   with messages referencing the offending expression id. Formulas
+   are quoted in yaml so `:` doesn't break yaml parsing.
+
+**Validator change** (additive):
+- Augmented `firstForbiddenName` to flag formulas containing the
+  ternary `?` character. exprtk's `disable_all_control_structures`
+  only blocks `if/switch/for/while/repeat/return` (per
+  `cntrl_struct_list` in exprtk 0.0.3 line 485-488); the ternary
+  operator is its own token. The check produces the same actionable
+  error format as other whitelist violations.
+
+**Test count**: 396/396 on debug and release (was 386 → +10 from
+the 10 new test cases: basic 1 + chain 1 + cycle 1 + type_promote 2
++ qstring 1 + restricted 4).
+
+**Build**: clean on debug + release (debug-asan deferred to CI).
+**Format**: clang-format clean on changed files.
