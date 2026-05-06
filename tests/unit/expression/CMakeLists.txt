@@ -51,3 +51,20 @@ target_link_libraries(expression_engine_lifecycle_test
         signalforge_decoder
 )
 catch_discover_tests(expression_engine_lifecycle_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_registrar_test
+    expression_registrar_test.cpp
+)
+target_link_libraries(expression_registrar_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_buffer
+        signalforge_decoder
+)
+target_compile_definitions(expression_registrar_test
+    PRIVATE
+        SIGNALFORGE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/integration/fixtures"
+)
+catch_discover_tests(expression_registrar_test DISCOVERY_MODE PRE_TEST)

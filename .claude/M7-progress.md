@@ -540,3 +540,109 @@ implements the body.
 **Effort**: ~3.5 h actual work + ~2.5 h debug-and-recovery from
 the QSignalSpy hang (CPU spin not wall time). Plan estimate 5 h.
 
+**CI** (run 25448331665): success — debug, release, debug-asan all
+green.
+
+---
+
+### S5 — ExpressionRegistrar (yaml orchestration + engine handoff) (start)
+
+**Goal**: per plan §2 S5, app-level lifecycle hook that loads yaml
+files, validates against the registry's base signals, hands the
+result to `ExpressionEngine`, and starts ticking. On failure,
+logs all validation errors and leaves the engine stopped.
+
+1. New `src/expression/expression_registrar.{hpp,cpp}`:
+   - Constructor takes `SignalBufferRegistry&`, `ExpressionEngine&`,
+     and `std::vector<QString> yamlPaths`.
+   - `loadAndStart()` method:
+     - Reads each yaml path; merges their `expressions` sequences
+       into a synthetic combined yaml document via yaml-cpp Node
+       manipulation. This lets the validator's cycle detection
+       run across all files in one pass.
+     - Builds the available-signals catalog from
+       `registry.signalIds()` + `bufferFor(id)->metadata()`.
+     - Calls `ExpressionValidator::validateString(merged, …)`.
+     - On success: `engine.setExpressions(...)` + `engine.start()`.
+     - On failure: logs each validation error with file/line/
+       expression-id; engine remains stopped.
+2. New `src/expression/CMakeLists.txt` source list += registrar.
+3. Tests:
+   - `tests/unit/expression/expression_registrar_test.cpp`:
+     happy-path (1 file, valid) starts the engine; mixed-file
+     happy path (2 files merged); validation-failure path leaves
+     the engine stopped + logs errors; missing-file path errors
+     cleanly.
+
+**Acceptance**:
+
+- `loadAndStart()` succeeds for valid yaml + valid base-signal
+  catalog; engine ticks (stats counter advances after invoking
+  manual ticks per the M6-cadence approach used in S4).
+- Validation failure on any file leaves engine stopped.
+- Cross-file cycle is detected.
+
+**Freeze scope**: M2/M3/M4/M5/M6 frozen `.hpp` not modified. New
+`ExpressionRegistrar` class is added to the M7 freeze surface
+(spec §6.1 enumerates the three previous classes; the registrar
+is a behavioral helper, not strictly enumerated, but its API
+will be referenced in M7-done.md).
+
+### S5 — ExpressionRegistrar (yaml orchestration + engine handoff) (close)
+
+**Result**: ✅ green.
+
+**Changes**:
+
+- `src/expression/expression_registrar.{hpp,cpp}`: new orchestrator
+  class.
+  - Constructor takes registry + engine references + yamlPaths.
+  - `loadAndStart()`:
+    - Empty paths → WARN + return false.
+    - For each path: open + parse via yaml-cpp; on per-file IO or
+      yaml-syntax errors, push structured `ExpressionValidationError`
+      and return false.
+    - Merges all `expressions:` sequences from all files into a
+      single virtual yaml document via yaml-cpp Node manipulation.
+      Cross-file cycle detection runs in the validator's single
+      pass over the merged document.
+    - Builds available-signals catalog from
+      `registry.signalIds()` + `bufferFor(id)->metadata()`.
+    - Calls `ExpressionValidator::validateString(merged, …)`. On
+      failure: log all errors with file/line/expression-id; return
+      false.
+    - On success: `engine.setExpressions(...)` + `engine.start()`;
+      info-log expression count + file count.
+  - `lastErrors()` accessor returns the most recent error list (for
+    test assertions + diagnostic display).
+- `src/expression/CMakeLists.txt`: source list += registrar files.
+
+**Tests**:
+
+- `tests/unit/expression/expression_registrar_test.cpp` (6 cases):
+  - Happy path with `valid_expressions/multi.yaml` (3 expressions
+    registered).
+  - Validation failure (`cycle_simple` fixture) leaves engine
+    stopped, lastErrors populated.
+  - Missing-file path errors cleanly with structured error.
+  - Empty path list returns false (warn only).
+  - Multi-file merge: two synthetic yamls in QTemporaryDir, where
+    file B references a derived signal from file A; loadAndStart
+    succeeds with 2 expressions registered.
+  - Cross-file cycle: file A's `alpha` depends on file B's `beta`,
+    and vice versa; validator reports cycle, engine stays stopped.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean.
+
+**Test verification** (local):
+
+- 6 registrar tests pass directly (21 assertions).
+- Cumulative test count: 361 (was 355 at S4 close; +6 from S5).
+
+**Frozen-file diff** vs `08a0478` (M6 merge): empty.
+
+**Effort**: 2.5 h (plan estimate 3 h).
+

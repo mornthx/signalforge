@@ -3,6 +3,8 @@ add_library(signalforge_expression STATIC
     expression.hpp
     expression_engine.cpp
     expression_engine.hpp
+    expression_registrar.cpp
+    expression_registrar.hpp
     expression_validator.cpp
     expression_validator.hpp
 )
