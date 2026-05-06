@@ -211,10 +211,31 @@ foreach(decoder_test
             signalforge_decoder
             signalforge_frame
             signalforge_observability
+            signalforge_test_only
     )
     target_compile_definitions(${decoder_test}
         PRIVATE
             SIGNALFORGE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
     )
     catch_discover_tests(${decoder_test} DISCOVERY_MODE PRE_TEST)
+endforeach()
+
+# M6 signal-buffer integration tests (spec §5.3).
+foreach(buffer_test
+    test_signal_buffer_round_trip
+    test_signal_buffer_concurrent
+    test_signal_buffer_lod
+    test_signal_buffer_window_eviction
+    test_signal_buffer_budget
+)
+    add_executable(${buffer_test} ${buffer_test}.cpp)
+    target_link_libraries(${buffer_test}
+        PRIVATE
+            Catch2::Catch2WithMain
+            Qt6::Core
+            signalforge_buffer
+            signalforge_decoder
+            signalforge_observability
+    )
+    catch_discover_tests(${buffer_test} DISCOVERY_MODE PRE_TEST)
 endforeach()

@@ -1,5 +1,7 @@
 #include "decode/schema_decoder.hpp"
 
+#include "buffer/signal_buffer.hpp"
+#include "buffer/signal_buffer_registry.hpp"
 #include "observability/logging.hpp"
 #include "observability/metrics.hpp"
 
@@ -215,6 +217,7 @@ void SchemaDecoder::setSignalSink(std::shared_ptr<SignalValueSink> sink) {
         }
         previous = sink_;
         sink_ = sink;
+        bufferCache_.reset();  // invalidate the M6 fast-path cache; rebuilt below if applicable
     }
     if (previous) {
         try {
@@ -229,6 +232,21 @@ void SchemaDecoder::setSignalSink(std::shared_ptr<SignalValueSink> sink) {
         } catch (const std::exception& e) {
             SF_LOG_ERROR("SchemaDecoder[{}]: sink threw on register: {}", driverId_.toStdString(), e.what());
         }
+
+        // M6 fast-path: if the sink is a SignalBufferRegistry, the registry
+        // has now allocated a SignalBuffer per metadata signal. Cache the
+        // SignalBuffer* pointers indexed by metadata catalog position so the
+        // decoder's hot loop can push directly without touching the
+        // registry's mutex or QString-keyed map.
+        if (auto* registry = dynamic_cast<signalforge::buffer::SignalBufferRegistry*>(sink.get())) {
+            auto cache =
+                std::make_shared<std::vector<signalforge::buffer::SignalBuffer*>>(metadataCatalog_.size(), nullptr);
+            for (std::size_t i = 0; i < metadataCatalog_.size(); ++i) {
+                (*cache)[i] = registry->bufferFor(metadataCatalog_[i].id);
+            }
+            std::lock_guard lock(sinkMutex_);
+            bufferCache_ = std::move(cache);
+        }
     }
 }
 
@@ -240,12 +258,14 @@ void SchemaDecoder::onFrame(const signalforge::frame::RawFrame& frame) {
     const auto t0 = std::chrono::steady_clock::now();
 
     std::shared_ptr<SignalValueSink> sink;
+    std::shared_ptr<const std::vector<signalforge::buffer::SignalBuffer*>> cache;
     {
         std::lock_guard lock(sinkMutex_);
         sink = sink_;
+        cache = bufferCache_;
     }
 
-    const bool matched = tryDecodeFrame(frame, std::move(sink));
+    const bool matched = tryDecodeFrame(frame, std::move(sink), std::move(cache));
 
     const auto t1 = std::chrono::steady_clock::now();
     const auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
@@ -279,8 +299,33 @@ bool SchemaDecoder::layoutMatches(const LayoutMatch& match, const QByteArray& pa
     return true;
 }
 
-bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, std::shared_ptr<SignalValueSink> sink) {
+bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, std::shared_ptr<SignalValueSink> sink,
+                                   std::shared_ptr<const std::vector<signalforge::buffer::SignalBuffer*>> cache) {
     const QByteArray& payload = frame.payload;
+    // Fast-path cache (raw pointer view to avoid shared_ptr atomic deref in the
+    // inner loop). The shared_ptr keeps the underlying vector alive for the
+    // duration of this call.
+    signalforge::buffer::SignalBuffer* const* cacheData = cache ? cache->data() : nullptr;
+    const std::size_t cacheSize = cache ? cache->size() : 0;
+    auto emitSignal = [&](int metaIndex, std::chrono::steady_clock::time_point t, const SignalValue& value,
+                          const QString& sigId) -> bool {
+        if (cacheData != nullptr && metaIndex >= 0 && static_cast<std::size_t>(metaIndex) < cacheSize) {
+            if (auto* buf = cacheData[metaIndex]) {
+                buf->push(t, value);
+                return true;
+            }
+        }
+        if (sink) {
+            try {
+                sink->onSignal(t, sigId, value);
+                return true;
+            } catch (const std::exception& e) {
+                SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
+                return false;
+            }
+        }
+        return true;  // no sink: count as emitted (matches prior behavior)
+    };
 
     for (std::size_t li = 0; li < schema_.layouts.size(); ++li) {
         const Layout& layout = schema_.layouts[li];
@@ -333,14 +378,7 @@ bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, st
                     } else {
                         value = SignalValue{static_cast<std::int64_t>(slice)};
                     }
-                    if (sink) {
-                        try {
-                            sink->onSignal(frame.recvAt, sigId, value);
-                            ++emittedThisFrame;
-                        } catch (const std::exception& e) {
-                            SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
-                        }
-                    } else {
+                    if (emitSignal(meta, frame.recvAt, value, sigId)) {
                         ++emittedThisFrame;
                     }
                 }
@@ -355,14 +393,7 @@ bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, st
                 }
                 const QString text = QString::fromUtf8(slice.constData(), len);
                 const QString& sigId = metadataCatalog_[cf.metaIndex].id;
-                if (sink) {
-                    try {
-                        sink->onSignal(frame.recvAt, sigId, SignalValue{text});
-                        ++emittedThisFrame;
-                    } catch (const std::exception& e) {
-                        SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
-                    }
-                } else {
+                if (emitSignal(cf.metaIndex, frame.recvAt, SignalValue{text}, sigId)) {
                     ++emittedThisFrame;
                 }
                 continue;
@@ -379,14 +410,7 @@ bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, st
                     value += *field.offsetTransform;
                 }
                 const QString& sigId = metadataCatalog_[cf.metaIndex].id;
-                if (sink) {
-                    try {
-                        sink->onSignal(frame.recvAt, sigId, SignalValue{value});
-                        ++emittedThisFrame;
-                    } catch (const std::exception& e) {
-                        SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
-                    }
-                } else {
+                if (emitSignal(cf.metaIndex, frame.recvAt, SignalValue{value}, sigId)) {
                     ++emittedThisFrame;
                 }
                 continue;
@@ -416,14 +440,7 @@ bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, st
             } else {
                 value = SignalValue{intRaw};
             }
-            if (sink) {
-                try {
-                    sink->onSignal(frame.recvAt, sigId, value);
-                    ++emittedThisFrame;
-                } catch (const std::exception& e) {
-                    SF_LOG_ERROR("SchemaDecoder: sink threw on signal '{}': {}", sigId.toStdString(), e.what());
-                }
-            } else {
+            if (emitSignal(cf.metaIndex, frame.recvAt, value, sigId)) {
                 ++emittedThisFrame;
             }
         }

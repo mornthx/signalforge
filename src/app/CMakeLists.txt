@@ -12,6 +12,8 @@ target_link_libraries(signalforge_app_ui
         signalforge_frame
         signalforge_drivers
         signalforge_pipeline
+        signalforge_decoder
+        signalforge_buffer
     PRIVATE
         signalforge_observability
         signalforge_platform

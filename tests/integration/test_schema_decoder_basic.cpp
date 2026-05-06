@@ -1,4 +1,4 @@
-#include "decode/logging_signal_value_sink.hpp"
+#include "tests/test_only/logging_signal_value_sink.hpp"
 #include "decode/schema_decoder.hpp"
 #include "decode/schema_validator.hpp"
 #include "frame/raw_frame.hpp"

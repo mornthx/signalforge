@@ -1,4 +1,5 @@
 add_subdirectory(mocks)
+add_subdirectory(test_only)
 add_subdirectory(unit)
 add_subdirectory(integration)
 if(SIGNALFORGE_BENCHMARKS)

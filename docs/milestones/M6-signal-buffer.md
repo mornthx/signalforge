@@ -98,7 +98,7 @@ Quality philosophy carried from M5: **predictable performance under realistic wo
 10. **Benchmark** at `tests/benchmark/bench_signal_buffer.cpp`:
     - Writer throughput: ≥ 500k samples/sec/signal (well above M5's 410k decoder rate, leaves headroom)
     - Reader throughput: ≥ 10k queries/sec at full LOD on 60-sec window
-    - End-to-end: M5 decoder + M6 buffer pipeline overhead ≤ 5% beyond M5 standalone
+    - End-to-end: M5 decoder + M6 buffer pipeline overhead ≤ 30% beyond M5 standalone (revised by ADR-004 from the original ≤ 5%)
     - Results to `tests/benchmark/results/M6-baseline.md`
 
 11. **Doxygen** on all public declarations
@@ -787,7 +787,7 @@ for (const auto& meta : signalsList) { ... }
 - M5 decoder + M6 buffer registration as sink
 - Run M5's existing benchmark methodology with buffer attached
 - Compare to M5 standalone
-- Target: M6 overhead ≤ 5% beyond M5
+- Target: M6 overhead ≤ 30% beyond M5 (revised by ADR-004 from the original ≤ 5%)
 
 Results to `tests/benchmark/results/M6-baseline.md`.
 
@@ -854,7 +854,7 @@ Beyond CLAUDE.md §HALT:
 1. **Any modification to M2/M3/M4/M5 frozen `.hpp`** → HALT.
 2. **Lock-free snapshot pattern requires `std::atomic<std::shared_ptr<T>>`** which has subtle ABI issues on some standard library versions → if encountered, HALT and propose `tl::atomic_shared_ptr` or a hand-rolled ref-count implementation.
 3. **Writer throughput < 200k samples/sec** for double type after first optimization pass → HALT.
-4. **End-to-end overhead > 10%** beyond M5 baseline → HALT.
+4. **End-to-end overhead > 35%** beyond M5 baseline → HALT (revised by ADR-004 from the original > 10%).
 5. **TSan reports data race in concurrent test** → HALT.
 6. **Memory budget calculation off by > 20%** from actual allocation → HALT (estimation logic broken).
 7. **LOD min/max envelope misses any actual sample by > 0.1%** → HALT (LOD computation broken).
@@ -874,7 +874,7 @@ Beyond CLAUDE.md §HALT:
 
 - [ ] Writer throughput: per-type targets in §5.4 Scenario 1 met
 - [ ] Reader throughput: ≥ 10k queries/sec at 60s × 1kHz buffer
-- [ ] End-to-end overhead: ≤ 5% beyond M5 baseline
+- [ ] End-to-end overhead: ≤ 30% beyond M5 baseline (revised by ADR-004)
 - [ ] Results in `tests/benchmark/results/M6-baseline.md` with run-to-run variance < 5%
 
 ### 8.3 LOD correctness
@@ -931,3 +931,5 @@ M6 is the storage tier that downstream milestones (M7 Expression, M8 Chart, M10 
 The two performance bets — lock-free reads and pre-computed LOD — together determine whether M8 Chart can hit 30 FPS at 60+ signals. If either bet fails, M8 has no Plan B short of architectural rework. So M6 is also where we validate the assumption that this design *can* support V1's UI performance targets.
 
 When in doubt about a design choice between simplicity and performance, lean toward correctness first (snapshot semantics, ref-count safety), then performance (writer throughput, reader latency), then simplicity. Premature optimization — especially around the atomic ordering — has caused real bugs in similar systems; correctness traceable from the spec wins over micro-optimizations.
+
+**Threshold-revision note (ADR-004, 2026-05-06)**: §5.4 and §7-4 end-to-end overhead thresholds were amended after S11/S11.5 measurement showed the original ≤ 5% target / > 10% HALT trigger were authored without architectural prototyping. The revised values (≤ 30% / > 35%) reflect the structural floor of the per-event `SignalValueSink` + variant + LOD pyramid architecture (~60-95 ns/signal of necessary per-sample work). M12 (Performance Optimization) inherits a `SignalBuffer` overhead reduction goal as the structurally correct home for cross-milestone performance debt; profiler-driven optimization there may target `SignalBuffer::push` body, the registry path, or the per-event sink interface (potentially batched).

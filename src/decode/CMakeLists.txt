@@ -2,8 +2,6 @@ add_library(signalforge_decoder STATIC
     decoder_interface.hpp
     decoder_registrar.cpp
     decoder_registrar.hpp
-    logging_signal_value_sink.cpp
-    logging_signal_value_sink.hpp
     schema.hpp
     schema_decoder.cpp
     schema_decoder.hpp
@@ -20,5 +18,6 @@ target_link_libraries(signalforge_decoder
     PRIVATE
         signalforge_observability
         signalforge_platform
+        signalforge_buffer
         yaml-cpp::yaml-cpp
 )

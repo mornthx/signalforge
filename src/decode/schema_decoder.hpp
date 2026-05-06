@@ -13,6 +13,10 @@ namespace signalforge::observability {
 class Metric;
 }
 
+namespace signalforge::buffer {
+class SignalBuffer;
+}  // namespace signalforge::buffer
+
 namespace signalforge::decoder {
 
 /// Yaml-schema-driven decoder. Constructed from a pre-validated Schema
@@ -72,6 +76,18 @@ private:
     mutable std::mutex sinkMutex_;
     std::shared_ptr<SignalValueSink> sink_;
 
+    /// M6 fast-path cache: when the attached sink is a
+    /// `signalforge::buffer::SignalBufferRegistry`, this vector holds
+    /// pre-resolved `SignalBuffer*` pointers (one per metadata signal in
+    /// catalog order; `nullptr` if registration was rejected for that
+    /// signal). The hot path in `tryDecodeFrame` uses these to bypass the
+    /// registry's QString-keyed map find and mutex on every emitted
+    /// signal. The shared_ptr lets `onFrame` snapshot the cache atomically
+    /// alongside `sink_` without holding the mutex during the decode loop.
+    /// For non-buffer-aware sinks (e.g., test-only `LoggingSignalValueSink`)
+    /// this stays null and the standard `sink_->onSignal` path is used.
+    std::shared_ptr<const std::vector<signalforge::buffer::SignalBuffer*>> bufferCache_;
+
     signalforge::observability::Metric* mDecoded_ = nullptr;
     signalforge::observability::Metric* mUnmatched_ = nullptr;
     signalforge::observability::Metric* mMalformed_ = nullptr;
@@ -80,7 +96,8 @@ private:
 
     /// Try each layout in order; first match wins. Returns true iff a layout
     /// matched and was processed (whether or not signals emitted).
-    bool tryDecodeFrame(const signalforge::frame::RawFrame& frame, std::shared_ptr<SignalValueSink> sink);
+    bool tryDecodeFrame(const signalforge::frame::RawFrame& frame, std::shared_ptr<SignalValueSink> sink,
+                        std::shared_ptr<const std::vector<signalforge::buffer::SignalBuffer*>> cache);
 
     /// Returns true iff `payload[match.offset .. +match.bytes.size()]` equals
     /// `match.bytes`. False if the payload is too short for the comparison.
