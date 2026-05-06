@@ -1098,3 +1098,74 @@ LOD test exhaustively verifies every level-3 bin's `[min, max]`
 contains all 1000 raw samples that contributed to it — across 600
 bins covering 600 k samples in total. No outliers found.
 
+---
+
+### S11 — Benchmark (HALTED)
+
+**Goal**: spec §5.4 + plan §S11 — three benchmark scenarios with
+results captured in `tests/benchmark/results/M6-baseline.md`.
+
+**Result**: 🛑 **HALTED on end-to-end overhead** (HALT trigger #4
+per spec §7-4 / plan §3 #4).
+
+**Files added**:
+
+- `tests/benchmark/bench_signal_buffer.cpp` — runs three scenarios
+  (writer-per-type / reader / end-to-end) and emits JSON-line output
+  to stdout.
+- `tests/benchmark/CMakeLists.txt` — wires `bench_signal_buffer`
+  alongside the existing M5 / M4 benches.
+- `tests/benchmark/results/M6-baseline.md` — partial baseline doc
+  marked PRELIMINARY.
+- `.claude/halt/HALT-20260506T081040Z-m6-e2e-overhead.md` — full HALT
+  report.
+
+**Optimization pass attempted (one)**:
+
+- `samples_evicted_<id>` metric is set only when eviction actually
+  occurred during the current `push` call (was: set on every push
+  regardless).
+- `memory_bytes_<id>` gauge is set only on the publish cadence
+  (was: set on every push, recomputing memoryBytes() each time).
+
+Effect: end-to-end overhead 36.16% → 33.22%. ~3 percentage points.
+Insufficient to clear the 10% HALT threshold.
+
+**Numbers** (single-run, release build):
+
+| Scenario | Result | Target | Status |
+|---|---|---|---|
+| Writer bool | 16.1 M /sec | ≥ 1 M /sec | ✅ |
+| Writer int64 | 8.5 M /sec | ≥ 500 k /sec | ✅ |
+| Writer double | 8.4 M /sec | ≥ 500 k /sec | ✅ |
+| Writer QString | 4.4 M /sec | ≥ 200 k /sec | ✅ |
+| Reader queries | 337 k /sec | ≥ 10 k /sec | ✅ |
+| **End-to-end overhead** | **33.22%** | **≤ 5% (HALT > 10%)** | **❌ HALT** |
+
+**Source identification** (per plan §3 #4 requirement): QString-keyed
+map find in `SignalBufferRegistry::onSignal` dominates per-signal
+overhead (~80-120 ns of ~127 ns). Mutex is secondary (~25-30 ns).
+`SignalBuffer::push` body itself is third (~50-80 ns).
+
+**Files committable at HALT time** (committed in this session):
+
+- The bench .cpp + CMakeLists wiring.
+- The optimization-pass changes to `signal_buffer.cpp`.
+- `tests/benchmark/results/M6-baseline.md` (PRELIMINARY marker).
+- `.claude/halt/HALT-20260506T081040Z-m6-e2e-overhead.md`.
+
+**Per CLAUDE.md §HALT**: do not attempt to continue. Awaiting human
+decision on:
+
+- **Option A**: implement a per-decoder buffer-pointer cache (~5 h,
+  freeze-safe, ~7% overhead estimated → clears HALT threshold).
+- **Option B**: ADR amending spec §7-4 threshold (e.g., to 25% or
+  "≥ 80% M5 baseline").
+- **Option C**: deeper redesign (lock-free map / hash-cached
+  signalIds / batched metrics).
+
+Recommended: Option A.
+
+**Effort**: 4 h (bench authoring + opt pass + HALT report). Plan
+estimate 3 h.
+

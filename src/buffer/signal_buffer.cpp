@@ -127,6 +127,8 @@ struct SignalBuffer::TypedBuffer {
     /// Returns true if stored; false on type mismatch (no eviction is
     /// performed in that case — the caller's push is a no-op).
     bool push(std::chrono::steady_clock::time_point t, const SignalValue& value) {
+        const std::uint64_t evictedBefore = totalEvicted_;
+
         // 1. Time-window eviction: drop everything older than `t - window`.
         if (windowDuration_ > std::chrono::steady_clock::duration::zero()) {
             const auto cutoff = t - windowDuration_;
@@ -153,15 +155,16 @@ struct SignalBuffer::TypedBuffer {
         // 4. Bump cumulative push count.
         ++pushCount_;
 
-        // 5. Update metrics.
+        // 5. Update metrics. Hot-path principle: only the always-needed
+        //   counter (samples_stored) is updated per push. Eviction and
+        //   memory metrics update only when their value actually changes
+        //   (samples_evicted) or on the publish cadence (memory_bytes,
+        //   updated alongside the publish event).
         if (samplesStoredMetric_ != nullptr) {
             samplesStoredMetric_->add(1);
         }
-        if (samplesEvictedMetric_ != nullptr) {
+        if (totalEvicted_ != evictedBefore && samplesEvictedMetric_ != nullptr) {
             samplesEvictedMetric_->set(static_cast<std::int64_t>(totalEvicted_));
-        }
-        if (memoryBytesMetric_ != nullptr) {
-            memoryBytesMetric_->set(static_cast<std::int64_t>(memoryBytes()));
         }
 
         // 6. LOD pyramid maintenance (numeric derivations override; bool
@@ -169,13 +172,18 @@ struct SignalBuffer::TypedBuffer {
         onPushCompleted();
 
         // 7. Snapshot publish on cadence: build an immutable Segment of the
-        // current state and atomic-store it for readers.
+        // current state and atomic-store it for readers. Memory-bytes gauge
+        // is also updated here (rather than per push) since publish is the
+        // natural amortization point for accounting work.
         if (++pushesSincePublish_ >= publishCadence_) {
             publishSegment();
             pushesSincePublish_ = 0;
             ++publishCount_;
             if (publishesMetric_ != nullptr) {
                 publishesMetric_->add(1);
+            }
+            if (memoryBytesMetric_ != nullptr) {
+                memoryBytesMetric_->set(static_cast<std::int64_t>(memoryBytes()));
             }
         }
         return true;
