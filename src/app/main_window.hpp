@@ -6,6 +6,12 @@
 namespace signalforge::pipeline {
 class PipelineManager;
 }
+namespace signalforge::buffer {
+class SignalBufferRegistry;
+}
+namespace signalforge::decoder {
+class DecoderRegistrar;
+}
 
 namespace signalforge::app {
 
@@ -23,6 +29,8 @@ private slots:
 
 private:
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
+    std::unique_ptr<signalforge::buffer::SignalBufferRegistry> signalBufferRegistry_;
+    std::unique_ptr<signalforge::decoder::DecoderRegistrar> decoderRegistrar_;
     std::unique_ptr<ConnectionManager> connectionManager_;
 };
 

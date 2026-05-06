@@ -1,7 +1,7 @@
 // tests/unit/decode/decoder_test.cpp
 #include "decode/decoder_interface.hpp"
 #include "decode/decoder_registrar.hpp"
-#include "decode/logging_signal_value_sink.hpp"
+#include "tests/test_only/logging_signal_value_sink.hpp"
 #include "decode/schema_decoder.hpp"
 #include "decode/schema_validator.hpp"
 #include "drivers/driver_interface.hpp"

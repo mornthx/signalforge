@@ -8,6 +8,7 @@ target_link_libraries(decoder_test
         signalforge_decoder
         signalforge_pipeline
         signalforge_frame
+        signalforge_test_only
 )
 target_compile_definitions(decoder_test
     PRIVATE

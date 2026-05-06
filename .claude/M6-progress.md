@@ -831,3 +831,78 @@ self-test passes within ±20%.
 
 **Effort**: 5 h (plan estimate 5 h).
 
+**CI** (run 25420857424): success — debug, release, debug-asan all
+green.
+
+---
+
+### S8 — DecoderRegistrar wiring + LoggingSignalValueSink relocation (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/app/main_window.{hpp,cpp}`:
+  - Added `signalBufferRegistry_` and `decoderRegistrar_` members
+    (`std::unique_ptr`).
+  - `openConnectionManager` lazily constructs them alongside the
+    `PipelineManager`, passing a non-owning aliased
+    `std::shared_ptr<SignalValueSink>` (registry outlives registrar)
+    as the `defaultSink` argument to `DecoderRegistrar`'s
+    pre-existing M5 constructor — no modification to the frozen
+    M5 constructor signature.
+  - Driver-type → schema-path map starts empty; M9 will populate
+    it from the Connection Manager UI.
+- `src/app/CMakeLists.txt`: added `signalforge_decoder` and
+  `signalforge_buffer` to `signalforge_app_ui`'s PUBLIC deps.
+- `tests/test_only/logging_signal_value_sink.{hpp,cpp}`: relocated
+  from `src/decode/`. Namespace kept as `signalforge::decoder` so
+  test sites only need an include-path update. Updated header path
+  comment + Doxygen note explaining the relocation rationale.
+- `tests/test_only/CMakeLists.txt`: new `signalforge_test_only`
+  STATIC library; `target_include_directories(... PUBLIC
+  ${CMAKE_SOURCE_DIR})` so tests include via
+  `"tests/test_only/logging_signal_value_sink.hpp"`.
+- `tests/CMakeLists.txt`: `add_subdirectory(test_only)` between
+  `mocks` and `unit`.
+- `src/decode/CMakeLists.txt`: removed `logging_signal_value_sink.{cpp,hpp}`
+  from `signalforge_decoder` source list.
+- `tests/integration/CMakeLists.txt`,
+  `tests/unit/decode/CMakeLists.txt`: linked
+  `signalforge_test_only` into the affected test executables.
+- Test source includes updated:
+  `tests/unit/decode/decoder_test.cpp`,
+  `tests/integration/test_schema_decoder_basic.cpp`,
+  `tests/integration/test_schema_decoder_unmatched.cpp` now use
+  `"tests/test_only/logging_signal_value_sink.hpp"`.
+- Deleted `src/decode/logging_signal_value_sink.{cpp,hpp}`
+  (`git rm`).
+
+**Production-path verification**:
+
+- `grep -rn "logging_signal_value_sink\|LoggingSignalValueSink" src/
+  tools/` returns only three doc-comment mentions
+  (`src/app/main_window.cpp`, `src/decode/decoder_interface.hpp`,
+  `src/buffer/signal_buffer_registry.hpp`). No code paths reference
+  it.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- The signalforge executable links against
+  `signalforge_buffer + signalforge_decoder` via `signalforge_app_ui`.
+- `clang-format --dry-run -Werror` clean on changed files.
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 311 / 311 pass (no count change; pre-existing
+  decoder/integration tests still pass through the relocated stub).
+- `ctest --preset=release` — 311 / 311 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs 6fc6c06 (including decoder_registrar.hpp):
+empty. M5's frozen `DecoderRegistrar` ctor signature unchanged;
+S8 only updated the call site.
+
+**Effort**: 2.5 h (plan estimate 3 h).
+

@@ -1,5 +1,5 @@
 #include "decode/decoder_interface.hpp"
-#include "decode/logging_signal_value_sink.hpp"
+#include "tests/test_only/logging_signal_value_sink.hpp"
 #include "decode/schema.hpp"
 #include "decode/schema_decoder.hpp"
 #include "frame/raw_frame.hpp"

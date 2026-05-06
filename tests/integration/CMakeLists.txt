@@ -211,6 +211,7 @@ foreach(decoder_test
             signalforge_decoder
             signalforge_frame
             signalforge_observability
+            signalforge_test_only
     )
     target_compile_definitions(${decoder_test}
         PRIVATE

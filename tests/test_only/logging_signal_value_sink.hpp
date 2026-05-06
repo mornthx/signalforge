@@ -1,4 +1,4 @@
-// src/decode/logging_signal_value_sink.hpp
+// tests/test_only/logging_signal_value_sink.hpp
 #pragma once
 
 #include "decode/decoder_interface.hpp"
@@ -11,12 +11,15 @@
 
 namespace signalforge::decoder {
 
-/// M5-only test / diagnostic sink. Logs each signal at INFO level and
-/// keeps per-type atomic counters for test introspection. Not intended
-/// for production use — M6's SignalBuffer-backed SignalValueSink is the
-/// production target.
+/// Test/diagnostic sink that logs each signal at INFO level and keeps
+/// per-type atomic counters for test introspection. Originally lived in
+/// `src/decode/` during M5 as the placeholder production sink. Relocated
+/// to `tests/test_only/` in M6 (see plan §S8) once the production sink —
+/// `signalforge::buffer::SignalBufferRegistry` — landed. Retained in the
+/// `signalforge::decoder` namespace so M5-era tests need only an include
+/// path update.
 ///
-/// Not part of the M5 freeze surface (per M5 spec §6.2).
+/// Production code paths must not depend on this header.
 class LoggingSignalValueSink : public SignalValueSink {
 public:
     LoggingSignalValueSink();

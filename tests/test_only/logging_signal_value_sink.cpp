@@ -1,5 +1,5 @@
-// src/decode/logging_signal_value_sink.cpp
-#include "decode/logging_signal_value_sink.hpp"
+// tests/test_only/logging_signal_value_sink.cpp
+#include "tests/test_only/logging_signal_value_sink.hpp"
 
 #include "observability/logging.hpp"
 
