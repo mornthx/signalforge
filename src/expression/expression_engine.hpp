@@ -104,6 +104,12 @@ private:
 
     mutable std::mutex statsMutex_;
     TickStats stats_;
+
+    /// PIMPL holder for metric pointers + per-expression rate-limit
+    /// state. Defined in `expression_engine.cpp` so the public header
+    /// stays free of the observability/Metric symbol.
+    struct ExpressionEnginePrivateOpaque;
+    std::unique_ptr<ExpressionEnginePrivateOpaque> privateState_;
 };
 
 }  // namespace signalforge::expression

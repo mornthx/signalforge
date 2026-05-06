@@ -392,3 +392,151 @@ collision fix).
 
 **Effort**: 4.5 h (plan estimate 6 h).
 
+**CI** (run 25439096830): success — debug, release, debug-asan all
+green.
+
+---
+
+### S4 — ExpressionEngine (30 Hz tick + evaluation loop) (start)
+
+**Goal**: per plan §2 S4, replace S1's stub onTick with a working
+evaluation loop.
+
+1. Constructor registers spec §3.7 engine-level metrics (
+   `expression_engine_ticks_total`,
+   `expression_engine_tick_us`,
+   `expression_engine_evaluations_total`).
+2. `setExpressions(set)`:
+   - Build derived metadata catalog from each Expression's
+     `derivedSignalMetadata()`.
+   - Register with the registry via the virtual driver ID.
+   - Register per-expression metrics
+     (`expression_evaluation_us_<id>`,
+     `expression_evaluation_errors_<id>`).
+   - Store the set.
+3. `onTick()`:
+   - Record `t0`.
+   - For each expression in topo order:
+     - Collect source values: for each source ID, query
+       `registry->bufferFor(srcId)->queryLatestOne()`; if buf
+       nullptr OR queryLatestOne returns nullopt, contribute NaN
+       (`SignalValue{quiet_NaN}`).
+     - Try `expr.evaluate(sources)`; on exception increment
+       `expression_evaluation_errors_<id>`, log warn once per second
+       per expression (rate-limited via a per-expression timestamp).
+     - Push result via `registry->onSignal(now, derivedId, result)`.
+   - Record `t1`; update `TickStats` (ticksTotal++, evaluationsTotal
+     += N, lastTickDurationUs, peakTickDurationUs); set engine-level
+     metric gauges.
+4. Tick-miss handling: per spec §9, do NOT catch up. The Qt timer
+   simply fires later; no special logic.
+5. `tests/unit/expression/expression_engine_lifecycle_test.cpp`:
+   - Lifecycle (start/stop/start, isRunning, expressionCount).
+   - Single-tick evaluation produces a derived signal in the
+     registry (uses QTest::qWait to spin the event loop).
+   - Multi-tick (TicksTotal > 1 after waiting longer than 2 ×
+     tickInterval).
+   - Source-NaN propagation: missing base signal → derived NaN.
+
+**Acceptance**:
+
+- All existing tests still pass under Debug + Release + debug-asan.
+- New unit tests verify the lifecycle, single + multi tick, and
+  NaN propagation. Linked against Qt6::Test for `QTest::qWait`.
+
+**Freeze scope**: M2/M3/M4/M5/M6 frozen `.hpp` not modified.
+`ExpressionEngine` public API is unchanged from S1; S4 just
+implements the body.
+
+### S4 — ExpressionEngine (30 Hz tick + evaluation loop) (close)
+
+**Result**: ✅ green.
+
+**Changes**:
+
+- `src/expression/expression_engine.hpp`: PIMPL pointer
+  `ExpressionEnginePrivateOpaque` added (forward-declared in the
+  header, defined in the .cpp) so the public surface stays free of
+  `signalforge::observability::Metric`.
+- `src/expression/expression_engine.cpp` — full evaluation path:
+  - Constructor registers spec §3.7 engine-level metrics
+    (`expression_engine_ticks_total`,
+    `expression_engine_tick_us`,
+    `expression_engine_evaluations_total`).
+  - `setExpressions(set)`:
+    - Re-registration unregisters previous virtualDriver entry
+      with the registry.
+    - Builds derived metadata from each `Expression::derivedSignalMetadata()`.
+    - Calls `registry->onSignalsRegistered(virtualDriverId, derivedMetas)`.
+    - Re-registers per-expression metrics
+      (`expression_evaluation_us_<id>`,
+      `expression_evaluation_errors_<id>`).
+    - Initializes per-expression rate-limit timestamps.
+  - `onTick()`:
+    - Records `t0`.
+    - For each expression in topo order:
+      collect source values via `bufferFor(srcId)->queryLatestOne()`
+      (NaN if buf null OR query nullopt) → evaluate (catch exceptions
+      with rate-limited warn) → push result via
+      `registry->onSignal(t0, expressionId, result)`.
+    - Records tick duration; updates `TickStats` and metric
+      gauges.
+    - Emits `tickCompleted(tickIndex)`.
+  - Pre-allocated `sources` vector reused across expressions to
+    avoid per-tick allocations.
+  - Tick-miss handling per spec §9: no catch-up logic.
+
+**Tests**:
+
+- `tests/unit/expression/expression_engine_lifecycle_test.cpp`
+  (8 cases):
+  - Lifecycle (start/stop idempotency).
+  - setExpressions registers derived signals in registry.
+  - Single tick: stats counters increment, derived buffer's
+    `totalSamplesPushed` advances.
+  - 100 ticks crosses publish cadence: derived signal's
+    `queryLatestOne` resolves to the expected product.
+  - Multi-tick (10 ticks → ticksTotal=10, evaluationsTotal=10).
+  - Missing source → NaN derived value.
+  - Topo-order dependency chain (a then b → b sees a's value).
+  - Empty expression set ticks cleanly.
+- Tests invoke `onTick` directly via
+  `QMetaObject::invokeMethod(...,Qt::DirectConnection)` to avoid
+  the QCoreApplication dependency for QTimer dispatch. The QTimer
+  cadence path is exercised in S9 integration tests where a Qt
+  event loop is set up.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean.
+
+**Test verification** (local):
+
+- 8 lifecycle tests pass directly (24 assertions).
+- Full ctest with `--timeout 120 -j1`: 354 / 355 pass; the
+  remaining 1 is M6's pre-existing `S10 integration: 1M-sample
+  concurrent` which runs to completion in ~1m58s on Debug (over
+  120s ctest timeout but not actually broken). On Release / CI
+  default timeout it passes within the suite. The slow test was
+  green at M6 close and is unaffected by S4 changes.
+- Cumulative test count: **355** (was 347 at S3 close;
+  +8 from S4).
+
+**Frozen-file diff** vs `08a0478` (M6 merge): empty.
+
+**Bug fixes during S4**:
+
+1. Initial S4 tests used `QSignalSpy::wait(500)` and
+   `QTest::qWait(N)` — both spin-loop without a `QCoreApplication`.
+   Two test instances hung at 100% CPU for 132+ minutes before being
+   killed and the tests refactored to use `QMetaObject::invokeMethod`
+   instead.
+2. Tests initially called `queryLatestOne` after a single tick;
+   M6's SignalBuffer doesn't publish until cadence threshold (100
+   pushes) is crossed. Added `runTicksForFirstPublish` helper to
+   drive 100 ticks before the publish-dependent assertions.
+
+**Effort**: ~3.5 h actual work + ~2.5 h debug-and-recovery from
+the QSignalSpy hang (CPU spin not wall time). Plan estimate 5 h.
+
