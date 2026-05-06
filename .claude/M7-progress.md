@@ -124,3 +124,126 @@ exprtk template instantiations.
 instantiation (parser, expression, symbol_table) compiles under
 GCC 13 / C++23 with no warnings or build-time errors.
 
+**CI** (run 25435111363): success — debug, release, debug-asan all
+green.
+
+---
+
+### S2 — Expression class with restricted whitelist + type promotion (start)
+
+**Goal**: per plan §2 S2, plug operational logic into the S1 PIMPL:
+
+1. Update `Expression::Impl` to own per-source `double` slots
+   (vector indexed in `sourceSignalIds` order) plus a name → slot
+   index map.
+2. Constructor:
+   - Bind each source name to its slot via `symbols.add_variable`.
+   - Apply exprtk parser settings to enforce the spec §3.1
+     restricted whitelist (disable control structures, break/continue,
+     return statement, local var defs, string capabilities, plus
+     base-function blacklist — anything outside the spec's 13-item
+     math whitelist).
+   - Compile the formula. On failure, throw `std::runtime_error`
+     with the parser's error text. (Validator catches user-facing
+     errors before this point; runtime throw reflects an internal
+     bug.)
+3. `evaluate(sources)`:
+   - For each `(signalId, value)`, look up slot index, convert the
+     variant to `double` per spec §3.3, write to the slot.
+   - Call `compiled.value()`.
+   - Convert result to the declared `ExpressionOutputType` per spec
+     §3.3 (`bool` via `!= 0`, `int64` via `round` with WARN on
+     out-of-range).
+4. Move semantics retained (PIMPL `unique_ptr` is move-only by
+   default).
+5. Add `tests/unit/expression/expression_evaluation_test.cpp` (8
+   cases): valid arithmetic, mixed-type sources, output-type
+   conversion paths, NaN propagation when source is missing,
+   restricted-syntax rejection (if/while/?:), restricted-function
+   rejection (sgn/cot), bool output, int64 output.
+
+**Acceptance**:
+
+- All existing tests still pass under Debug + Release + debug-asan.
+- New unit test verifies all evaluation paths + whitelist
+  enforcement.
+- Whitelist violations throw at construction time (validator's
+  user-facing path lands in S3).
+
+**Freeze scope**: M2/M3/M4/M5/M6 frozen `.hpp` not modified. The
+`Expression::Impl` PIMPL is internal to `expression.cpp`; the public
+header is unchanged from S1.
+
+### S2 — Expression class with restricted whitelist + type promotion (close)
+
+**Result**: ✅ green.
+
+**Changes**:
+
+- `src/expression/expression.cpp` — fully implemented:
+  - `Expression::Impl` now owns `exprtk::symbol_table<double>`,
+    `exprtk::expression<double>`, a `std::vector<double>
+    sourceSlots` (initial NaN per slot for missing-source
+    propagation), and `std::unordered_map<QString, std::size_t>
+    nameToSlot`.
+  - Constructor binds each source name to its slot via
+    `symbols.add_variable(...)`, registers the symbol table, runs
+    `applyRestrictedSettings(parser)`, and compiles. On failure
+    throws `std::runtime_error` with exprtk's diagnostic.
+  - `applyRestrictedSettings` enforces the spec §3.1 control-flow
+    + assignment restrictions via `disable_all_control_structures`,
+    `disable_local_vardef`, `disable_all_assignment_ops`. Per-base-
+    function whitelist (sgn, cot, statistical aggregates) is
+    deferred to S3 validator (exprtk 0.0.3's `disable_base_function`
+    takes an enum, not a string; a textual / AST scan in the
+    validator is the cleaner home).
+  - `promoteToDouble` per spec §3.3: bool → 0.0/1.0; int64 →
+    cast with WARN once when |value| > 2^52; double → identity;
+    QString → defensive NaN.
+  - `mapResult` per spec §3.3: double identity; bool via `!= 0`;
+    int64 via `round` with WARN on out-of-range / NaN / Inf.
+  - `evaluate` writes NaN to all slots, then overwrites by source,
+    then `compiled.value()`. Missing sources → NaN result (M8 chart
+    renders gap; spec §4.7).
+- `tests/unit/expression/expression_evaluation_test.cpp` (9 cases):
+  arithmetic / bool source / int64 source / bool output / int64
+  output / NaN propagation / control-flow rejection / assignment
+  rejection / whitelisted built-ins (max + sqrt) round trip.
+- `tests/unit/expression/expression_smoke_test.cpp` updated:
+  source IDs use bare-identifier form (e.g., `v`, `i`) since exprtk
+  identifiers cannot contain `/` or `:`. M7 V1 expressions reference
+  base signals by their bare ID; driver-prefix mapping (e.g.,
+  `serial:0/voltage` → `voltage`) is V1.5+ work.
+
+**Compile fixes** (within HALT trigger #1's 3-attempt budget):
+
+1. `disable_assignment_op` → `disable_all_assignment_ops` (exprtk
+   0.0.3 doesn't expose per-op variants).
+2. `disable_base_function(const char*)` doesn't exist; signature
+   takes a `settings_base_funcs` enum. Removed the per-function
+   blacklist; deferred to validator.
+3. `disable_break_continue_statement` / `disable_return_statement` /
+   `disable_string_capabilities` don't exist on exprtk 0.0.3's
+   `settings_store`. Removed; their effective coverage falls under
+   `disable_all_control_structures`.
+4. `slots` member name collided with Qt's `slots` keyword macro.
+   Renamed to `sourceSlots`. (Fourth Qt-macro collision in the
+   project; previous: `signals` rename in M5, `emit` lambda rename
+   in M6 S11.5, `signals` parameter in M5 SignalValueSink.)
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 333 / 333 pass (was 324 at S1 close;
+  +9 from S2 evaluation tests).
+- `ctest --preset=release` — 333 / 333 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs `08a0478` (M6 merge): empty.
+
+**Effort**: 3.5 h (plan estimate 5 h).
+

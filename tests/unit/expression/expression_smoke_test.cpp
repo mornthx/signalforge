@@ -28,11 +28,14 @@ TEST_CASE("S1: ExpressionEngineConfig has sane defaults", "[expression][s1][smok
 }
 
 TEST_CASE("S1: Expression constructs and reports ids/types", "[expression][s1][smoke]") {
-    ex7::Expression expr(QStringLiteral("derived/power"), QStringLiteral("Power"), QStringLiteral("W"), std::nullopt,
+    // Source IDs must be valid exprtk identifiers (alphanumeric + underscore) —
+    // M7 V1 expressions reference base signals by their bare ID. Driver-prefix
+    // mapping (e.g., `serial:0/voltage` → `voltage`) is V1.5+ work.
+    ex7::Expression expr(QStringLiteral("derived_power"), QStringLiteral("Power"), QStringLiteral("W"), std::nullopt,
                          QStringLiteral("v * i"), ex7::ExpressionOutputType::Double,
-                         {QStringLiteral("base/v"), QStringLiteral("base/i")});
+                         {QStringLiteral("v"), QStringLiteral("i")});
 
-    REQUIRE(expr.id() == QStringLiteral("derived/power"));
+    REQUIRE(expr.id() == QStringLiteral("derived_power"));
     REQUIRE(expr.name() == QStringLiteral("Power"));
     REQUIRE(expr.unit() == QStringLiteral("W"));
     REQUIRE(expr.formula() == QStringLiteral("v * i"));
@@ -40,7 +43,7 @@ TEST_CASE("S1: Expression constructs and reports ids/types", "[expression][s1][s
     REQUIRE(expr.sourceSignalIds().size() == 2U);
 
     auto meta = expr.derivedSignalMetadata();
-    REQUIRE(meta.id == QStringLiteral("derived/power"));
+    REQUIRE(meta.id == QStringLiteral("derived_power"));
     REQUIRE(meta.type == signalforge::decoder::SignalType::Double);
 }
 
