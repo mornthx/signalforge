@@ -4,11 +4,14 @@
 #include "observability/metrics.hpp"
 
 #include <QString>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace signalforge::buffer {
 
@@ -24,6 +27,12 @@ using signalforge::observability::MetricsRegistry;
 constexpr auto kPrefixSamplesStored = QLatin1String("signal_buffer_samples_stored_");
 constexpr auto kPrefixSamplesEvicted = QLatin1String("signal_buffer_samples_evicted_");
 constexpr auto kPrefixMemoryBytes = QLatin1String("signal_buffer_memory_bytes_");
+constexpr auto kPrefixPublishes = QLatin1String("signal_buffer_publishes_");
+
+/// Default writer publish cadence (samples per publish). Spec §3.5 / §4.4
+/// default. Time-based fallback (every 1 ms) is deferred to a future
+/// tuning pass per plan §S4 note.
+constexpr int kDefaultPublishCadence = 100;
 
 [[nodiscard]] std::chrono::steady_clock::duration toSteadyDuration(double seconds) {
     using namespace std::chrono;
@@ -46,6 +55,7 @@ struct SignalBuffer::TypedBuffer {
         samplesStoredMetric_ = reg.getOrCreate(kPrefixSamplesStored + meta.id, MetricKind::Counter);
         samplesEvictedMetric_ = reg.getOrCreate(kPrefixSamplesEvicted + meta.id, MetricKind::Counter);
         memoryBytesMetric_ = reg.getOrCreate(kPrefixMemoryBytes + meta.id, MetricKind::Gauge);
+        publishesMetric_ = reg.getOrCreate(kPrefixPublishes + meta.id, MetricKind::Counter);
     }
     virtual ~TypedBuffer() = default;
 
@@ -89,6 +99,17 @@ struct SignalBuffer::TypedBuffer {
         if (memoryBytesMetric_ != nullptr) {
             memoryBytesMetric_->set(static_cast<std::int64_t>(memoryBytes()));
         }
+
+        // 5. Snapshot publish on cadence: build an immutable Segment of the
+        // current state and atomic-store it for readers.
+        if (++pushesSincePublish_ >= publishCadence_) {
+            publishSegment();
+            pushesSincePublish_ = 0;
+            ++publishCount_;
+            if (publishesMetric_ != nullptr) {
+                publishesMetric_->add(1);
+            }
+        }
         return true;
     }
 
@@ -98,6 +119,10 @@ struct SignalBuffer::TypedBuffer {
 
     [[nodiscard]] std::uint64_t totalEvicted() const noexcept {
         return totalEvicted_;
+    }
+
+    [[nodiscard]] std::uint64_t publishCount() const noexcept {
+        return publishCount_;
     }
 
     /// Total memory: the timestamp deque (approximated as size × element
@@ -125,15 +150,25 @@ protected:
 
     virtual void clearValues() = 0;
 
+    /// Build an immutable Segment of the current writer-private state and
+    /// atomic-store it on the per-derivation `publishedSegment_`. Called
+    /// from `push()` once every `publishCadence_` successful pushes.
+    virtual void publishSegment() = 0;
+
     std::deque<std::chrono::steady_clock::time_point> timestamps_;
 
     Metric* samplesStoredMetric_ = nullptr;
     Metric* samplesEvictedMetric_ = nullptr;
     Metric* memoryBytesMetric_ = nullptr;
+    Metric* publishesMetric_ = nullptr;
 
     std::chrono::steady_clock::duration windowDuration_;
     std::size_t capSamples_;
     std::uint64_t totalEvicted_ = 0;
+
+    int publishCadence_ = kDefaultPublishCadence;
+    int pushesSincePublish_ = 0;
+    std::uint64_t publishCount_ = 0;
 };
 
 namespace {
@@ -141,6 +176,21 @@ namespace {
 class BoolTypedBuffer final : public SignalBuffer::TypedBuffer {
 public:
     using TypedBuffer::TypedBuffer;
+
+    /// Immutable snapshot of bool storage. Bits live in `packedBits` with
+    /// `firstBitOffset` leading bits skipped (in the first word) so the
+    /// reader can decode bit i (0 ≤ i < totalBits) as
+    /// `(packedBits[(firstBitOffset + i) / 64] >> ((firstBitOffset + i) % 64)) & 1`.
+    struct Segment {
+        std::shared_ptr<const std::vector<std::uint64_t>> packedBits;
+        std::size_t firstBitOffset = 0;
+        std::size_t totalBits = 0;
+        std::shared_ptr<const std::vector<std::chrono::steady_clock::time_point>> timestamps;
+    };
+
+    [[nodiscard]] std::shared_ptr<const Segment> currentSegment() const noexcept {
+        return publishedSegment_.load(std::memory_order_acquire);
+    }
 
 protected:
     bool pushValue(const SignalValue& value) override {
@@ -183,15 +233,67 @@ protected:
         totalBits_ = 0;
     }
 
+    void publishSegment() override {
+        auto seg = std::make_shared<Segment>();
+        seg->packedBits = std::make_shared<std::vector<std::uint64_t>>(packed_.begin(), packed_.end());
+        seg->firstBitOffset = headBitOffset_;
+        seg->totalBits = totalBits_;
+        seg->timestamps = std::make_shared<std::vector<std::chrono::steady_clock::time_point>>(timestamps_.begin(),
+                                                                                               timestamps_.end());
+        publishedSegment_.store(std::move(seg), std::memory_order_release);
+    }
+
 private:
     std::deque<std::uint64_t> packed_;
     std::size_t headBitOffset_ = 0;
     std::size_t totalBits_ = 0;
+    std::atomic<std::shared_ptr<const Segment>> publishedSegment_{};
 };
 
-class Int64TypedBuffer final : public SignalBuffer::TypedBuffer {
+/// Helper CRTP-style base for the three "linear" types (Int64, Double,
+/// QString) whose Segment is just `vector<T>` + timestamps. Bool is
+/// separate because of bit-pack representation.
+template <typename T> class LinearTypedBuffer : public SignalBuffer::TypedBuffer {
 public:
     using TypedBuffer::TypedBuffer;
+
+    struct Segment {
+        std::shared_ptr<const std::vector<T>> values;
+        std::shared_ptr<const std::vector<std::chrono::steady_clock::time_point>> timestamps;
+    };
+
+    [[nodiscard]] std::shared_ptr<const Segment> currentSegment() const noexcept {
+        return publishedSegment_.load(std::memory_order_acquire);
+    }
+
+protected:
+    void evictFrontValue() override {
+        values_.pop_front();
+    }
+
+    [[nodiscard]] std::size_t valueMemoryBytes() const noexcept override {
+        return values_.size() * sizeof(T);
+    }
+
+    void clearValues() override {
+        values_.clear();
+    }
+
+    void publishSegment() override {
+        auto seg = std::make_shared<Segment>();
+        seg->values = std::make_shared<std::vector<T>>(values_.begin(), values_.end());
+        seg->timestamps = std::make_shared<std::vector<std::chrono::steady_clock::time_point>>(timestamps_.begin(),
+                                                                                               timestamps_.end());
+        publishedSegment_.store(std::move(seg), std::memory_order_release);
+    }
+
+    std::deque<T> values_;
+    std::atomic<std::shared_ptr<const Segment>> publishedSegment_{};
+};
+
+class Int64TypedBuffer final : public LinearTypedBuffer<std::int64_t> {
+public:
+    using LinearTypedBuffer::LinearTypedBuffer;
 
 protected:
     bool pushValue(const SignalValue& value) override {
@@ -202,26 +304,11 @@ protected:
         values_.push_back(*p);
         return true;
     }
-
-    void evictFrontValue() override {
-        values_.pop_front();
-    }
-
-    [[nodiscard]] std::size_t valueMemoryBytes() const noexcept override {
-        return values_.size() * sizeof(std::int64_t);
-    }
-
-    void clearValues() override {
-        values_.clear();
-    }
-
-private:
-    std::deque<std::int64_t> values_;
 };
 
-class DoubleTypedBuffer final : public SignalBuffer::TypedBuffer {
+class DoubleTypedBuffer final : public LinearTypedBuffer<double> {
 public:
-    using TypedBuffer::TypedBuffer;
+    using LinearTypedBuffer::LinearTypedBuffer;
 
 protected:
     bool pushValue(const SignalValue& value) override {
@@ -232,26 +319,11 @@ protected:
         values_.push_back(*p);
         return true;
     }
-
-    void evictFrontValue() override {
-        values_.pop_front();
-    }
-
-    [[nodiscard]] std::size_t valueMemoryBytes() const noexcept override {
-        return values_.size() * sizeof(double);
-    }
-
-    void clearValues() override {
-        values_.clear();
-    }
-
-private:
-    std::deque<double> values_;
 };
 
-class StringTypedBuffer final : public SignalBuffer::TypedBuffer {
+class StringTypedBuffer final : public LinearTypedBuffer<QString> {
 public:
-    using TypedBuffer::TypedBuffer;
+    using LinearTypedBuffer::LinearTypedBuffer;
 
 protected:
     bool pushValue(const SignalValue& value) override {
@@ -262,21 +334,6 @@ protected:
         values_.push_back(*p);
         return true;
     }
-
-    void evictFrontValue() override {
-        values_.pop_front();
-    }
-
-    [[nodiscard]] std::size_t valueMemoryBytes() const noexcept override {
-        return values_.size() * sizeof(QString);
-    }
-
-    void clearValues() override {
-        values_.clear();
-    }
-
-private:
-    std::deque<QString> values_;
 };
 
 [[nodiscard]] std::unique_ptr<SignalBuffer::TypedBuffer> makeTypedBuffer(const SignalMetadata& meta,

@@ -312,3 +312,112 @@ for typical 60 k-sample usage). To be logged in concerns.md as #4.
 **New concern recorded**: see concerns.md #4 (`std::deque` vs
 spec's "ring-buffer-style" wording).
 
+**CI** (run 25418455593): success — debug, release, debug-asan all
+green.
+
+---
+
+### S4 — Snapshot publish pattern (lock-free reads) (start)
+
+**Goal**: per plan §2 S4, add the lock-free "atomic published
+segment" mechanism so readers can pull a coherent point-in-time view
+of a signal's data without blocking the writer.
+
+1. `TypedBuffer` base gains:
+   - `publishCadence_` (default 100 pushes; spec §3.5)
+   - `pushesSincePublish_` counter
+   - `publishesMetric_` pointer (`signal_buffer_publishes_<id>`,
+     counter — additive per spec §6.2 "metric names — additive only")
+   - Pure-virtual `publishSegment()`
+   - At the tail of `push()`, if `++pushesSincePublish_ >=
+     publishCadence_` → call `publishSegment()`, reset counter to 0,
+     increment publishes metric.
+2. Each derived class:
+   - Adds a per-type `Segment` struct (raw timestamp vector +
+     typed value vector(s); LOD vectors are placeholders for S5).
+   - Adds `std::atomic<std::shared_ptr<const Segment>>
+     publishedSegment_` (mirrors M2's `Snapshot<T>` pattern from
+     `src/utils/snapshot.hpp`).
+   - Overrides `publishSegment()` to copy current internal state
+     into an immutable `Segment` and `store` it on the atomic with
+     `std::memory_order_release`.
+3. Initial publishedSegment_ is an empty `shared_ptr` (null);
+   readers tolerate null (no published segment yet means "no data
+   available to query"). S6 will wire reader-side access.
+
+**S4 publish strategy** (per session prompt's S4 note + plan §S4):
+sample-count-only trigger. Time-based publish (every 1 ms regardless
+of count) is deferred until M8 Chart UI integration surfaces a
+staleness need.
+
+**Acceptance**:
+
+- Per-type test: 99 pushes → publishes metric == 0; 100th push →
+  publishes == 1; another 100 → publishes == 2.
+- Verify across all four types.
+- Verify the published segment's atomic load returns a non-null
+  segment after the first publish.
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified. The
+`SignalBuffer` public API is unchanged (no new public methods); the
+publishes metric is internal observability.
+
+### S4 — Snapshot publish pattern (lock-free reads) (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/buffer/signal_buffer.cpp`:
+  - Added `kPrefixPublishes` + `kDefaultPublishCadence = 100`.
+  - `TypedBuffer` base gains `publishCadence_`,
+    `pushesSincePublish_`, `publishCount_`, `publishesMetric_` and a
+    new pure-virtual `publishSegment()`. `push()` increments the
+    cadence counter at the tail and triggers `publishSegment()` +
+    metric increment when it crosses the threshold.
+  - `BoolTypedBuffer` adds an inner `Segment` struct (
+    `shared_ptr<vector<uint64_t>> packedBits` + `firstBitOffset` +
+    `totalBits` + `shared_ptr<vector<time_point>> timestamps`),
+    plus `std::atomic<std::shared_ptr<const Segment>>
+    publishedSegment_` and a `currentSegment()` accessor used by S6.
+    `publishSegment()` copies `packed_` (deque → vector),
+    snapshots `headBitOffset_` and `totalBits_`, copies
+    `timestamps_`, and `store`s with `memory_order_release`.
+  - The other three numeric/string types are folded into a new
+    template `LinearTypedBuffer<T>` (CRTP-style) that owns
+    `std::deque<T> values_` plus the `Segment` / atomic / publish
+    plumbing. `Int64TypedBuffer`, `DoubleTypedBuffer`,
+    `StringTypedBuffer` derive from it and only implement the
+    type-checked `pushValue()` override.
+  - The `signal_buffer_publishes_<id>` counter is registered in the
+    base ctor and incremented per publish.
+- `tests/unit/buffer/signal_buffer_publish_test.cpp` (5 cases) +
+  `tests/unit/buffer/CMakeLists.txt`:
+  - One per type confirming the cadence (Double: 99 → 0, 100 → 1,
+    +100 → 2, +100 → 3; Int64: 1000 → 10; Bool: 250 → 2; QString:
+    100 → 1).
+  - Type-mismatch contract: 1000 failed pushes leave the publishes
+    counter unchanged; subsequent valid pushes resume normally.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration on
+  template/decl line wrapping).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 287 / 287 pass (was 282; +5 from S4
+  tests).
+- `ctest --preset=release` — 287 / 287 pass.
+- debug-asan deferred to CI (atomic-shared-ptr is the spec §7-2 HALT
+  trigger; CI is the authoritative runtime gate).
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Effort**: 4 h (plan estimate 5 h).
+
+**HALT trigger #2 status**: `std::atomic<std::shared_ptr<T>>`
+compiled and linked clean across all three presets. No ABI / linker
+warnings observed locally; CI green will further confirm.
+
