@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://signalforge.example/schemas/expression_schema_v1.json",
+  "title": "SignalForge Expression Schema v1",
+  "description": "Documentation-only JSON-Schema description of M7's yaml expression schema v1. Runtime validation is performed by ExpressionValidator (src/expression/expression_validator.cpp), not by this document. Mirrors M5's decoder_schema_v1.json pattern.",
+  "type": "object",
+  "required": ["schema_version", "expressions"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version identifier. Must be 1 for V1."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional free-form description of this expression file's purpose."
+    },
+    "expressions": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Sequence of expression definitions. Each entry is independently validated, then cycle detection runs across the union.",
+      "items": {
+        "type": "object",
+        "required": ["id", "formula"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique identifier. Must not collide with any base-signal id in the registry. Must be a valid exprtk identifier ([a-zA-Z_][a-zA-Z0-9_]*) so other expressions can reference it by name."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional human-readable name. Defaults to `id` when omitted."
+          },
+          "unit": {
+            "type": "string",
+            "description": "Optional unit string (e.g., 'V', 'W', 'A'). Empty string for dimensionless or boolean signals."
+          },
+          "formula": {
+            "type": "string",
+            "minLength": 1,
+            "description": "exprtk-compatible expression. Allowed operators: arithmetic (+ - * / %% ^), comparison (< > == != <= >=), logical (and or not xor). Allowed math built-ins: min, max, abs, sqrt, log, log10, exp, sin, cos, tan, floor, ceil, round. Forbidden: control flow (if/while/for/?:/switch), user-defined functions, string operations, exprtk built-ins outside the whitelist (sgn, cot, statistical aggregates), local var definitions, side-effect assignments."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["double", "bool", "int64"],
+            "default": "double",
+            "description": "Output type for the derived signal. `double` is identity. `bool` maps non-zero to true. `int64` rounds via std::round; out-of-range values produce a warning + 0."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional free-form description of this expression's purpose."
+          }
+        }
+      }
+    }
+  },
+  "$comment": "Frozen at M7 close. Modifications to the keys/types above require a new ADR. Whitelist additions for `formula` (e.g., new exprtk built-ins) are non-breaking and may be added without ADR per spec §6.2."
+}

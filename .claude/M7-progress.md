@@ -646,3 +646,31 @@ will be referenced in M7-done.md).
 
 **Effort**: 2.5 h (plan estimate 3 h).
 
+
+**CI** (run 25449269093): success — debug, release, debug-asan all
+green.
+
+---
+
+### S6 — yaml schema v1 canonical + examples (start)
+
+**Goal**: per plan §2 S6, produce the freeze artifacts for the yaml
+expression schema v1 + two example expression files.
+
+1. `schemas/expression_schema_v1.yaml`: canonical example with
+   doc-comments for every key. Freeze reference; sha256 lands in
+   M7-done.md.
+2. `schemas/expression_schema_v1.json`: JSON-Schema-style
+   description (documentation form; matches M5's
+   `decoder_schema_v1.json` pattern).
+3. `examples/expressions/power_calculations.yaml`: voltage × current
+   = power, plus efficiency.
+4. `examples/expressions/alarms.yaml`: threshold-based bool signals.
+
+Acceptance: all four files parse + validate cleanly with a
+synthetic base-signal catalog; new unit test exercises both
+example files.
+
+**Freeze scope**: yaml schema v1 surface (top-level + per-expression
+keys) freezes at M7 close. M2/M3/M4/M5/M6 frozen `.hpp` not
+modified.

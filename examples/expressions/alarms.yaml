@@ -1,0 +1,39 @@
+# examples/expressions/alarms.yaml
+#
+# Threshold-based alarm signals. Assumes the registry exposes:
+#
+#   temperature  double  °C
+#   voltage      double  V
+#   current      double  A
+
+schema_version: 1
+description: "Threshold-based alarm bool signals"
+
+expressions:
+  - id: over_temperature
+    name: "Over-temperature alarm"
+    unit: ""
+    formula: temperature > 80.0
+    type: bool
+    description: "Set when temperature exceeds 80°C"
+
+  - id: under_voltage
+    name: "Under-voltage alarm"
+    unit: ""
+    formula: voltage < 10.5
+    type: bool
+    description: "Set when voltage drops below 10.5 V"
+
+  - id: over_current
+    name: "Over-current alarm"
+    unit: ""
+    formula: abs(current) > 12.0
+    type: bool
+    description: "Set when current magnitude exceeds 12 A"
+
+  - id: any_alarm
+    name: "Composite alarm"
+    unit: ""
+    formula: over_temperature or under_voltage or over_current
+    type: bool
+    description: "Logical OR of the three threshold alarms"
