@@ -53,6 +53,18 @@ public:
     [[nodiscard]] static ExpressionValidationResult
     validateString(const QString& yamlContent, const QString& virtualPath,
                    const std::vector<signalforge::decoder::SignalMetadata>& availableSignals);
+
+    /// Syntax + cycle validation only, with no source-signal catalog.
+    /// Skips source-id existence and source-type checks. Use this from
+    /// `expr_lint` when invoked without `--base-signals`. All other
+    /// validation steps (yaml parse, top-level shape, per-expression
+    /// shape, exprtk compile, forbidden-function check, cycle detection,
+    /// topological sort) still run.
+    [[nodiscard]] static ExpressionValidationResult validateFileSyntaxOnly(const QString& yamlPath);
+
+    /// Syntax + cycle validation only on yaml content (testing companion).
+    [[nodiscard]] static ExpressionValidationResult validateStringSyntaxOnly(const QString& yamlContent,
+                                                                             const QString& virtualPath);
 };
 
 }  // namespace signalforge::expression

@@ -674,3 +674,60 @@ example files.
 **Freeze scope**: yaml schema v1 surface (top-level + per-expression
 keys) freezes at M7 close. M2/M3/M4/M5/M6 frozen `.hpp` not
 modified.
+
+**CI** (run 25450511585): success — debug, release, debug-asan all
+green.
+
+---
+
+### S7 — `expr_lint` CLI tool (start)
+
+**Goal**: per plan §2 S7 + spec §4.6, deliver the standalone CLI
+that mirrors M5's `tools/schema_lint/` for the expression schema.
+
+**API extension** (additive on the M7 freeze surface, before close):
+- `ExpressionValidator::validateFileSyntaxOnly(QString)` and
+  `validateStringSyntaxOnly(QString, QString)` skip source-id
+  existence + source-type checks. All other validation steps still
+  run (yaml parse, top-level shape, per-expression shape, exprtk
+  compile, forbidden-function check, cycle detection, topological
+  sort).
+- Public methods delegate to a single internal
+  `validateContent(..., bool skipSourceCheck)`. Existing entry
+  points unchanged.
+
+**CLI** (`tools/expr_lint/main.cpp`):
+- `expr_lint <file.yaml>` → syntax + cycle only.
+- `expr_lint <file.yaml> --base-signals signals.json` → full
+  validation against the JSON catalog.
+- `--json` for machine-readable output.
+- Exit 0/1/2 per spec §4.6.
+
+**JSON catalog format**:
+```json
+{ "signals": [ {"id":"v","type":"double","unit":"V"}, ... ] }
+```
+Recognised types: `double`, `bool`, `int64`, `qstring` (alias
+`QString`, `string`).
+
+**Tests**: 3 new validator cases under `[s7][lint-mode]` covering
+(a) accept unknown sources in syntax-only mode, (b) cycles still
+caught in syntax-only mode, (c) full validation rejects what
+syntax-only accepts (proves the modes differ as designed).
+
+**Smoke runs** (release):
+- `power_calculations.yaml` syntax-only → OK 3 expressions, 3 sources
+- `alarms.yaml --json` → OK valid=true
+- `power_calculations.yaml --base-signals` (full catalog) → OK
+- `power_calculations.yaml --base-signals` (missing power_input) →
+  FAIL with actionable error
+- `cycle_simple.yaml` (invalid) → FAIL with cycle path
+- `--bogus` → exit 2; `/tmp/nonexistent.yaml` → exit 2; `--help` →
+  exit 0
+
+**Freeze scope**: validator `.hpp` not yet frozen (M7 close pending).
+M2/M3/M4/M5/M6 frozen `.hpp` not modified.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 367/367 on both debug and release.
+**Format**: clang-format clean on changed files.

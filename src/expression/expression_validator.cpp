@@ -334,9 +334,11 @@ findCycle(const std::unordered_map<QString, std::vector<QString>>& graph) {
 
 }  // namespace
 
-ExpressionValidationResult
-ExpressionValidator::validateString(const QString& yamlContent, const QString& virtualPath,
-                                    const std::vector<signalforge::decoder::SignalMetadata>& availableSignals) {
+namespace {
+
+ExpressionValidationResult validateContent(const QString& yamlContent, const QString& virtualPath,
+                                           const std::vector<signalforge::decoder::SignalMetadata>& availableSignals,
+                                           bool skipSourceCheck) {
     std::vector<ExpressionValidationError> errors;
 
     auto pushErr = [&](int line, QString exprId, QString msg) {
@@ -475,28 +477,31 @@ ExpressionValidator::validateString(const QString& yamlContent, const QString& v
     }
 
     // Cross-expression: source-id existence + type checks.
+    // Skipped in linter mode (`expr_lint` without `--base-signals`).
     std::unordered_set<QString> expressionIdSet;
     for (const auto& p : parsed) {
         expressionIdSet.insert(p.id);
     }
-    for (const auto& p : parsed) {
-        for (const auto& src : p.sourceIds) {
-            if (expressionIdSet.count(src) > 0) {
-                continue;  // a derived signal computed earlier in the set
-            }
-            const auto baseIt = baseSignalTypes.find(src);
-            if (baseIt == baseSignalTypes.end()) {
-                pushErr(p.line, p.id,
-                        QStringLiteral("expression '%1' references unknown source signal '%2' "
-                                       "(not in registry's available-signals list)")
-                            .arg(p.id, src));
-                continue;
-            }
-            if (baseIt->second == signalforge::decoder::SignalType::String) {
-                pushErr(p.line, p.id,
-                        QStringLiteral("expression '%1' references QString-typed source '%2' "
-                                       "(QString sources are not supported in expressions)")
-                            .arg(p.id, src));
+    if (!skipSourceCheck) {
+        for (const auto& p : parsed) {
+            for (const auto& src : p.sourceIds) {
+                if (expressionIdSet.count(src) > 0) {
+                    continue;  // a derived signal computed earlier in the set
+                }
+                const auto baseIt = baseSignalTypes.find(src);
+                if (baseIt == baseSignalTypes.end()) {
+                    pushErr(p.line, p.id,
+                            QStringLiteral("expression '%1' references unknown source signal '%2' "
+                                           "(not in registry's available-signals list)")
+                                .arg(p.id, src));
+                    continue;
+                }
+                if (baseIt->second == signalforge::decoder::SignalType::String) {
+                    pushErr(p.line, p.id,
+                            QStringLiteral("expression '%1' references QString-typed source '%2' "
+                                           "(QString sources are not supported in expressions)")
+                                .arg(p.id, src));
+                }
             }
         }
     }
@@ -589,9 +594,9 @@ ExpressionValidator::validateString(const QString& yamlContent, const QString& v
     return result;
 }
 
-ExpressionValidationResult
-ExpressionValidator::validateFile(const QString& yamlPath,
-                                  const std::vector<signalforge::decoder::SignalMetadata>& availableSignals) {
+ExpressionValidationResult readAndValidate(const QString& yamlPath,
+                                           const std::vector<signalforge::decoder::SignalMetadata>& availableSignals,
+                                           bool skipSourceCheck) {
     QFile f(yamlPath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         std::vector<ExpressionValidationError> errors;
@@ -603,7 +608,30 @@ ExpressionValidator::validateFile(const QString& yamlPath,
         return std::unexpected(std::move(errors));
     }
     const QString content = QString::fromUtf8(f.readAll());
-    return validateString(content, yamlPath, availableSignals);
+    return validateContent(content, yamlPath, availableSignals, skipSourceCheck);
+}
+
+}  // namespace
+
+ExpressionValidationResult
+ExpressionValidator::validateString(const QString& yamlContent, const QString& virtualPath,
+                                    const std::vector<signalforge::decoder::SignalMetadata>& availableSignals) {
+    return validateContent(yamlContent, virtualPath, availableSignals, /*skipSourceCheck=*/false);
+}
+
+ExpressionValidationResult
+ExpressionValidator::validateFile(const QString& yamlPath,
+                                  const std::vector<signalforge::decoder::SignalMetadata>& availableSignals) {
+    return readAndValidate(yamlPath, availableSignals, /*skipSourceCheck=*/false);
+}
+
+ExpressionValidationResult ExpressionValidator::validateStringSyntaxOnly(const QString& yamlContent,
+                                                                         const QString& virtualPath) {
+    return validateContent(yamlContent, virtualPath, /*availableSignals=*/{}, /*skipSourceCheck=*/true);
+}
+
+ExpressionValidationResult ExpressionValidator::validateFileSyntaxOnly(const QString& yamlPath) {
+    return readAndValidate(yamlPath, /*availableSignals=*/{}, /*skipSourceCheck=*/true);
 }
 
 }  // namespace signalforge::expression

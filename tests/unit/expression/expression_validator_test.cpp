@@ -205,3 +205,46 @@ TEST_CASE("S3: valid multi-expression set produces topologically-sorted output",
     REQUIRE(std::find(result->baseSignalIds.begin(), result->baseSignalIds.end(), QStringLiteral("power_total")) ==
             result->baseSignalIds.end());
 }
+
+TEST_CASE("S7: validateFileSyntaxOnly accepts unknown sources", "[validator][s7][lint-mode]") {
+    // The valid fixture references base signals that are NOT in any
+    // catalog at all here. The full validateFile would reject this, but
+    // validateFileSyntaxOnly skips source-existence checks.
+    auto result = ex7::ExpressionValidator::validateFileSyntaxOnly(
+        fixturePath(QStringLiteral("valid_expressions"), QStringLiteral("multi")));
+    if (!result.has_value()) {
+        for (const auto& e : result.error()) {
+            UNSCOPED_INFO("error: " << e.message.toStdString());
+        }
+    }
+    REQUIRE(result.has_value());
+    REQUIRE(result->expressions.size() == 3U);
+}
+
+TEST_CASE("S7: validateFileSyntaxOnly still rejects cycles", "[validator][s7][lint-mode]") {
+    // Cycles must still be caught even in linter mode.
+    auto result = ex7::ExpressionValidator::validateFileSyntaxOnly(
+        fixturePath(QStringLiteral("invalid_expressions"), QStringLiteral("cycle_simple")));
+    REQUIRE_FALSE(result.has_value());
+    bool sawCycle = false;
+    for (const auto& e : result.error()) {
+        if (e.message.contains(QStringLiteral("cycle"))) {
+            sawCycle = true;
+        }
+    }
+    REQUIRE(sawCycle);
+}
+
+TEST_CASE("S7: validateStringSyntaxOnly accepts forward-referenced base signals", "[validator][s7][lint-mode]") {
+    // Same content with no catalog: validateString rejects, syntax-only
+    // accepts.
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions:\n"
+                                        "  - id: power\n"
+                                        "    formula: voltage * current\n");
+    auto full = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(full.has_value());
+    auto syntax = ex7::ExpressionValidator::validateStringSyntaxOnly(yaml, QStringLiteral("<inline>"));
+    REQUIRE(syntax.has_value());
+    REQUIRE(syntax->expressions.size() == 1U);
+}
