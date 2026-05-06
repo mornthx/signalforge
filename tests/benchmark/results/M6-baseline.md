@@ -85,8 +85,33 @@ The QString-keyed map find dominates. Mutex is secondary.
 | Pass | Change | Effect on overhead |
 |---|---|---|
 | 1 | `samples_evicted_<id>` skip-when-unchanged + `memory_bytes_<id>` gauge moved to publish cadence | 36.16% → 33.22% |
+| 2 (S11.5) | Per-decoder buffer-pointer cache in `SchemaDecoder` (Option A from first HALT) | 33.22% → **26.12%** |
 
-CLAUDE.md §HALT #6 caps further optimization at one pass before HALT.
+CLAUDE.md §HALT #6 caps further optimization at one pass before HALT;
+the human authorized one additional attempt (Option A) at the prior
+HALT. After both passes the gate still fails — second HALT filed at
+`.claude/halt/HALT-20260506T084448Z-m6-e2e-overhead-after-cache.md`.
+
+## S11.5 numbers (post-cache)
+
+```json
+{"scenario":"end_to_end","frames":50000,"counter_seconds":0.1218,"counter_fps":410396.4,"counter_signals":250000,"registry_seconds":0.1537,"registry_fps":325409.4,"overhead_pct":26.12}
+```
+
+| Path | Seconds | Frames / sec | Per-frame overhead |
+|---|---|---|---|
+| Counter (atomic) | 0.1218 | 410 396 | (baseline) |
+| M6 registry + cache | 0.1537 | 325 409 | +98 ns |
+
+Per-signal overhead (50 000 frames × 5 signals/frame = 250 000
+signals): ~128 ns. Decomposition (post-cache):
+
+| Source | Estimate |
+|---|---|
+| `SignalBuffer::push` wrapper (3 atomic stores mirroring `impl_`) | ~15-20 ns |
+| `TypedBuffer::push` body (variant unpack + deque append + atomics + cadence) | ~50-80 ns |
+| `LinearTypedBuffer<T>::onPushCompleted` (LOD bookkeeping) | ~10-20 ns |
+| Cache lookup + lambda dispatch in `tryDecodeFrame` | ~5-10 ns |
 
 ## Status
 

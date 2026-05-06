@@ -127,9 +127,9 @@ void runReaderBench() {
 class CounterSink : public SignalValueSink {
 public:
     void onSignal(std::chrono::steady_clock::time_point, const QString&, const SignalValue&) override {
-        ++signalsReceived_;
+        signalsReceived_.fetch_add(1, std::memory_order_relaxed);
     }
-    std::uint64_t signalsReceived_ = 0;
+    std::atomic<std::uint64_t> signalsReceived_{0};
 };
 
 [[nodiscard]] Schema buildSimpleSchema() {
@@ -188,7 +188,7 @@ void runEndToEndBench() {
             }
         });
         counterSec = sec;
-        counterSignals = sink->signalsReceived_;
+        counterSignals = sink->signalsReceived_.load(std::memory_order_relaxed);
     }
 
     // M6 path: SchemaDecoder + SignalBufferRegistry as sink.

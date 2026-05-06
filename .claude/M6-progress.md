@@ -1169,3 +1169,121 @@ Recommended: Option A.
 **Effort**: 4 h (bench authoring + opt pass + HALT report). Plan
 estimate 3 h.
 
+---
+
+### S11.5 — Per-decoder buffer-pointer cache (HALT resolution, Option A) (start)
+
+**Goal**: per the human's HALT decision (Option A), bypass the
+QString-keyed map find on the registry's hot path by caching
+`signalId → SignalBuffer*` lookups inside `SchemaDecoder` at
+`setSignalSink` time.
+
+1. Add a `std::vector<signalforge::buffer::SignalBuffer*>
+   bufferCache_` member to `SchemaDecoder`, indexed by signal
+   position in the decoder's catalog (since `signalMetadata()`
+   is stable for the decoder's lifetime, position-indexed access
+   is the fastest representation).
+2. In `setSignalSink(sink)`:
+   - Clear `bufferCache_`.
+   - If `dynamic_cast<SignalBufferRegistry*>(sink.get())` succeeds,
+     iterate `signalMetadata()` and call `registry->bufferFor(meta.id)`
+     for each entry, storing the (possibly null) pointer.
+   - If the cast fails (e.g., `LoggingSignalValueSink` in tests),
+     leave `bufferCache_` empty.
+3. In the decoder's hot path (per-field signal emission inside
+   `onFrame`), prefer the cached pointer when available:
+   - `bufferCache_[fieldIdx]->push(timestamp, value)` — direct
+     buffer push, no map find, no mutex lock.
+   - Fallback: `sink_->onSignal(timestamp, signalId, value)` for
+     non-buffer-aware sinks.
+4. Cache invalidation rules:
+   - Re-`setSignalSink` (with the same or different sink) rebuilds
+     the cache.
+   - The registry's `onSignalsRegistered` may add new buffers AFTER
+     the decoder cached its pointers; in M5/M6 the typical sequence
+     is decoder constructed → `setSignalSink` after registry already
+     contains the catalog (because `DecoderRegistrar` calls
+     `onSignalsRegistered` BEFORE `setSignalSink`). Document this
+     ordering invariant.
+5. Bench-side correction (per human's pre-closure note): replace
+   the non-atomic counter sink with a `std::atomic<std::uint64_t>`
+   to give a realistic minimum-overhead baseline. This may slightly
+   shrink the counter_fps and therefore widen overhead percentage,
+   so we'll need to re-measure both paths.
+
+**Acceptance**:
+
+- All existing tests still pass under Debug + Release + debug-asan.
+- A new unit test verifies: registry-aware decoder uses the cache
+  (mismatched signal IDs not cached); fallback works for
+  LoggingSignalValueSink.
+- Re-run S11 scenario 3: end-to-end overhead ≤ 10%. If yes, proceed
+  to S12. If 10-15%, HALT again. If < 5%, celebrate + add regression
+  test.
+
+**Freeze scope**: M5-frozen interfaces unchanged. `setSignalSink`
+signature, `SignalValueSink` virtuals, `DecoderInterface` —
+all untouched. The cache is purely internal to `SchemaDecoder`.
+
+### S11.5 — Per-decoder buffer-pointer cache (HALTED again)
+
+**Result**: 🛑 **HALTED** for the second time on the e2e overhead
+gate (now at 26.12% after the cache; threshold 10%).
+
+**Implementation summary**:
+
+- `SchemaDecoder` gained
+  `std::shared_ptr<const std::vector<SignalBuffer*>> bufferCache_`
+  populated at `setSignalSink` via `dynamic_cast<SignalBufferRegistry*>`;
+  hot-path `tryDecodeFrame` calls `cacheData[metaIndex]->push(t, v)`
+  directly when cache populated, falling back to
+  `sink_->onSignal(...)` otherwise.
+- CMake circular dep broken: `signalforge_buffer` no longer
+  PUBLIC-links `signalforge_decoder` (decoder_interface.hpp is
+  effectively header-only); `signalforge_decoder` PRIVATE-links
+  `signalforge_buffer` for the cache call into
+  `SignalBufferRegistry::bufferFor` and `SignalBuffer::push`.
+- `tests/unit/decode/decoder_buffer_cache_test.cpp` — 3 cases:
+  cache populates for registry sink; falls back for LoggingSink;
+  rebuilds on second `setSignalSink`.
+- Lambda `emitSignal` (renamed from initial `emit` to avoid Qt
+  macro collision) routes per-signal emission through the cache
+  when present.
+- Bench's `CounterSink` tightened to `std::atomic` per the human's
+  pre-closure note.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format` clean (one auto-fix iteration).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 320 / 320 pass (was 317; +3 from S11.5
+  cache tests).
+- `ctest --preset=release` — 320 / 320 pass.
+- debug-asan deferred to CI.
+
+**Result on the gate**:
+
+| Pass | Description | E2E overhead |
+|---|---|---|
+| baseline | Initial S11 implementation | 36.16% |
+| S11 opt 1 | metric-update reductions | 33.22% |
+| S11.5 cache | Per-decoder buffer-pointer cache | **26.12%** |
+
+The cache eliminated ~30 ns per signal (vs the 80-120 ns I had
+originally estimated for the QString find — the actual find is
+faster because there are only 5 unique IDs cache-hot in L1).
+Remaining ~128 ns per signal is the inherent per-sample storage
+work (deque push + counter atomics + LOD bookkeeping in
+`SignalBuffer` / `TypedBuffer`).
+
+**Per CLAUDE.md §HALT cap and the human's S11.5 protocol**:
+no further optimization without re-decision.
+
+**Effort**: 2.5 h.
+
+**Second HALT report**:
+`.claude/halt/HALT-20260506T084448Z-m6-e2e-overhead-after-cache.md`.
+

@@ -15,3 +15,17 @@ target_compile_definitions(decoder_test
         SIGNALFORGE_REPO_ROOT="${CMAKE_SOURCE_DIR}"
 )
 catch_discover_tests(decoder_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(decoder_buffer_cache_test
+    decoder_buffer_cache_test.cpp
+)
+target_link_libraries(decoder_buffer_cache_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_decoder
+        signalforge_buffer
+        signalforge_frame
+        signalforge_test_only
+)
+catch_discover_tests(decoder_buffer_cache_test DISCOVERY_MODE PRE_TEST)

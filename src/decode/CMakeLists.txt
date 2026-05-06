@@ -18,5 +18,6 @@ target_link_libraries(signalforge_decoder
     PRIVATE
         signalforge_observability
         signalforge_platform
+        signalforge_buffer
         yaml-cpp::yaml-cpp
 )
