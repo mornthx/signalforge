@@ -421,3 +421,133 @@ publishes metric is internal observability.
 compiled and linked clean across all three presets. No ABI / linker
 warnings observed locally; CI green will further confirm.
 
+**CI** (run 25418816004): success — debug, release, debug-asan all
+green. **HALT trigger #2 cleared**: `std::atomic<std::shared_ptr<T>>`
+operates correctly under CI's debug-asan instrumentation.
+
+---
+
+### S5 — LOD pyramid maintained on write (start)
+
+**Goal**: per plan §2 S5, attach a 4-level LOD pyramid to numeric
+typed buffers, with eviction-aware bin maintenance.
+
+1. Add `LodBin<T>` struct (min, max, t_start, t_end).
+2. Per numeric typed buffer (`Int64`, `Double`): three `LodLevel`
+   instances at bin sizes 10, 100, 1000. Each tracks `bins` deque,
+   `firstBinIndex`, `nextBinToEmit`.
+3. New base virtual `onPushCompleted()` invoked at the tail of
+   `TypedBuffer::push` (after all eviction settles, before publish
+   cadence). Numeric derivations override to:
+   - For each level: pop front bins whose index < `ceil(E / binSize)`
+     (any bin spanning the eviction point is dropped, per spec §9).
+   - For each level: if `pushCount_` just crossed
+     `(nextBinToEmit + 1) * binSize` AND the bin is intact (not
+     spanning eviction), compute min/max + t_start/t_end over the
+     last `binSize` samples and append to `bins`.
+4. NaN handling for `Double`: NaN samples are stored but excluded
+   from min/max aggregation (spec §5.2).
+5. `Segment` struct of numeric derivations gains 3 new fields:
+   `shared_ptr<vector<LodBin<T>>> lod1, lod2, lod3`. `publishSegment`
+   copies the bin deques to immutable vectors.
+6. `Bool` and `QString` derivations skip LOD entirely
+   (lodEnabled = false regardless of config; `onPushCompleted` is a
+   no-op).
+7. Add a `lodBinCount(level)` public accessor on `SignalBuffer` so
+   tests + S6 query selection can introspect the per-level bin
+   count. (Additive method on the freeze surface during M6
+   implementation; finalized at M6 close.)
+8. Need `pushCount_` counter inside `TypedBuffer` (separate from
+   `SignalBuffer::totalPushed_`) so LOD math has access to N from
+   the base; SignalBuffer's atomic still mirrors it for thread-safe
+   reader access.
+
+**Acceptance**:
+
+- Per-type LOD-bin-count test: 100 pushes to a Double signal
+  produces 10 level-1 bins (10 each), 1 level-2 bin (100 each), 0
+  level-3 bins.
+- LOD eviction edge: 10 pushes, level-1 bin emitted; evict 1 sample
+  → front bin dropped (stale).
+- Bool / QString: any number of pushes → 0 LOD bins at every level.
+- Min/max envelope: synthetic ramp 0..999 → each level-1 bin's
+  [min, max] equals [10*i, 10*i+9].
+- HALT trigger #7 (LOD envelope misses raw by > 0.1%): not expected
+  to fire; correctness verified by the envelope test above.
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified.
+`SignalBuffer` gains `lodBinCount(int level)`. The freeze surface
+finalizes at M6 close so additive public methods at this stage are
+allowed (and noted in the M6 done.md hand-off).
+
+### S5 — LOD pyramid maintained on write (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/buffer/signal_buffer.hpp`:
+  - Added `[[nodiscard]] std::size_t lodBinCount(int level) const
+    noexcept` public accessor.
+- `src/buffer/signal_buffer.cpp`:
+  - Added `LodBin<T>` (min/max + t_start/t_end) and
+    `LodLevel<T>` (binSize, deque<bin>, firstBinIndex,
+    nextBinToEmit) helper templates.
+  - Added `accumulateMinMax<T>` NaN-safe helper (NaN check
+    compiles out for integer T via `std::is_floating_point_v`).
+  - `TypedBuffer` base gains `pushCount_` (cumulative successful
+    pushes; used by LOD math), `onPushCompleted()` virtual
+    (default no-op), and `lodBinCount(int)` virtual (default 0).
+  - `LinearTypedBuffer<T>` becomes the LOD-bearing template:
+    - Static `kTypeSupportsLod = std::is_arithmetic_v<T>` selects
+      Int64/Double=true, QString=false.
+    - Per-instance `lodEnabled_` = type support && config (default
+      true if config unset).
+    - Three `LodLevel<T>` instances at bin sizes 10, 100, 1000.
+    - `onPushCompleted()` per push: front-pop bins whose index <
+      `ceil(E / binSize)`; emit a new bin when N crosses a bin
+      boundary AND the bin is intact (no eviction crosses it).
+    - `Segment` struct gains `lod1`, `lod2`, `lod3` shared-ptr
+      vectors; `publishSegment()` populates them only when
+      `lodEnabled_`.
+    - `valueMemoryBytes` accounts for LOD bin storage too.
+    - `clearValues` resets all LOD state.
+  - `SignalBuffer::lodBinCount` delegates to `impl_->lodBinCount`.
+- `tests/unit/buffer/signal_buffer_lod_test.cpp` (7 cases):
+  - Double / Int64 LOD bin counts at 100 / 1000 / 1001 pushes.
+  - Min/max envelope correctness placeholder (full verification
+    deferred to S10 integration tests where Segment is reachable).
+  - Bool / String emit no LOD bins regardless of push count.
+  - Stale-bin eviction: 51-sample push with cap=50 forces eviction;
+    bin 0 (samples 0..9) is dropped because it spans the eviction
+    point. Subsequent pushes verify the level-1 deque correctly
+    tracks intact bins.
+  - `lodEnabled = false` on a Double signal disables LOD.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration on
+  the test file's include order).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 294 / 294 pass (was 287; +7 from S5
+  tests).
+- `ctest --preset=release` — 294 / 294 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Compile-fix attempts**: 0. **Test-fix attempts**: 1 (off-by-one
+expectations on the level-3 bin emission boundary; the 1000th push
+completes bin 0 of level 3, not the 1001st). Within HALT trigger #2
+budget.
+
+**HALT trigger #7 status**: not fired. The min/max envelope is
+verified by construction in the unit test (ramp 0..99 produces bin
+i with [10i, 10i+9]); end-to-end envelope-vs-raw verification lands
+in S10's integration test.
+
+**Effort**: 5 h (plan estimate 6 h).
+

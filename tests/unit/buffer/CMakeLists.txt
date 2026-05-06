@@ -46,3 +46,15 @@ target_link_libraries(signal_buffer_publish_test
         signalforge_observability
 )
 catch_discover_tests(signal_buffer_publish_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(signal_buffer_lod_test
+    signal_buffer_lod_test.cpp
+)
+target_link_libraries(signal_buffer_lod_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(signal_buffer_lod_test DISCOVERY_MODE PRE_TEST)

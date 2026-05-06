@@ -4,11 +4,14 @@
 #include "observability/metrics.hpp"
 
 #include <QString>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -34,12 +37,65 @@ constexpr auto kPrefixPublishes = QLatin1String("signal_buffer_publishes_");
 /// tuning pass per plan §S4 note.
 constexpr int kDefaultPublishCadence = 100;
 
+/// LOD bin sizes per spec §3.4. Three decimation levels above raw.
+constexpr std::uint64_t kLodBinSize1 = 10;
+constexpr std::uint64_t kLodBinSize2 = 100;
+constexpr std::uint64_t kLodBinSize3 = 1000;
+
 [[nodiscard]] std::chrono::steady_clock::duration toSteadyDuration(double seconds) {
     using namespace std::chrono;
     if (seconds <= 0.0) {
         return steady_clock::duration::zero();
     }
     return duration_cast<steady_clock::duration>(duration<double>(seconds));
+}
+
+}  // namespace
+
+/// LOD aggregate: min/max envelope plus the bin's time bounds.
+template <typename T> struct LodBin {
+    T min_val;
+    T max_val;
+    std::chrono::steady_clock::time_point t_start;
+    std::chrono::steady_clock::time_point t_end;
+};
+
+namespace {
+
+/// Per-LOD-level bookkeeping. `binSize` is fixed (10, 100, 1000); `bins`
+/// holds completed aggregates; `firstBinIndex` is the cumulative index
+/// (in bin-units) of `bins.front()`; `nextBinToEmit` is the cumulative
+/// bin index of the bin that the next emit will produce.
+template <typename T> struct LodLevel {
+    std::uint64_t binSize = 0;
+    std::deque<LodBin<T>> bins;
+    std::uint64_t firstBinIndex = 0;
+    std::uint64_t nextBinToEmit = 0;
+};
+
+/// NaN-safe min/max accumulator. For integer T, NaN check compiles out.
+/// `hasValue` becomes true on the first non-NaN sample; subsequent samples
+/// update min/max. If every sample in a bin is NaN, mn/mx are left as
+/// the first sample's value (which is NaN) — the consumer will see a
+/// sentinel-NaN bin.
+template <typename T> void accumulateMinMax(T value, T& mn, T& mx, bool& hasValue) {
+    if constexpr (std::is_floating_point_v<T>) {
+        if (std::isnan(value)) {
+            return;
+        }
+    }
+    if (!hasValue) {
+        mn = value;
+        mx = value;
+        hasValue = true;
+    } else {
+        if (value < mn) {
+            mn = value;
+        }
+        if (value > mx) {
+            mx = value;
+        }
+    }
 }
 
 }  // namespace
@@ -89,7 +145,10 @@ struct SignalBuffer::TypedBuffer {
             ++totalEvicted_;
         }
 
-        // 4. Update metrics.
+        // 4. Bump cumulative push count.
+        ++pushCount_;
+
+        // 5. Update metrics.
         if (samplesStoredMetric_ != nullptr) {
             samplesStoredMetric_->add(1);
         }
@@ -100,7 +159,11 @@ struct SignalBuffer::TypedBuffer {
             memoryBytesMetric_->set(static_cast<std::int64_t>(memoryBytes()));
         }
 
-        // 5. Snapshot publish on cadence: build an immutable Segment of the
+        // 6. LOD pyramid maintenance (numeric derivations override; bool
+        // and string are no-ops because LOD is disabled).
+        onPushCompleted();
+
+        // 7. Snapshot publish on cadence: build an immutable Segment of the
         // current state and atomic-store it for readers.
         if (++pushesSincePublish_ >= publishCadence_) {
             publishSegment();
@@ -121,8 +184,19 @@ struct SignalBuffer::TypedBuffer {
         return totalEvicted_;
     }
 
+    [[nodiscard]] std::uint64_t pushCount() const noexcept {
+        return pushCount_;
+    }
+
     [[nodiscard]] std::uint64_t publishCount() const noexcept {
         return publishCount_;
+    }
+
+    /// Number of LOD bins currently retained at the given level (1..3).
+    /// Returns 0 for invalid levels and for derivations where LOD is
+    /// disabled (Bool, String).
+    [[nodiscard]] virtual std::size_t lodBinCount(int /*level*/) const noexcept {
+        return 0;
     }
 
     /// Total memory: the timestamp deque (approximated as size × element
@@ -155,6 +229,10 @@ protected:
     /// from `push()` once every `publishCadence_` successful pushes.
     virtual void publishSegment() = 0;
 
+    /// Hook for derivations to update LOD aggregators after a successful
+    /// push (and any associated eviction). Default: no-op (Bool, String).
+    virtual void onPushCompleted() {}
+
     std::deque<std::chrono::steady_clock::time_point> timestamps_;
 
     Metric* samplesStoredMetric_ = nullptr;
@@ -165,6 +243,7 @@ protected:
     std::chrono::steady_clock::duration windowDuration_;
     std::size_t capSamples_;
     std::uint64_t totalEvicted_ = 0;
+    std::uint64_t pushCount_ = 0;
 
     int publishCadence_ = kDefaultPublishCadence;
     int pushesSincePublish_ = 0;
@@ -255,15 +334,37 @@ private:
 /// separate because of bit-pack representation.
 template <typename T> class LinearTypedBuffer : public SignalBuffer::TypedBuffer {
 public:
-    using TypedBuffer::TypedBuffer;
+    /// Whether this typed buffer maintains the LOD pyramid by default.
+    /// Numeric: true. QString: false.
+    static constexpr bool kTypeSupportsLod = std::is_arithmetic_v<T>;
+
+    LinearTypedBuffer(const SignalMetadata& m, const SignalBufferConfig& c)
+        : SignalBuffer::TypedBuffer(m, c), lodEnabled_(kTypeSupportsLod && c.lodEnabled.value_or(true)) {
+        lodLevels_[0].binSize = kLodBinSize1;
+        lodLevels_[1].binSize = kLodBinSize2;
+        lodLevels_[2].binSize = kLodBinSize3;
+    }
 
     struct Segment {
         std::shared_ptr<const std::vector<T>> values;
         std::shared_ptr<const std::vector<std::chrono::steady_clock::time_point>> timestamps;
+        std::shared_ptr<const std::vector<LodBin<T>>> lod1;
+        std::shared_ptr<const std::vector<LodBin<T>>> lod2;
+        std::shared_ptr<const std::vector<LodBin<T>>> lod3;
     };
 
     [[nodiscard]] std::shared_ptr<const Segment> currentSegment() const noexcept {
         return publishedSegment_.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] std::size_t lodBinCount(int level) const noexcept override {
+        if (!lodEnabled_) {
+            return 0;
+        }
+        if (level < 1 || level > 3) {
+            return 0;
+        }
+        return lodLevels_[static_cast<std::size_t>(level - 1)].bins.size();
     }
 
 protected:
@@ -272,11 +373,22 @@ protected:
     }
 
     [[nodiscard]] std::size_t valueMemoryBytes() const noexcept override {
-        return values_.size() * sizeof(T);
+        std::size_t bytes = values_.size() * sizeof(T);
+        if (lodEnabled_) {
+            for (const auto& lvl : lodLevels_) {
+                bytes += lvl.bins.size() * sizeof(LodBin<T>);
+            }
+        }
+        return bytes;
     }
 
     void clearValues() override {
         values_.clear();
+        for (auto& lvl : lodLevels_) {
+            lvl.bins.clear();
+            lvl.firstBinIndex = 0;
+            lvl.nextBinToEmit = 0;
+        }
     }
 
     void publishSegment() override {
@@ -284,11 +396,61 @@ protected:
         seg->values = std::make_shared<std::vector<T>>(values_.begin(), values_.end());
         seg->timestamps = std::make_shared<std::vector<std::chrono::steady_clock::time_point>>(timestamps_.begin(),
                                                                                                timestamps_.end());
+        if (lodEnabled_) {
+            seg->lod1 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[0].bins.begin(), lodLevels_[0].bins.end());
+            seg->lod2 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[1].bins.begin(), lodLevels_[1].bins.end());
+            seg->lod3 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[2].bins.begin(), lodLevels_[2].bins.end());
+        }
         publishedSegment_.store(std::move(seg), std::memory_order_release);
+    }
+
+    void onPushCompleted() override {
+        if (!lodEnabled_) {
+            return;
+        }
+        const std::uint64_t N = pushCount_;
+        const std::uint64_t E = totalEvicted_;
+        for (auto& lvl : lodLevels_) {
+            // Drop any front bins that span the eviction point.
+            const std::uint64_t firstIntactBin = (E + lvl.binSize - 1) / lvl.binSize;
+            while (!lvl.bins.empty() && lvl.firstBinIndex < firstIntactBin) {
+                lvl.bins.pop_front();
+                ++lvl.firstBinIndex;
+            }
+            // Emit a new bin if N just crossed `(nextBinToEmit + 1) * binSize`.
+            if (N >= (lvl.nextBinToEmit + 1) * lvl.binSize) {
+                const std::uint64_t binIdx = lvl.nextBinToEmit;
+                if (binIdx >= firstIntactBin) {
+                    // Bin covers cumulative samples [binIdx*binSize, (binIdx+1)*binSize).
+                    // values_ holds samples [E, N); position of cumulative i is (i - E).
+                    const std::size_t start = static_cast<std::size_t>(binIdx * lvl.binSize - E);
+                    const std::size_t end = static_cast<std::size_t>((binIdx + 1) * lvl.binSize - E);
+                    LodBin<T> entry{};
+                    bool hasValue = false;
+                    for (std::size_t i = start; i < end; ++i) {
+                        accumulateMinMax<T>(values_[i], entry.min_val, entry.max_val, hasValue);
+                    }
+                    if (!hasValue) {
+                        // All samples in the bin were NaN; emit the first sample's value.
+                        entry.min_val = values_[start];
+                        entry.max_val = values_[start];
+                    }
+                    entry.t_start = timestamps_[start];
+                    entry.t_end = timestamps_[end - 1];
+                    if (lvl.bins.empty()) {
+                        lvl.firstBinIndex = binIdx;
+                    }
+                    lvl.bins.push_back(entry);
+                }
+                ++lvl.nextBinToEmit;
+            }
+        }
     }
 
     std::deque<T> values_;
     std::atomic<std::shared_ptr<const Segment>> publishedSegment_{};
+    LodLevel<T> lodLevels_[3];
+    bool lodEnabled_;
 };
 
 class Int64TypedBuffer final : public LinearTypedBuffer<std::int64_t> {
@@ -401,6 +563,10 @@ std::uint64_t SignalBuffer::totalSamplesEvicted() const noexcept {
 
 std::size_t SignalBuffer::memoryBytes() const noexcept {
     return currentMemoryBytes_.load(std::memory_order_relaxed);
+}
+
+std::size_t SignalBuffer::lodBinCount(int level) const noexcept {
+    return impl_ != nullptr ? impl_->lodBinCount(level) : 0;
 }
 
 const SignalMetadata& SignalBuffer::metadata() const noexcept {

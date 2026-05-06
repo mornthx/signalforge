@@ -96,6 +96,11 @@ public:
     /// Current memory usage in bytes (raw + LOD).
     [[nodiscard]] std::size_t memoryBytes() const noexcept;
 
+    /// Number of LOD bins currently retained at the given level.
+    /// Levels are 1 (10:1), 2 (100:1), 3 (1000:1). Returns 0 for invalid
+    /// levels and for signals where LOD is disabled (Bool, String).
+    [[nodiscard]] std::size_t lodBinCount(int level) const noexcept;
+
     /// Metadata accessor.
     [[nodiscard]] const signalforge::decoder::SignalMetadata& metadata() const noexcept;
 
