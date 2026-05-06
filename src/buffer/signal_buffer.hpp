@@ -102,10 +102,16 @@ public:
     /// Configuration accessor.
     [[nodiscard]] const SignalBufferConfig& config() const noexcept;
 
-private:
+public:
     /// Internal: per-variant typed buffer (polymorphic; not in public API).
-    /// Definition lives in `signal_buffer.cpp`.
+    /// The full definition lives in `signal_buffer.cpp`; only the
+    /// forward-declared name is visible here so per-type implementations
+    /// in the .cpp's anonymous namespace can inherit from it.
+    /// Spec §6.2: TypedBuffer polymorphism is explicitly outside the M6
+    /// freeze surface and may evolve.
     struct TypedBuffer;
+
+private:
     std::unique_ptr<TypedBuffer> impl_;
 
     signalforge::decoder::SignalMetadata metadata_;

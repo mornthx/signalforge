@@ -88,4 +88,55 @@ design and reflected in plan §S7.
 
 ---
 
-(Future entries will be appended below as discovered during S1-S12.)
+## Concern #3 — `SignalBuffer::TypedBuffer` forward-decl moved to public
+
+**Subtask**: S2.
+
+**Observation**: M6 spec §4.1 declares `struct TypedBuffer;` inside
+the `private:` section of `SignalBuffer`:
+
+```cpp
+private:
+    // Internal: per-variant typed buffer (polymorphic; not in public API)
+    struct TypedBuffer;
+    std::unique_ptr<TypedBuffer> impl_;
+```
+
+Per S2's design — four per-variant implementations
+(`BoolTypedBuffer`, `Int64TypedBuffer`, `DoubleTypedBuffer`,
+`StringTypedBuffer`) defined in the .cpp's anonymous namespace —
+those derived classes need to name `SignalBuffer::TypedBuffer` as a
+base class. C++ access rules forbid that when the nested type is
+declared `private:` (the compiler errors with "is private within
+this context").
+
+**Resolution**: Move the forward declaration to `public:` while
+keeping `std::unique_ptr<TypedBuffer> impl_;` private:
+
+```cpp
+public:
+    struct TypedBuffer;  // forward declaration only
+
+private:
+    std::unique_ptr<TypedBuffer> impl_;
+```
+
+External code still cannot construct or use `TypedBuffer` because
+the full definition lives only in `signal_buffer.cpp`. The change
+makes the type-name accessible (so the per-type implementations in
+the same TU can inherit) but exposes no functionality.
+
+**Why this is permitted**: M6 spec §6.2 explicitly states "TypedBuffer
+polymorphism (internal to .cpp; may evolve)" is outside the M6
+freeze surface. The freeze surface §6.1 enumerates SignalBuffer's
+public methods + the named structs (`SignalSample`, `LatestValue`,
+`SignalBufferConfig`); `TypedBuffer` is none of those. Therefore
+the access-level placement is implementation detail, not a freeze
+violation.
+
+**Status**: Informational. No spec amendment, no API change visible
+to consumers, no new dependency.
+
+---
+
+(Future entries will be appended below as discovered during S3-S12.)

@@ -115,3 +115,107 @@ diff check confirms.
 
 **Effort**: 2.5 h (plan estimate 3 h).
 
+**CI** (run 25417700815): success — debug, release, debug-asan all
+green. Confirms no ASan issues with the M6 bootstrap headers.
+
+---
+
+### S2 — TypedBuffer polymorphism + per-type storage + push routing (start)
+
+**Goal**: per plan §2 S2, plug operational logic into the S1
+scaffolding:
+
+1. Promote `SignalBuffer::TypedBuffer` from an empty inner struct to
+   a virtual base class with `pushValue(SignalValue) -> bool`,
+   `valueMemoryBytes()`, `clearValues()`, plus shared timestamp
+   storage and metric pointers.
+2. Add 4 per-type derivations (anonymous-namespace inside
+   `signal_buffer.cpp`):
+   - `BoolTypedBuffer` — bit-packed `std::vector<uint64_t>` (64
+     samples per word).
+   - `Int64TypedBuffer` — `std::vector<int64_t>`.
+   - `DoubleTypedBuffer` — `std::vector<double>`.
+   - `StringTypedBuffer` — `std::vector<QString>`.
+3. `SignalBuffer` constructor switches on `metadata.type` and
+   instantiates the right derivation.
+4. `SignalBuffer::push` dispatches via `impl_->push(t, v)` (one
+   virtual call per push); on success, increments `totalPushed_` and
+   updates `currentMemoryBytes_` to mirror `impl_->memoryBytes()`.
+   Type mismatch (wrong variant for the metadata type) skips the
+   push silently — tests cover only the matching path; a future
+   registry-level mismatch metric can be added in S7 if production
+   reveals the need.
+5. Per spec §3.9: register `signal_buffer_samples_stored_<id>`
+   (counter), `..._samples_evicted_<id>` (counter, registered now;
+   updated by S3), `..._memory_bytes_<id>` (gauge) with the global
+   `MetricsRegistry`. Null-tolerant on invalid names.
+6. Add `tests/unit/buffer/signal_buffer_push_test.cpp` covering one
+   round-trip per type and the bit-pack edge case (push 65 bools to
+   confirm word-boundary handling).
+
+**Acceptance**: per type, `push() × N` increments `sampleCount` to
+`N`, `totalSamplesPushed` to `N`, `memoryBytes` rises monotonically.
+No eviction yet (S3).
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified. The
+`SignalBuffer::TypedBuffer` private inner struct is not part of the
+freeze (spec §6.2).
+
+### S2 — TypedBuffer polymorphism + per-type storage + push routing (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/buffer/signal_buffer.hpp` — moved the forward declaration
+  `struct TypedBuffer;` from `private:` to `public:` (the
+  `std::unique_ptr<TypedBuffer> impl_;` member stays private). The
+  full definition still lives only in the .cpp; the rename is solely
+  to permit the per-type derived classes inside the .cpp's
+  anonymous namespace to inherit from `SignalBuffer::TypedBuffer`.
+  Spec §6.2 explicitly classifies `TypedBuffer` polymorphism as
+  outside the freeze surface, so this is permitted; logged as
+  concerns #3 below for completeness.
+- `src/buffer/signal_buffer.cpp` — replaced the empty `TypedBuffer`
+  stub with a virtual base class holding the timestamp vector, the
+  three S2-relevant metric pointers
+  (`signal_buffer_samples_stored_<id>`,
+  `..._samples_evicted_<id>`,
+  `..._memory_bytes_<id>`), and the `push() / samplesRetained() /
+  memoryBytes() / clear()` plumbing. Four anonymous-namespace
+  derivations (`BoolTypedBuffer`, `Int64TypedBuffer`,
+  `DoubleTypedBuffer`, `StringTypedBuffer`) implement `pushValue` /
+  `valueMemoryBytes` / `clearValues`. `makeTypedBuffer` factory
+  switches on `metadata.type`. `SignalBuffer::push` delegates to
+  `impl_->push` and, on success, increments `totalPushed_` and
+  mirrors `currentMemoryBytes_`.
+- `tests/unit/buffer/signal_buffer_push_test.cpp` (6 cases) +
+  `tests/unit/buffer/CMakeLists.txt` — covers per-type push, the
+  bit-pack edge case (65 booleans across the 64-bit word boundary),
+  NaN tolerance, type-mismatch silent-drop, and monotonic memory
+  growth across 1000 pushes.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean on all changed C++ files
+  (after one auto-fix iteration that reformatted the case-label
+  indentation of the factory switch).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 276 / 276 pass (was 270; +6 from
+  `signal_buffer_push_test`).
+- `ctest --preset=release` — 276 / 276 pass.
+- debug-asan deferred to CI per the M5 protocol.
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Compile fixes attempted**: 1 (TypedBuffer access-level adjustment).
+Within HALT trigger budget (3 attempts).
+
+**Effort**: 4 h (plan estimate 5 h).
+
+**New concern recorded**: see concerns.md #3
+("`SignalBuffer::TypedBuffer` forward-decl moved to public").
+
