@@ -83,3 +83,15 @@ target_link_libraries(signal_buffer_registry_test
         signalforge_observability
 )
 catch_discover_tests(signal_buffer_registry_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(signal_buffer_concurrent_test
+    signal_buffer_concurrent_test.cpp
+)
+target_link_libraries(signal_buffer_concurrent_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(signal_buffer_concurrent_test DISCOVERY_MODE PRE_TEST)
