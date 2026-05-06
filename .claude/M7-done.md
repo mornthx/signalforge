@@ -39,13 +39,12 @@ harness — see "Deviations and concerns" below).
 
 ## PR and merge state
 
-- **PR number**: (filled after `gh pr create` runs)
-- **PR URL**: (filled after `gh pr create` runs)
-- **Head commit at PR creation**: `8044d29` (S10) — may advance if
-  CI re-runs are needed.
-- **CI status at PR creation**: green (verified per-commit through
-  S8; S9 + S10 in progress at the time of writing this report —
-  expected green by PR creation).
+- **PR number**: #10
+- **PR URL**: https://github.com/mornthx/signalforge/pull/10
+- **Head commit at PR creation**: `3fb59ff` (S11 — this report).
+- **CI status at PR creation**: green on `3fb59ff`
+  (run 25453410509). All 11 commits on `milestone/M7` since
+  `08a04784` had a green CI run before PR creation.
 - **Merge SHA**: (filled after merge during Phase 3)
 - **Awaiting human action**: `approved, merge M7 and begin M8
   bootstrap`
@@ -172,11 +171,11 @@ Frozen per M7 spec §6.1.
 | S6 | 25450511585 | green |
 | S7 | 25451566722 | green |
 | S8 | 25452360245 | green |
-| S9 | 25452879421 | in flight at report time (expected green) |
-| S10 | 25453268513 | in flight at report time (expected green) |
+| S9 | 25452879421 | green |
+| S10 | 25453268513 | green |
+| S11 (this report) | 25453410509 | green |
 
-S9 + S10 will be re-verified before PR creation; this report will
-be amended with their final status.
+All M7 commits had a green CI run before PR creation.
 
 ## Hand-off notes
 
