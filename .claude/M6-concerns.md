@@ -139,4 +139,47 @@ to consumers, no new dependency.
 
 ---
 
-(Future entries will be appended below as discovered during S3-S12.)
+## Concern #4 — `std::deque` storage vs spec §3.2 "ring-buffer-style" wording
+
+**Subtask**: S3.
+
+**Observation**: M6 spec §3.2 states "Eviction model: ring-buffer-style.
+Writer monotonically advances head; older indices are reused
+(overwriting evicted samples)." A literal reading would imply a
+preallocated circular buffer of `capSamples` entries with modular head
+indexing.
+
+**Resolution**: S3 implements eviction via `std::deque<T>` with O(1)
+front pop instead of a preallocated ring buffer. Functionally, both
+maintain a sliding-window time series; the difference is allocation
+strategy:
+
+- Ring buffer (literal spec): preallocate `capSamples` entries
+  upfront; head and tail indices wrap modulo capacity.
+- `std::deque` (this implementation): grow on demand; pop_front
+  releases the front chunk when empty.
+
+Why std::deque was chosen:
+- `capSamples` defaults to 1 000 000 (a safety cap, not typical
+  sizing). Preallocating that for QString = 24 MB / signal × 60+
+  signals = > 1.4 GB before any data lands.
+- Typical usage stores ~60 000 samples (60 s × 1 kHz). Pre-allocating
+  the cap wastes memory by a factor of 16 in steady state.
+- O(1) front pop matches what the spec needs (cheap eviction).
+- The S4 snapshot publish step copies the deque into a contiguous
+  `std::vector` for the immutable segment; readers see contiguous
+  data.
+
+The spec §3.2 wording describes intent (sliding-window with eviction)
+rather than mandating a specific data structure. Performance is
+verified at S11; if benchmarks miss the writer-throughput targets,
+a true ring buffer or a custom chunked structure can be substituted
+behind the unchanged `TypedBuffer` interface (per spec §6.2,
+TypedBuffer polymorphism is not part of the freeze surface).
+
+**Status**: Informational. No spec amendment, no API change, no new
+dependency. Re-evaluate at S11 if performance targets are not met.
+
+---
+
+(Future entries will be appended below as discovered during S4-S12.)

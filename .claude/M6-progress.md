@@ -219,3 +219,96 @@ Within HALT trigger budget (3 attempts).
 **New concern recorded**: see concerns.md #3
 ("`SignalBuffer::TypedBuffer` forward-decl moved to public").
 
+**CI** (run 25418116429): success — debug, release, debug-asan all
+green.
+
+---
+
+### S3 — Time-window + cap eviction (start)
+
+**Goal**: per plan §2 S3, add eviction at the head of every `push()`:
+
+1. **Time-window eviction** (primary): drop samples older than
+   `t - windowSeconds`, where `t` is the timestamp of the incoming
+   push. Implemented by walking timestamps from the front and
+   popping until the oldest is within window.
+2. **Cap eviction** (safety): after window eviction + the new sample
+   appended, if the total exceeds `capSamples`, drop the oldest
+   until at cap.
+3. `samples_evicted_<id>` metric updated; `SignalBuffer::totalEvicted_`
+   atomic counter mirrored from the typed buffer's internal count.
+
+**Storage shift**: switch internal storage from `std::vector<...>`
+to `std::deque<...>` for O(1) front pop. The bool buffer's bit-pack
+becomes `std::deque<uint64_t>` + a `headBitOffset_` for sub-word
+eviction (advance offset; pop the front word once it reaches 64).
+This is a deviation from spec §3.2's "ring-buffer-style" wording
+(preallocated circular indexing) — std::deque gives the same
+sliding-window semantics with growth-on-demand sizing rather than
+upfront allocation of `capSamples` entries (which at 1M default × 24
+bytes for QString = 24 MB per signal would be unwarranted overhead
+for typical 60 k-sample usage). To be logged in concerns.md as #4.
+
+**Acceptance**:
+
+- Window eviction unit test: push 2000 samples spread over 2 s with
+  `windowSeconds = 1.0`; expect retained ≈ 1000 and evicted ≈ 1000.
+- Cap eviction unit test: push 200 samples with `capSamples = 100`;
+  expect retained = 100 and evicted = 100.
+- Per-type window eviction smoke (Bool / Int64 / Double / QString).
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified.
+
+### S3 — Time-window + cap eviction (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/buffer/signal_buffer.cpp`:
+  - Promoted `windowDuration_` (computed from `windowSeconds`) and
+    `capSamples_` to `TypedBuffer` members; added an internal
+    `totalEvicted_` counter.
+  - Added `evictFrontValue()` virtual; called in lock-step with
+    `timestamps_.pop_front()`.
+  - `TypedBuffer::push` now does (1) time-window eviction (drop
+    front while `front < t - window`), (2) type-checked append,
+    (3) cap eviction (drop front while `size > capSamples`),
+    (4) metric updates (including `samples_evicted_<id>` gauge
+    update).
+  - Switched value storage from `std::vector` to `std::deque` for
+    O(1) front pop. Bool buffer keeps bit-packing via
+    `std::deque<uint64_t>` + `headBitOffset_` tracking sub-word
+    eviction; once `headBitOffset_` reaches 64, the front word is
+    popped.
+  - `SignalBuffer::push` now mirrors `impl_->totalEvicted()` to its
+    `totalEvicted_` atomic on every successful push.
+- `tests/unit/buffer/signal_buffer_eviction_test.cpp` (6 cases):
+  - Window eviction (Double, 2000 samples / 2 s, window=1 s, retained
+    ≈ 1000).
+  - Cap eviction (Int64, 200 samples, cap=100, retained=100).
+  - Bool window eviction across multiple bit-pack word boundaries.
+  - Cap eviction (QString, 12 samples, cap=5, retained=5).
+  - Type-mismatch no-op contract (totalSamplesPushed unchanged).
+  - cap=1 edge case (only newest retained).
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration on
+  the factory signature wrap).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 282 / 282 pass (was 276; +6 from S3
+  eviction tests).
+- `ctest --preset=release` — 282 / 282 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Effort**: 3 h (plan estimate 3 h).
+
+**New concern recorded**: see concerns.md #4 (`std::deque` vs
+spec's "ring-buffer-style" wording).
+
