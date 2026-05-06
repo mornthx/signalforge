@@ -995,3 +995,106 @@ permits "test organization, so long as coverage targets are met";
 no concern logged because the spec §5.2 enumeration is satisfied
 content-wise, only file-layout differs.
 
+**CI** (run 25421705108): success — debug, release, debug-asan all
+green. **HALT trigger #5 cleared**: 1W/4R concurrent test passes
+under debug-asan with no data-race warnings.
+
+---
+
+### S10 — Integration tests (start)
+
+**Goal**: per plan §2 S10 + spec §5.3, deliver the five integration
+tests that exercise the full registration → onSignal → query
+pipeline through `SignalBufferRegistry` as a `SignalValueSink`.
+
+Five files in `tests/integration/`:
+
+1. `test_signal_buffer_round_trip.cpp`: register a driver with 3
+   signals (Bool, Int64, Double); call `onSignal × 1000` per
+   signal; `queryRange` over the full window with `target=0`;
+   verify all 1000 samples per signal returned with correct
+   variant types and known values.
+2. `test_signal_buffer_concurrent.cpp`: 1 writer pushes 1 M Double
+   samples over ~5 seconds via the registry's `onSignal`; 4 readers
+   call `queryLatest(100)` at ~1 kHz cadence. Verifies non-empty
+   reader snapshots, terminal counts match, ASan-clean (CI gates).
+3. `test_signal_buffer_lod.cpp`: 600 k samples of `sine(t) +
+   noise(t)` at 1 kHz over a synthetic 10-minute window. Query
+   with `target_sample_count=100`; verify (a) level 3 is selected
+   (output size ≪ raw count), (b) every level-3 bin's
+   `[min, max]` envelope contains the corresponding raw samples
+   (HALT trigger #7 final gate).
+4. `test_signal_buffer_window_eviction.cpp`: register one signal
+   with `windowSeconds=1.0`; push 2 000 samples spread over 2
+   seconds at 1 kHz; verify roughly 1 000 retained and 1 000
+   evicted.
+5. `test_signal_buffer_budget.cpp`: budget = 10 MB; register a
+   driver whose signals total ~5 MB → succeeds; register another
+   driver pushing total to 12 MB → rejected; verify the rejected
+   driver's signals are not in the registry.
+
+**Acceptance**:
+
+- All five pass under Debug + Release.
+- Concurrent + LOD pass under debug-asan in CI.
+- HALT trigger #7 envelope correctness verified at integration
+  level.
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified.
+
+### S10 — Integration tests (close)
+
+**Result**: green.
+
+**Files added** under `tests/integration/`:
+
+- `test_signal_buffer_round_trip.cpp`: 3-signal driver → 1000
+  pushes per signal via `SignalValueSink::onSignal` → queryRange
+  with target=0 → exact value match per type.
+- `test_signal_buffer_concurrent.cpp`: 1 M-sample writer, 4
+  reader threads at ~1 kHz cadence over the registry. Verifies
+  terminal counts, sample-count == 1 000 000, no variant
+  mismatches. Allocates a 2 GB budget so registration is not
+  rejected.
+- `test_signal_buffer_lod.cpp`: 600 000 sine+noise samples
+  (10 min × 1 kHz). LOD bin counts (60 000 / 6 000 / 600). Query
+  with target=100 selects level 3, returns ≥1000 samples (= 2 per
+  bin). Per-bin envelope check confirms every raw sample lies
+  within `[min, max]` for its level-3 bin (HALT trigger #7 final
+  gate at integration level).
+- `test_signal_buffer_window_eviction.cpp`: registry-wide
+  windowSeconds=1 s; 2000 samples / 2 s → ~1000 retained / ~1000
+  evicted; latest queryLatest(10) ends at the most recent
+  sample.
+- `test_signal_buffer_budget.cpp`: 10 MB budget; 280 Doubles
+  (~5 MB) succeed, 400 Doubles (~7 MB) rejected; rejected counter
+  bumped; `bufferFor` returns nullptr for the rejected driver's
+  signals while the first driver's signals remain accessible.
+
+**CMake**: extended `tests/integration/CMakeLists.txt` with a
+`foreach` over the five new test names, linking each to
+`signalforge_buffer + signalforge_decoder + signalforge_observability`.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration on
+  include order + comment column alignment).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 317 / 317 pass (was 312; +5 from S10
+  tests).
+- `ctest --preset=release` — 317 / 317 pass.
+- debug-asan deferred to CI (concurrent + LOD are the gated
+  scenarios per HALT triggers #5 and #7).
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Effort**: 4 h (plan estimate 5 h).
+
+**HALT trigger #7 status (final gate)**: not fired. The integration
+LOD test exhaustively verifies every level-3 bin's `[min, max]`
+contains all 1000 raw samples that contributed to it — across 600
+bins covering 600 k samples in total. No outliers found.
+
