@@ -848,3 +848,57 @@ the 10 new test cases: basic 1 + chain 1 + cycle 1 + type_promote 2
 
 **Build**: clean on debug + release (debug-asan deferred to CI).
 **Format**: clang-format clean on changed files.
+
+---
+
+### S10 — Benchmark + M7-baseline.md (start)
+
+**Goal**: per plan §S10 + spec §5.4, measure 30 Hz tick wall time
+under the spec workload (500 base signals + 100 expressions × 5
+sources avg + 1000 ticks) and gate against the spec's HALT
+trigger #3.
+
+**Deliverables**:
+
+- `tests/benchmark/bench_expression_engine.cpp`: opt-in
+  (`-DSIGNALFORGE_BENCHMARKS=ON`) executable that builds the
+  scenario, drives `onTick()` 1000 times, and emits one JSON line
+  with p50 / p95 / p99 / max / mean.
+- `tests/benchmark/results/M7-baseline.md`: 3-run baseline matching
+  M6's documentation pattern.
+
+**Bench setup notes**:
+
+- Custom `RegistryConfig::totalBudgetBytes = 2 GB` to fit 500 base
+  signal buffers (default 256 MB rejects). Documented in the bench
+  file comments.
+- Yaml is generated in-memory and run through
+  `ExpressionValidator::validateString` so the engine sees the same
+  topologically-sorted `ExpressionSet` shape as production.
+- One base signal refreshed per tick (round-robin) to simulate a
+  live pipeline; keeps `queryLatestOne` pointing at fresh data.
+
+**3-run results** (on host shuai-Laptop, GCC 13.3, Linux 6.8):
+
+| Run | p50 (ms) | p95 (ms) | p99 (ms) | max (ms) | mean (ms) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 2.1351 | 2.2175 | 2.4426 | 2.8720 | 2.1455 |
+| 2 | 2.1343 | 2.2032 | 2.3207 | 2.8489 | 2.1422 |
+| 3 | 2.1367 | 2.2334 | 2.3994 | 2.8632 | 2.1500 |
+
+**Acceptance**: ✅ all targets met first try with 2-4× margin.
+
+| Statistic | Value | Target | Headroom |
+|---|---:|---:|---:|
+| p50 | 2.14 ms | < 5 ms | 2.3× |
+| p95 | 2.22 ms | < 8 ms | 3.6× |
+| p99 | 2.39 ms | < 10 ms | 4.2× |
+
+**HALT trigger #3** (`p99 > 15 ms after one optimization pass`):
+NOT FIRED. The first build was within budget; no optimization pass
+was needed. Spec §7-3's "one optimization pass" allowance remains
+unused at M7 close.
+
+**Run command**: `./build/release-bench/tests/benchmark/bench_expression_engine`.
+
+**Build**: clean. **Format**: clang-format clean on the bench file.
