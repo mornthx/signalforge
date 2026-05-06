@@ -1,0 +1,189 @@
+# SignalForge decoder schema v1 — canonical example.
+#
+# This file is the authoritative example for schema v1. It exercises
+# every supported feature: every encoding, both endiannesses (per-layout
+# default + per-field override), all bit-field shapes (single bit /
+# multi-bit / cross-byte), scale + offset_transform, fixed_string, and
+# multi-layout dispatch via magic bytes.
+#
+# Schema v1 freeze contract: any user yaml file using `schema_version: 1`
+# authored after M5 close must continue to work for the lifetime of V1.x.
+# Extensions (variable-length frames, CRC verification, expression
+# transforms, etc.) require a v2 bump — they will not silently change
+# v1 semantics.
+#
+# Top-level keys:
+#   schema_version (required, integer): must be 1 in this codebase.
+#   description    (optional, string):  free-form, shown in lint output.
+#   layouts        (required, sequence, non-empty): one entry per frame
+#                                       layout. The first whose `match`
+#                                       fingerprint matches an incoming
+#                                       frame wins.
+#
+# Layout keys:
+#   name              (required, string, unique within file)
+#   endianness        (required, "little" | "big"): default for every
+#                                                   multi-byte field.
+#   match             (required, mapping):
+#       offset (required, int >= 0)
+#       bytes  (required, sequence of [0..255], non-empty)
+#   min_payload_bytes (required, int >= 0): frames smaller are reported
+#                                           as malformed.
+#   fields            (required, sequence, non-empty): see below.
+#
+# Field keys:
+#   name             (required, string, unique within layout)
+#   offset           (required, int >= 0): byte offset into the payload.
+#   encoding         (required, one of:
+#                       int8, int16, int32, int64,
+#                       uint8, uint16, uint32, uint64,
+#                       float32, float64,
+#                       bitfield, fixed_string)
+#                    Note: `bool` is NOT a top-level encoding. Single
+#                    bits live inside a `bitfield` parent with
+#                    `bit_count: 1`.
+#   size_bytes       (required, int > 0): must match the encoding's
+#                                         canonical size for numeric
+#                                         types. For `bitfield`, must
+#                                         be one of 1, 2, 4, 8. For
+#                                         `fixed_string`, the byte
+#                                         length to extract.
+#   endianness       (optional): overrides the layout default.
+#   scale            (optional, number): linear transform numerator;
+#                                        applied to numeric signals as
+#                                        value = raw * scale + offset_transform.
+#   offset_transform (optional, number): linear-transform offset. Named
+#                                        distinctly from the byte-level
+#                                        `offset` to avoid ambiguity.
+#   unit             (optional, string): SI or engineering unit string.
+#   description      (optional, string): free-form documentation.
+#   bit_fields       (required for `bitfield`; sequence of
+#                       { name, bit_start, bit_count, description? }).
+#                    `bit_count: 1` emits a bool signal; `> 1` emits an
+#                    int64 signal in [0, 2^bit_count).
+#                    Ranges must be non-overlapping and fit within
+#                    `size_bytes * 8` total bits. Cross-byte ranges are
+#                    allowed.
+
+schema_version: 1
+description: "Canonical schema v1 example — exercises every supported feature."
+
+layouts:
+  # Layout 1: telemetry frame, identified by magic byte 0xAA at offset 0.
+  - name: telemetry
+    endianness: little
+    match:
+      offset: 0
+      bytes: [0xAA]
+    min_payload_bytes: 32
+    fields:
+      - name: header_magic
+        offset: 0
+        encoding: uint8
+        size_bytes: 1
+        description: "Layout discriminator (always 0xAA for telemetry)."
+
+      - name: timestamp_ms
+        offset: 1
+        encoding: uint32
+        size_bytes: 4
+        unit: ms
+        description: "Device-local monotonic millisecond counter."
+
+      # Per-field endianness override demonstration: same layout is
+      # little-endian by default, but this multi-byte sequence number
+      # arrives big-endian on the wire.
+      - name: sequence_number
+        offset: 5
+        encoding: uint16
+        size_bytes: 2
+        endianness: big
+        description: "Frame counter, big-endian on the wire."
+
+      - name: temperature
+        offset: 7
+        encoding: int16
+        size_bytes: 2
+        scale: 0.01
+        unit: "C"
+        description: "Measured temperature; raw * 0.01 = degrees Celsius."
+
+      - name: pressure
+        offset: 9
+        encoding: uint16
+        size_bytes: 2
+        scale: 0.1
+        offset_transform: -100.0
+        unit: kPa
+        description: "Differential pressure with linear transform."
+
+      - name: voltage
+        offset: 11
+        encoding: float32
+        size_bytes: 4
+        unit: V
+
+      - name: power
+        offset: 15
+        encoding: float64
+        size_bytes: 8
+        unit: W
+
+      # Bit-field demonstration: a single byte with 1-bit, 1-bit, 2-bit,
+      # and 4-bit signals.
+      - name: status
+        offset: 23
+        encoding: bitfield
+        size_bytes: 1
+        bit_fields:
+          - { name: alarm,              bit_start: 0, bit_count: 1, description: "Temperature alarm latch" }
+          - { name: calibration_active, bit_start: 1, bit_count: 1 }
+          - { name: sensor_mode,        bit_start: 2, bit_count: 2, description: "0=normal 1=high-precision 2=fast 3=reserved" }
+          - { name: error_code,         bit_start: 4, bit_count: 4, description: "0..15" }
+
+      # Cross-byte bit field demonstration: a 16-bit container with a
+      # single 12-bit signal spanning bytes.
+      - name: extended_flags
+        offset: 24
+        encoding: bitfield
+        size_bytes: 2
+        bit_fields:
+          - { name: device_id, bit_start: 0,  bit_count: 12, description: "12-bit device id (cross-byte)" }
+          - { name: priority,  bit_start: 12, bit_count: 3 }
+          - { name: reserved,  bit_start: 15, bit_count: 1 }
+
+      # Fixed string demonstration: 6 bytes interpreted as UTF-8,
+      # null-terminator honored if present.
+      - name: firmware_tag
+        offset: 26
+        encoding: fixed_string
+        size_bytes: 6
+        description: "Null-terminated firmware tag, e.g., 'fw-42'."
+
+  # Layout 2: heartbeat frame, identified by magic byte 0xBB.
+  # Demonstrates big-endian default + a long signed integer.
+  - name: heartbeat
+    endianness: big
+    match:
+      offset: 0
+      bytes: [0xBB]
+    min_payload_bytes: 16
+    fields:
+      - name: header_magic
+        offset: 0
+        encoding: uint8
+        size_bytes: 1
+
+      - name: uptime_seconds
+        offset: 1
+        encoding: int64
+        size_bytes: 8
+        unit: s
+        description: "Big-endian signed 64-bit uptime."
+
+      - name: cpu_temperature
+        offset: 9
+        encoding: int8
+        size_bytes: 1
+        unit: "C"
+        description: "Single-byte signed temperature; no endianness applies."

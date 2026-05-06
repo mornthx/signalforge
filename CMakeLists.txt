@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 project(SignalForge VERSION 0.0.1 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -34,4 +34,5 @@ add_subdirectory(src/pipeline)
 add_subdirectory(src/ui_widgets)
 add_subdirectory(src/ui_quick)
 add_subdirectory(src/app)
+add_subdirectory(tools/schema_lint)
 add_subdirectory(tests)

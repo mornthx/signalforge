@@ -1,0 +1,106 @@
+# Example: Modbus-RTU-inspired multi-layout schema.
+#
+# Two layouts share a common header (slave address + function code) but
+# differ in payload semantics.  Function code 0x03 (Read Holding Registers
+# response) carries integer registers; function code 0x10 (Write Multiple
+# Registers acknowledgment) carries a register-count summary.
+#
+# All multi-byte values are big-endian per the Modbus convention.  The
+# real Modbus protocol uses variable-length frames; M5's V1 schema
+# supports fixed-layout only, so this example treats the response as if
+# it were a known-size telemetry blob.
+
+schema_version: 1
+description: "Modbus-style multi-layout example (read-response vs write-ack)"
+
+layouts:
+  # Function 0x03: Read Holding Registers response — 8 bytes total
+  #   [0]   slave address
+  #   [1]   function code (0x03)
+  #   [2]   byte count (= 4 for the two registers below; not parsed in V1)
+  #   [3-4] register 1: temperature (signed, scale 0.1 °C)
+  #   [5-6] register 2: status flags
+  #   [7]   reserved
+  - name: read_response
+    endianness: big
+    match:
+      offset: 1
+      bytes: [0x03]
+    min_payload_bytes: 7
+    fields:
+      - name: slave_address
+        offset: 0
+        encoding: uint8
+        size_bytes: 1
+        description: "Slave / unit identifier (1..247)"
+
+      - name: function_code
+        offset: 1
+        encoding: uint8
+        size_bytes: 1
+
+      - name: byte_count
+        offset: 2
+        encoding: uint8
+        size_bytes: 1
+        description: "Length of register payload in bytes (informational; not used by V1 dispatch)"
+
+      - name: temperature_x10
+        offset: 3
+        encoding: int16
+        size_bytes: 2
+        scale: 0.1
+        unit: "C"
+        description: "Temperature register; raw * 0.1 yields degrees Celsius"
+
+      - name: status_flags
+        offset: 5
+        encoding: bitfield
+        size_bytes: 2
+        bit_fields:
+          - { name: power_good,        bit_start: 0,  bit_count: 1 }
+          - { name: comms_error,       bit_start: 1,  bit_count: 1 }
+          - { name: over_temperature,  bit_start: 2,  bit_count: 1 }
+          - { name: device_id,         bit_start: 4,  bit_count: 8, description: "Cross-byte 8-bit device identifier (bits 4..11)" }
+          - { name: reserved,          bit_start: 12, bit_count: 4 }
+
+  # Function 0x10: Write Multiple Registers acknowledgment — 8 bytes total
+  #   [0]   slave address
+  #   [1]   function code (0x10)
+  #   [2-3] starting register address
+  #   [4-5] register count written
+  #   [6-7] CRC (not verified in V1)
+  - name: write_ack
+    endianness: big
+    match:
+      offset: 1
+      bytes: [0x10]
+    min_payload_bytes: 8
+    fields:
+      - name: slave_address
+        offset: 0
+        encoding: uint8
+        size_bytes: 1
+
+      - name: function_code
+        offset: 1
+        encoding: uint8
+        size_bytes: 1
+
+      - name: starting_address
+        offset: 2
+        encoding: uint16
+        size_bytes: 2
+        description: "First register written (Modbus address space)"
+
+      - name: register_count
+        offset: 4
+        encoding: uint16
+        size_bytes: 2
+        description: "Number of consecutive registers acknowledged"
+
+      - name: crc
+        offset: 6
+        encoding: uint16
+        size_bytes: 2
+        description: "Modbus CRC16 (not verified by V1 decoder)"

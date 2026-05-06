@@ -40,3 +40,11 @@ target_link_libraries(bench_pipeline_throughput
         signalforge_frame
         signalforge_pipeline
 )
+
+add_executable(bench_decoder_throughput bench_decoder_throughput.cpp)
+target_link_libraries(bench_decoder_throughput
+    PRIVATE
+        Qt6::Core
+        signalforge_decoder
+        signalforge_frame
+)

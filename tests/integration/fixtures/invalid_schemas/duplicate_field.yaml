@@ -1,0 +1,18 @@
+# Invalid: two fields share the name 'counter' within the same layout.
+schema_version: 1
+layouts:
+  - name: bad
+    endianness: little
+    match:
+      offset: 0
+      bytes: [0xAA]
+    min_payload_bytes: 8
+    fields:
+      - name: counter
+        offset: 0
+        encoding: uint32
+        size_bytes: 4
+      - name: counter
+        offset: 4
+        encoding: uint32
+        size_bytes: 4
