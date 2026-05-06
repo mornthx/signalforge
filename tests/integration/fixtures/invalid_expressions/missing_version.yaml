@@ -1,0 +1,3 @@
+expressions:
+  - id: power
+    formula: voltage * current

@@ -1,0 +1,6 @@
+schema_version: 1
+expressions:
+  - id: alpha
+    formula: beta * 2
+  - id: beta
+    formula: alpha + 1

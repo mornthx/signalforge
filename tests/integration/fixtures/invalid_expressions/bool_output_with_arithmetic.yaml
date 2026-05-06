@@ -1,0 +1,5 @@
+schema_version: 1
+expressions:
+  - id: weird_bool
+    formula: voltage + current
+    type: bool

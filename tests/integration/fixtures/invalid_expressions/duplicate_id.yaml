@@ -1,0 +1,6 @@
+schema_version: 1
+expressions:
+  - id: power
+    formula: voltage * current
+  - id: power
+    formula: voltage / current

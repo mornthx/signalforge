@@ -15,6 +15,7 @@ target_link_libraries(signalforge_expression
         signalforge_decoder
     PRIVATE
         signalforge_observability
+        yaml-cpp::yaml-cpp
 )
 # exprtk is a single-header library; expose its include directory only
 # to this library's TUs (PIMPL keeps it out of the public headers).

@@ -1,0 +1,5 @@
+schema_version: 1
+expressions:
+  - id: alarm_state
+    formula: if (temperature > 80) 1 else 0
+    type: bool

@@ -1,0 +1,4 @@
+schema_version: 1
+expressions:
+  - id: derived_from_label
+    formula: label_signal * 2

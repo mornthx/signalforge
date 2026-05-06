@@ -247,3 +247,148 @@ header is unchanged from S1.
 
 **Effort**: 3.5 h (plan estimate 5 h).
 
+**CI** (run 25437535700): success — debug, release, debug-asan all
+green.
+
+---
+
+### S3 — ExpressionValidator (yaml + cycle detection + type checks) (start)
+
+**Goal**: per plan §2 S3, replace S1's stubs with a working validator
+that walks the spec §4.3 8-step pipeline.
+
+1. yaml-cpp parsing with `Mark()` for line numbers (mirrors M5
+   `SchemaValidator`). Top-level shape check (`schema_version`,
+   `expressions`).
+2. Per-expression: required-field check (`id`, `formula`),
+   uniqueness, base-id collision, formula non-empty.
+3. Source-identifier extraction from the formula via regex
+   (`[a-zA-Z_][a-zA-Z0-9_]*`), filtered against reserved
+   words + the spec §3.1 whitelist + exprtk constants. The
+   filtering set is shared with S2's `applyRestrictedSettings`
+   whitelist (kept consistent in code).
+4. exprtk compile preflight inside the validator (separate from
+   `Expression` construction) to catch user-facing errors with
+   structured `ExpressionValidationError`. Uses the same
+   restricted-parser settings as S2.
+5. Source-signal validation against `availableSignals`: each source
+   ID must exist; none may have type `QString`.
+6. Output-type compatibility hint (per spec §4.3 step 6): if the
+   yaml declares `type: bool`/`int64`, no error in S3 — the result
+   coercion handles it. We log a hint when `type: bool` is used
+   with a non-comparison formula (heuristic; non-blocking).
+7. Cycle detection via DFS three-color over the dependency graph
+   (edges from expression-id → its sources). Reports the cycle
+   path on detection.
+8. Topological sort produces `ExpressionSet` with `expressions` in
+   evaluation order + `baseSignalIds` (union of all sources).
+9. 13 fixture yamls under
+   `tests/integration/fixtures/invalid_expressions/` (one per spec
+   §5.2 error category) + a corresponding unit test that loads
+   each and verifies the right error type / line / expression-id.
+10. 1 valid fixture under
+    `tests/integration/fixtures/valid_expressions/` exercising the
+    happy path (multi-expression set with derived dependencies).
+
+**Acceptance**:
+
+- Each of the 13 error fixtures fails with at least one
+  `ExpressionValidationError` whose `expressionId` matches the bad
+  entry (or empty for pre-expression errors) and whose `message`
+  contains actionable hint text.
+- Valid fixture yields a topologically sorted `ExpressionSet` with
+  expected expression count + base signal IDs.
+
+**Freeze scope**: M2/M3/M4/M5/M6 frozen `.hpp` not modified.
+`ExpressionValidator` public API is unchanged from S1; S3 just
+implements the body.
+
+### S3 — ExpressionValidator (yaml + cycle + type) (close)
+
+**Result**: ✅ green.
+
+**Changes**:
+
+- `src/expression/expression_validator.cpp` — full implementation:
+  - yaml-cpp parsing with `Mark()`-based line numbers.
+  - `reservedIdentifiers()` (whitelisted functions + logical ops +
+    exprtk constants + control-flow keywords) and
+    `forbiddenFunctionNames()` (sgn, cot, statistical aggregates,
+    if-as-function) sets shared with the S2 runtime parser.
+  - `extractSourceIds(formula)` regex-based identifier extraction
+    that filters reserved + forbidden, returning user-defined
+    source signal IDs in first-occurrence order.
+  - `firstForbiddenName(formula)` for the spec §3.1 whitelist
+    error path (produces user-facing message before exprtk is
+    asked to parse).
+  - `exprtkCompileError(formula, sources)` does a parser preflight
+    with the same restricted settings as S2; returns nullopt on
+    success or structured error text on failure.
+  - DFS three-color cycle detection. Reports the cycle path in the
+    error message.
+  - Kahn's-algorithm topological sort. The natural Kahn order is
+    consumers-before-sources for our edge direction; the result is
+    reversed to give sources-before-consumers (the engine
+    evaluation order).
+  - Final ExpressionSet construction via `Expression(...)`. The
+    construct path also runs exprtk compile (twice for valid
+    inputs); cheap enough to defer optimization to M12.
+  - `baseSignalIds` is the union of source IDs that are NOT
+    themselves expressions (i.e., true base signals).
+- `src/expression/CMakeLists.txt`: added `yaml-cpp::yaml-cpp` to the
+  PRIVATE link deps.
+- 13 invalid-expression yaml fixtures under
+  `tests/integration/fixtures/invalid_expressions/`:
+  missing_version, missing_id, duplicate_id, id_collides_with_base,
+  unknown_operator, restricted_syntax_if, restricted_syntax_while,
+  unknown_source, qstring_source, cycle_simple, cycle_self,
+  cycle_three, bool_output_with_arithmetic.
+- 1 valid yaml fixture under
+  `tests/integration/fixtures/valid_expressions/multi.yaml`
+  exercising 3 expressions with a chained dependency
+  (`power_efficiency` depends on `power_total`).
+- `tests/unit/expression/expression_validator_test.cpp` (14 cases):
+  one per fixture + one happy-path test verifying topological
+  ordering (`power_efficiency` indexed after `power_total`) +
+  `baseSignalIds` content.
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (no auto-fix needed for
+  validator; one auto-fix for the test on first run).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 347 / 347 pass (was 333 at S2 close;
+  +14 from S3: 13 fixture cases + 1 happy-path).
+- `ctest --preset=release` — 347 / 347 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs `08a0478` (M6 merge): empty.
+
+**Note on `bool_output_with_arithmetic`**: per spec §4.3 step 6,
+bool-output with arithmetic is treated as a permissive case — the
+result coercion in S2 maps non-zero to true, which is well-defined.
+The fixture is retained in `invalid_expressions/` for parity with
+spec §5.2's enumeration but the test asserts validation
+**succeeds**. (The fixture name predates this clarification; spec
+itself uses "warning" wording, not "rejection".)
+
+**Notable design decisions**:
+
+- The forbidden-function check happens BEFORE source extraction, so
+  formulas containing `if(x, 1, 0)` are caught with a clean
+  "forbidden function/keyword" message rather than the cascade of
+  exprtk's "undefined symbol" errors.
+- Source extraction filters out forbidden names so they don't
+  appear in the dependency graph (they're rejected separately).
+- `extractSourceIds` is order-preserving so the deterministic
+  topo-sort output matches first-occurrence-in-formula for ties.
+
+**Compile fixes**: 1 (`slots` rename → `valueSlots` in the
+validator's exprtkCompileError helper, mirroring S2's Qt-macro
+collision fix).
+
+**Effort**: 4.5 h (plan estimate 6 h).
+
