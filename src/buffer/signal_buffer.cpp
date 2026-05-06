@@ -31,6 +31,8 @@ constexpr auto kPrefixSamplesStored = QLatin1String("signal_buffer_samples_store
 constexpr auto kPrefixSamplesEvicted = QLatin1String("signal_buffer_samples_evicted_");
 constexpr auto kPrefixMemoryBytes = QLatin1String("signal_buffer_memory_bytes_");
 constexpr auto kPrefixPublishes = QLatin1String("signal_buffer_publishes_");
+constexpr auto kPrefixQueries = QLatin1String("signal_buffer_queries_");
+constexpr auto kPrefixQueryUs = QLatin1String("signal_buffer_query_us_");
 
 /// Default writer publish cadence (samples per publish). Spec §3.5 / §4.4
 /// default. Time-based fallback (every 1 ms) is deferred to a future
@@ -106,12 +108,15 @@ template <typename T> void accumulateMinMax(T value, T& mn, T& mx, bool& hasValu
 /// every variant; derived classes manage the typed value storage.
 struct SignalBuffer::TypedBuffer {
     TypedBuffer(const SignalMetadata& meta, const SignalBufferConfig& cfg)
-        : windowDuration_(toSteadyDuration(cfg.windowSeconds)), capSamples_(cfg.capSamples) {
+        : windowDuration_(toSteadyDuration(cfg.windowSeconds)), capSamples_(cfg.capSamples),
+          estimatedRateHz_(cfg.estimatedRateHz.value_or(1000.0)) {
         auto& reg = MetricsRegistry::instance();
         samplesStoredMetric_ = reg.getOrCreate(kPrefixSamplesStored + meta.id, MetricKind::Counter);
         samplesEvictedMetric_ = reg.getOrCreate(kPrefixSamplesEvicted + meta.id, MetricKind::Counter);
         memoryBytesMetric_ = reg.getOrCreate(kPrefixMemoryBytes + meta.id, MetricKind::Gauge);
         publishesMetric_ = reg.getOrCreate(kPrefixPublishes + meta.id, MetricKind::Counter);
+        queriesMetric_ = reg.getOrCreate(kPrefixQueries + meta.id, MetricKind::Counter);
+        queryUsMetric_ = reg.getOrCreate(kPrefixQueryUs + meta.id, MetricKind::Gauge);
     }
     virtual ~TypedBuffer() = default;
 
@@ -199,6 +204,68 @@ struct SignalBuffer::TypedBuffer {
         return 0;
     }
 
+    /// Reader-side queries. Each derivation loads its own published Segment
+    /// (via `currentSegment()`) and constructs `SignalSample` results from
+    /// the immutable snapshot. Query metrics are updated by these methods.
+    [[nodiscard]] virtual std::vector<SignalSample> queryRange(std::chrono::steady_clock::time_point t_start,
+                                                               std::chrono::steady_clock::time_point t_end,
+                                                               std::size_t target_sample_count) const = 0;
+    [[nodiscard]] virtual std::vector<SignalSample> queryLatest(std::size_t n) const = 0;
+    [[nodiscard]] virtual std::optional<LatestValue> queryLatestOne() const = 0;
+
+protected:
+    /// RAII-style helper: derived queryX() methods construct a `QueryTimer`
+    /// at the top to update the queries / query_us metrics on scope exit.
+    class QueryTimer {
+    public:
+        explicit QueryTimer(const TypedBuffer& tb) noexcept : tb_(tb), start_(std::chrono::steady_clock::now()) {}
+        ~QueryTimer() {
+            if (tb_.queriesMetric_ != nullptr) {
+                tb_.queriesMetric_->add(1);
+            }
+            if (tb_.queryUsMetric_ != nullptr) {
+                const auto us =
+                    std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_)
+                        .count();
+                tb_.queryUsMetric_->set(static_cast<std::int64_t>(us));
+            }
+        }
+        QueryTimer(const QueryTimer&) = delete;
+        QueryTimer& operator=(const QueryTimer&) = delete;
+
+    private:
+        const TypedBuffer& tb_;
+        std::chrono::steady_clock::time_point start_;
+    };
+
+    /// LOD level selection per spec §4.5.
+    /// Returns 0 (raw) / 1 / 2 / 3 based on density thresholds.
+    [[nodiscard]] int selectLodLevel(std::chrono::steady_clock::time_point t_start,
+                                     std::chrono::steady_clock::time_point t_end,
+                                     std::size_t target_sample_count) const noexcept {
+        if (target_sample_count == 0) {
+            return 0;
+        }
+        const auto delta_ns = (t_end - t_start).count();
+        if (delta_ns <= 0) {
+            return 0;
+        }
+        const double samples_per_pixel = static_cast<double>(delta_ns) / static_cast<double>(target_sample_count);
+        const double signal_period_ns = 1e9 / estimatedRateHz_;
+        const double effective_density = signal_period_ns / samples_per_pixel;
+        if (effective_density < 0.5) {
+            return 3;
+        }
+        if (effective_density < 5.0) {
+            return 2;
+        }
+        if (effective_density < 50.0) {
+            return 1;
+        }
+        return 0;
+    }
+
+public:
     /// Total memory: the timestamp deque (approximated as size × element
     /// size) + the per-type value bytes.
     [[nodiscard]] std::size_t memoryBytes() const noexcept {
@@ -239,11 +306,14 @@ protected:
     Metric* samplesEvictedMetric_ = nullptr;
     Metric* memoryBytesMetric_ = nullptr;
     Metric* publishesMetric_ = nullptr;
+    Metric* queriesMetric_ = nullptr;
+    Metric* queryUsMetric_ = nullptr;
 
     std::chrono::steady_clock::duration windowDuration_;
     std::size_t capSamples_;
     std::uint64_t totalEvicted_ = 0;
     std::uint64_t pushCount_ = 0;
+    double estimatedRateHz_;
 
     int publishCadence_ = kDefaultPublishCadence;
     int pushesSincePublish_ = 0;
@@ -269,6 +339,73 @@ public:
 
     [[nodiscard]] std::shared_ptr<const Segment> currentSegment() const noexcept {
         return publishedSegment_.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] std::vector<SignalSample> queryRange(std::chrono::steady_clock::time_point t_start,
+                                                       std::chrono::steady_clock::time_point t_end,
+                                                       std::size_t /*target_sample_count*/) const override {
+        QueryTimer timer(*this);
+        std::vector<SignalSample> out;
+        const auto seg = currentSegment();
+        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+            return out;
+        }
+        const auto& ts = *seg->timestamps;
+        const auto& packed = *seg->packedBits;
+        const std::size_t firstBit = seg->firstBitOffset;
+
+        // Binary search the time range; ts is monotonically increasing.
+        const auto lo = std::lower_bound(ts.begin(), ts.end(), t_start);
+        const auto hi = std::upper_bound(ts.begin(), ts.end(), t_end);
+        out.reserve(static_cast<std::size_t>(hi - lo));
+        for (auto it = lo; it != hi; ++it) {
+            const std::size_t idx = static_cast<std::size_t>(it - ts.begin());
+            const std::size_t bitIdx = firstBit + idx;
+            const bool b = ((packed[bitIdx / 64] >> (bitIdx % 64)) & std::uint64_t{1}) != 0;
+            out.push_back({*it, SignalValue{b}});
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::vector<SignalSample> queryLatest(std::size_t n) const override {
+        QueryTimer timer(*this);
+        std::vector<SignalSample> out;
+        const auto seg = currentSegment();
+        if (!seg || !seg->timestamps || seg->timestamps->empty() || n == 0) {
+            return out;
+        }
+        const auto& ts = *seg->timestamps;
+        const auto& packed = *seg->packedBits;
+        const std::size_t firstBit = seg->firstBitOffset;
+        const std::size_t total = ts.size();
+        const std::size_t take = std::min(n, total);
+        const std::size_t startIdx = total - take;
+        out.reserve(take);
+        for (std::size_t idx = startIdx; idx < total; ++idx) {
+            const std::size_t bitIdx = firstBit + idx;
+            const bool b = ((packed[bitIdx / 64] >> (bitIdx % 64)) & std::uint64_t{1}) != 0;
+            out.push_back({ts[idx], SignalValue{b}});
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::optional<LatestValue> queryLatestOne() const override {
+        QueryTimer timer(*this);
+        const auto seg = currentSegment();
+        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+            return std::nullopt;
+        }
+        const auto& ts = *seg->timestamps;
+        const auto& packed = *seg->packedBits;
+        const std::size_t firstBit = seg->firstBitOffset;
+        const std::size_t idx = ts.size() - 1;
+        const std::size_t bitIdx = firstBit + idx;
+        const bool b = ((packed[bitIdx / 64] >> (bitIdx % 64)) & std::uint64_t{1}) != 0;
+        LatestValue lv;
+        lv.value = SignalValue{b};
+        lv.timestamp = ts.back();
+        lv.age = std::chrono::steady_clock::now() - lv.timestamp;
+        return lv;
     }
 
 protected:
@@ -365,6 +502,89 @@ public:
             return 0;
         }
         return lodLevels_[static_cast<std::size_t>(level - 1)].bins.size();
+    }
+
+    [[nodiscard]] std::vector<SignalSample> queryRange(std::chrono::steady_clock::time_point t_start,
+                                                       std::chrono::steady_clock::time_point t_end,
+                                                       std::size_t target_sample_count) const override {
+        QueryTimer timer(*this);
+        std::vector<SignalSample> out;
+        const auto seg = currentSegment();
+        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+            return out;
+        }
+
+        // Decide whether to use LOD or raw.
+        int level = 0;
+        if (lodEnabled_ && target_sample_count > 0) {
+            level = selectLodLevel(t_start, t_end, target_sample_count);
+        }
+
+        if (level == 0) {
+            // Raw range: binary search timestamps, copy values across.
+            const auto& ts = *seg->timestamps;
+            const auto& vals = *seg->values;
+            const auto lo = std::lower_bound(ts.begin(), ts.end(), t_start);
+            const auto hi = std::upper_bound(ts.begin(), ts.end(), t_end);
+            out.reserve(static_cast<std::size_t>(hi - lo));
+            for (auto it = lo; it != hi; ++it) {
+                const std::size_t idx = static_cast<std::size_t>(it - ts.begin());
+                out.push_back({*it, SignalValue{vals[idx]}});
+            }
+            return out;
+        }
+
+        // LOD output: 2 SignalSamples per bin (min @ t_start, max @ t_end).
+        const auto& binsPtr = (level == 1) ? seg->lod1 : (level == 2) ? seg->lod2 : seg->lod3;
+        if (!binsPtr || binsPtr->empty()) {
+            return out;
+        }
+        const auto& bins = *binsPtr;
+        out.reserve(bins.size() * 2);
+        for (const auto& bin : bins) {
+            // Include a bin if any portion of its range overlaps the query window.
+            if (bin.t_end < t_start || bin.t_start > t_end) {
+                continue;
+            }
+            out.push_back({bin.t_start, SignalValue{bin.min_val}});
+            out.push_back({bin.t_end, SignalValue{bin.max_val}});
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::vector<SignalSample> queryLatest(std::size_t n) const override {
+        QueryTimer timer(*this);
+        std::vector<SignalSample> out;
+        const auto seg = currentSegment();
+        if (!seg || !seg->timestamps || seg->timestamps->empty() || n == 0) {
+            return out;
+        }
+        const auto& ts = *seg->timestamps;
+        const auto& vals = *seg->values;
+        const std::size_t total = ts.size();
+        const std::size_t take = std::min(n, total);
+        const std::size_t startIdx = total - take;
+        out.reserve(take);
+        for (std::size_t idx = startIdx; idx < total; ++idx) {
+            out.push_back({ts[idx], SignalValue{vals[idx]}});
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::optional<LatestValue> queryLatestOne() const override {
+        QueryTimer timer(*this);
+        const auto seg = currentSegment();
+        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+            return std::nullopt;
+        }
+        const auto& ts = *seg->timestamps;
+        const auto& vals = *seg->values;
+        const std::size_t idx = ts.size() - 1;
+        LatestValue lv;
+        lv.value = SignalValue{vals[idx]};
+        lv.timestamp = ts.back();
+        lv.age = std::chrono::steady_clock::now() - lv.timestamp;
+        return lv;
     }
 
 protected:
@@ -532,21 +752,18 @@ void SignalBuffer::push(std::chrono::steady_clock::time_point timestamp, const S
     currentMemoryBytes_.store(impl_->memoryBytes(), std::memory_order_relaxed);
 }
 
-std::vector<SignalSample> SignalBuffer::queryRange(std::chrono::steady_clock::time_point /*t_start*/,
-                                                   std::chrono::steady_clock::time_point /*t_end*/,
-                                                   std::size_t /*target_sample_count*/) const {
-    // S6 wires the query path.
-    return {};
+std::vector<SignalSample> SignalBuffer::queryRange(std::chrono::steady_clock::time_point t_start,
+                                                   std::chrono::steady_clock::time_point t_end,
+                                                   std::size_t target_sample_count) const {
+    return impl_ != nullptr ? impl_->queryRange(t_start, t_end, target_sample_count) : std::vector<SignalSample>{};
 }
 
-std::vector<SignalSample> SignalBuffer::queryLatest(std::size_t /*n*/) const {
-    // S6 wires the query path.
-    return {};
+std::vector<SignalSample> SignalBuffer::queryLatest(std::size_t n) const {
+    return impl_ != nullptr ? impl_->queryLatest(n) : std::vector<SignalSample>{};
 }
 
 std::optional<LatestValue> SignalBuffer::queryLatestOne() const {
-    // S6 wires the query path.
-    return std::nullopt;
+    return impl_ != nullptr ? impl_->queryLatestOne() : std::nullopt;
 }
 
 std::size_t SignalBuffer::sampleCount() const noexcept {

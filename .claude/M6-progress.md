@@ -551,3 +551,137 @@ in S10's integration test.
 
 **Effort**: 5 h (plan estimate 6 h).
 
+**CI** (run 25419384301): success — debug, release, debug-asan all
+green.
+
+---
+
+### S6 — Query API: queryRange / queryLatest / queryLatestOne (start)
+
+**Goal**: per plan §2 S6, expose the reader-side query API on top
+of S4's published segments and S5's LOD pyramid.
+
+1. `TypedBuffer` virtual API for queries:
+   - `virtual std::vector<SignalSample> queryRange(t_start, t_end,
+     target_sample_count) const = 0`
+   - `virtual std::vector<SignalSample> queryLatest(n) const = 0`
+   - `virtual std::optional<LatestValue> queryLatestOne() const = 0`
+2. Each derivation loads `currentSegment()` and:
+   - **`queryRange(t_start, t_end, 0)`**: returns all raw samples in
+     `[t_start, t_end]` (binary search on the segment's timestamps).
+   - **`queryRange(t_start, t_end, N>0)`**: applies spec §4.5 LOD
+     selection. For numeric types with LOD enabled, picks level
+     based on `effective_density = signal_period_ns /
+     samples_per_pixel` (thresholds 0.5 / 5 / 50). For Bool, QString,
+     or numeric with LOD disabled, falls back to raw.
+   - LOD output format: 2 `SignalSample`s per bin — `(t_start,
+     min_val)` and `(t_end, max_val)` — so the consumer can render
+     min/max envelope.
+   - **`queryLatest(n)`**: tail of the segment's raw samples.
+   - **`queryLatestOne()`**: most recent + age = `now - timestamp`,
+     or `nullopt` if no segment / empty segment.
+3. `SignalBuffer::queryRange` / `queryLatest` / `queryLatestOne`
+   delegate to `impl_->...`.
+4. New metrics per spec §3.9:
+   - `signal_buffer_queries_<id>` (counter, +1 per query)
+   - `signal_buffer_query_us_<id>` (gauge, microseconds for the most
+     recent query)
+   - Both registered in `TypedBuffer` ctor; updated by the query
+     methods (timer wraps the body).
+5. Add `estimatedRateHz_` field to `TypedBuffer` (sourced from
+   `config.estimatedRateHz.value_or(1000.0)` per spec §3.6 default)
+   so LOD level selection has access without a config lookup per
+   call.
+
+**Acceptance**:
+
+- Per-type queryRange round-trip with `target_sample_count = 0`:
+  push 100 samples, query the range, verify the 100 samples match.
+- queryRange with LOD: push 1000 samples + force a publish, query
+  with target_count low enough to select level 1; verify ~200
+  samples returned (2 per bin × 100 bins).
+- queryLatest(n): push 50, queryLatest(20) returns the most recent
+  20 in chronological order.
+- queryLatestOne: returns nullopt for empty buffer; returns most
+  recent with positive age otherwise.
+- Bool query: bit-decode round trip (push alternating, query, verify
+  pattern).
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified. Public
+`SignalBuffer::queryRange / queryLatest / queryLatestOne` are
+already declared (from S1 stubs); S6 implements them. No new public
+methods.
+
+### S6 — Query API: queryRange / queryLatest / queryLatestOne (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/buffer/signal_buffer.cpp`:
+  - Added `signal_buffer_queries_<id>` (counter) and
+    `signal_buffer_query_us_<id>` (gauge) metrics; both registered
+    in `TypedBuffer` ctor.
+  - Added `estimatedRateHz_` member (sourced from
+    `cfg.estimatedRateHz.value_or(1000.0)` per spec §3.6).
+  - Added pure-virtual reader API to `TypedBuffer`:
+    `queryRange(t_start, t_end, target_count)`,
+    `queryLatest(n)`, `queryLatestOne()`.
+  - Added `QueryTimer` RAII helper inside `TypedBuffer` to record
+    queries metric + query latency on scope exit.
+  - Added `selectLodLevel(t_start, t_end, target_count)` helper
+    implementing spec §4.5 thresholds (0.5 / 5 / 50). Returns
+    0 (raw) when target_count == 0 or delta is non-positive.
+  - `BoolTypedBuffer` query implementations: binary-search
+    timestamps, decode bit-packed values into `SignalSample`s.
+  - `LinearTypedBuffer<T>` query implementations: raw or LOD path
+    selected via `selectLodLevel`. LOD output is 2 `SignalSample`s
+    per bin (`(t_start, min)`, `(t_end, max)`) for envelope
+    rendering. Bins partially overlapping the query window are
+    included.
+  - `SignalBuffer::queryRange / queryLatest / queryLatestOne`
+    delegate to `impl_->...`; null impl returns empty / nullopt.
+  - `memoryBytes()` and `clear()` moved to `public:` so the
+    SignalBuffer wrapper can read `impl_->memoryBytes()`. (One
+    compile-fix iteration: misplaced `public:` block when QueryTimer
+    was added.)
+- `tests/unit/buffer/signal_buffer_query_test.cpp` (9 cases):
+  - Per-type queryRange round-trips with target=0 (Double, Int64,
+    Bool, QString).
+  - Time-window filtering via queryRange with non-trivial start/end.
+  - LOD selection on dense data: 1000 samples / 1 kHz, target=100 →
+    level 3 → 2 samples returned (1 bin × 2); target=1000 →
+    level 2 → 20 samples (10 bins × 2).
+  - queryLatest(20) returns the most recent 20 in chronological
+    order.
+  - queryLatestOne returns nullopt for empty / value with positive
+    age for past-timestamp samples.
+  - LOD envelope correctness: every raw sample lies within the
+    LOD bin's [min, max] (HALT trigger #7 self-check).
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration on
+  the QueryTimer ctor wrap and the test include order).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 303 / 303 pass (was 294; +9 from S6
+  tests).
+- `ctest --preset=release` — 303 / 303 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Compile-fix attempts**: 1 (memoryBytes accessibility).
+**Test-fix attempts**: 1 (timestamp-in-future age sign issue;
+switched to past-timestamp construction). Both within HALT trigger
+budgets.
+
+**HALT trigger #7 status**: not fired. The query test
+"LOD query covers raw range envelope" verifies every raw sample lies
+within the level-3 bin's [0.0, 999.0] envelope.
+
+**Effort**: 4.5 h (plan estimate 4 h).
+
