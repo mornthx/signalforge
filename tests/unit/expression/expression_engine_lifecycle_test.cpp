@@ -255,3 +255,52 @@ TEST_CASE("S4: empty expression set ticks cleanly", "[engine][s4][empty]") {
     REQUIRE(stats.ticksTotal == 2U);
     REQUIRE(stats.evaluationsTotal == 0U);
 }
+
+TEST_CASE("S8: setExpressions called twice unregisters then re-registers", "[engine][s8][reset]") {
+    bm6::SignalBufferRegistry registry;
+    registry.onSignalsRegistered(QStringLiteral("base-driver"),
+                                 {makeBaseMeta(QStringLiteral("a"), dm5::SignalType::Double)});
+
+    ex7::ExpressionEngine engine(registry);
+    {
+        ex7::ExpressionSet first;
+        first.expressions.push_back(makeExpr(QStringLiteral("d1"), QStringLiteral("a + 1"), {QStringLiteral("a")}));
+        engine.setExpressions(std::move(first));
+        REQUIRE(engine.expressionCount() == 1U);
+    }
+    // Second call must unregister the prior derived signals first, then
+    // register the new set. No exceptions, no leaks (verified by ASan
+    // when the suite runs under debug-asan in CI).
+    {
+        ex7::ExpressionSet second;
+        second.expressions.push_back(makeExpr(QStringLiteral("d2"), QStringLiteral("a + 2"), {QStringLiteral("a")}));
+        second.expressions.push_back(makeExpr(QStringLiteral("d3"), QStringLiteral("a + 3"), {QStringLiteral("a")}));
+        engine.setExpressions(std::move(second));
+        REQUIRE(engine.expressionCount() == 2U);
+    }
+
+    invokeTick(engine);
+    const auto stats = engine.stats();
+    REQUIRE(stats.evaluationsTotal == 2U);
+}
+
+TEST_CASE("S8: bufferFor==nullptr yields NaN (unregistered source)", "[engine][s8][nan][nullbuf]") {
+    // Expression references a base signal that the registry has never
+    // heard of. bufferFor returns nullptr; the engine must substitute
+    // NaN rather than crash. This complements the S4 NaN test, which
+    // covered the "registered but no published value" path.
+    bm6::SignalBufferRegistry registry;
+    ex7::ExpressionEngine engine(registry);
+    ex7::ExpressionSet set;
+    set.expressions.push_back(
+        makeExpr(QStringLiteral("derived"), QStringLiteral("ghost + 1.0"), {QStringLiteral("ghost")}));
+    engine.setExpressions(std::move(set));
+
+    runTicksForFirstPublish(engine);
+
+    auto* derivedBuf = registry.bufferFor(QStringLiteral("derived"));
+    REQUIRE(derivedBuf != nullptr);
+    auto latest = derivedBuf->queryLatestOne();
+    REQUIRE(latest.has_value());
+    REQUIRE(std::isnan(std::get<double>(latest->value)));
+}

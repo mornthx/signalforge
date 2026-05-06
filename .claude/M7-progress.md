@@ -731,3 +731,75 @@ M2/M3/M4/M5/M6 frozen `.hpp` not modified.
 **Build**: clean on debug + release + debug-asan.
 **Tests**: 367/367 on both debug and release.
 **Format**: clang-format clean on changed files.
+
+**CI** (run 25451566722): success — debug, release, debug-asan all
+green.
+
+---
+
+### S8 — Unit tests ≥85% coverage (start)
+
+**Audit baseline**: existing tests across `expression_smoke_test`,
+`expression_evaluation_test`, `expression_validator_test`,
+`expression_engine_lifecycle_test`, `expression_registrar_test`,
+and `expression_examples_test` already cover the spec §5.2 scenarios
+(13 invalid fixtures + happy paths + lifecycle). Initial gcov pass:
+
+| File | Pre-S8 | Target |
+|------|--------|--------|
+| `expression.cpp` | 90.08% | ≥85% |
+| `expression_engine.cpp` | 81.95% | ≥85% |
+| `expression_validator.cpp` | 85.22% | ≥90% |
+| `expression_registrar.cpp` | 75.00% | (no specific) |
+
+**Gap-fills** (new):
+
+1. `tests/unit/expression/expression_class_test.cpp` (8 cases):
+   accessors, omitted-description = nullopt, derivedSignalMetadata
+   for each of the 3 output types, move-construction with
+   post-move evaluate, move-assignment with post-move evaluate,
+   ExpressionSet move-only contract.
+
+2. `expression_validator_test.cpp` (+9 inline-yaml cases under
+   `[s8][shape]`): schema_version != 1, missing top-level
+   `expressions`, `expressions` not a sequence, entry not a
+   mapping, empty id, missing formula, empty formula, unknown
+   output type, validateFile cannot-open. Inline yaml strings
+   instead of new fixtures since these are top-level shape errors.
+
+3. `expression_engine_lifecycle_test.cpp` (+2 cases under `[s8]`):
+   - setExpressions called twice (covers unregister-then-reregister
+     branch).
+   - bufferFor==nullptr → NaN (unregistered source — separate code
+     path from S4's "registered but no value" NaN test).
+
+**Post-S8 coverage**:
+
+| File | Post-S8 | Δ |
+|------|---------|---|
+| `expression.cpp` | 90.08% | (already over) |
+| `expression_engine.cpp` | 85.71% | +3.76 pp ✓ |
+| `expression_validator.cpp` | 93.71% | +8.49 pp ✓ |
+| `expression_registrar.cpp` | 75.00% | (unchanged) |
+
+Weighted average over the 4 files: **88.94%**.
+
+Remaining uncovered branches in `expression_engine.cpp`:
+- Destructor's `tickTimer_.stop()` and `start()/stop()` Q_EMIT —
+  require a running QCoreApplication event loop. Exercised in S9
+  integration tests.
+- `registry_ == nullptr` early return — defensive code; engine
+  takes the registry by reference, so this branch can't fire from
+  reachable user code. Per CLAUDE.md anti-patterns, not a target
+  for "trust the framework" scenarios.
+
+**Test count**: 386/386 on debug and release (was 367 → +19).
+
+**Build**: clean on debug + release + debug-asan.
+**Format**: clang-format clean on all changed files.
+
+**Acceptance** (per plan §S8):
+- ✓ Coverage ≥ 85% on `expression.cpp` (90.08%)
+- ✓ Coverage ≥ 85% on `expression_engine.cpp` (85.71%)
+- ✓ Coverage ≥ 90% on `expression_validator.cpp` (93.71%)
+- ✓ All test cases pass under Debug and Release

@@ -248,3 +248,86 @@ TEST_CASE("S7: validateStringSyntaxOnly accepts forward-referenced base signals"
     REQUIRE(syntax.has_value());
     REQUIRE(syntax->expressions.size() == 1U);
 }
+
+// S8 — coverage gap-fills via inline yaml strings. Each case targets a
+// specific top-level / per-entry shape error path that the existing
+// fixture set did not exercise.
+TEST_CASE("S8: schema_version != 1 is rejected", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 2\n"
+                                        "expressions:\n"
+                                        "  - id: e\n"
+                                        "    formula: 1 + 1\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("schema_version")));
+}
+
+TEST_CASE("S8: missing top-level 'expressions' is rejected", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("expressions")));
+}
+
+TEST_CASE("S8: 'expressions' must be a sequence", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions: not_a_sequence\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("sequence")));
+}
+
+TEST_CASE("S8: expression entry must be a mapping", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions:\n"
+                                        "  - just_a_string\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("mapping")));
+}
+
+TEST_CASE("S8: empty expression id is rejected", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions:\n"
+                                        "  - id: \"\"\n"
+                                        "    formula: 1 + 1\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("non-empty")));
+}
+
+TEST_CASE("S8: missing formula is rejected", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions:\n"
+                                        "  - id: e\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("formula")));
+}
+
+TEST_CASE("S8: empty formula is rejected", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions:\n"
+                                        "  - id: e\n"
+                                        "    formula: \"   \"\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("empty formula")));
+}
+
+TEST_CASE("S8: unknown output type is rejected", "[validator][s8][shape]") {
+    const QString yaml = QStringLiteral("schema_version: 1\n"
+                                        "expressions:\n"
+                                        "  - id: e\n"
+                                        "    formula: 1 + 1\n"
+                                        "    type: int32\n");
+    auto r = ex7::ExpressionValidator::validateString(yaml, QStringLiteral("<inline>"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("output type")));
+}
+
+TEST_CASE("S8: validateFile reports cannot-open for missing file", "[validator][s8][io]") {
+    auto r = ex7::ExpressionValidator::validateFile(QStringLiteral("/tmp/__signalforge_no_such_file__.yaml"), {});
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(errorsContainText(r.error(), QStringLiteral("cannot open")));
+}

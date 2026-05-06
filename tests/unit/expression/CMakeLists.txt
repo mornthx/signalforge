@@ -69,6 +69,18 @@ target_compile_definitions(expression_registrar_test
 )
 catch_discover_tests(expression_registrar_test DISCOVERY_MODE PRE_TEST)
 
+add_executable(expression_class_test
+    expression_class_test.cpp
+)
+target_link_libraries(expression_class_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_decoder
+)
+catch_discover_tests(expression_class_test DISCOVERY_MODE PRE_TEST)
+
 add_executable(expression_examples_test
     expression_examples_test.cpp
 )
