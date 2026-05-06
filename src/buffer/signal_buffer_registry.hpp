@@ -100,12 +100,18 @@ public:
     [[nodiscard]] UsageReport memoryUsage() const;
 
 private:
+    /// Internal bookkeeping (metrics + soft-warn one-shot flag). Defined in
+    /// the .cpp so the registry .hpp does not pull in observability headers.
+    struct Bookkeeping;
+
     RegistryConfig config_;
     mutable std::mutex registryMutex_;
     std::unordered_map<QString, std::unique_ptr<SignalBuffer>> buffersBySignalId_;
     std::unordered_map<QString, QStringList> signalsByDriverId_;  // driverId -> [signalId, ...]
     std::unordered_map<QString, SignalConfigOverrides> driverOverrides_;
+    std::unordered_map<QString, std::size_t> signalEstimates_;  // estimated bytes per signal at registration
     std::atomic<std::size_t> totalBytes_{0};
+    std::unique_ptr<Bookkeeping> bookkeeping_;
 };
 
 }  // namespace signalforge::buffer

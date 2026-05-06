@@ -685,3 +685,149 @@ within the level-3 bin's [0.0, 999.0] envelope.
 
 **Effort**: 4.5 h (plan estimate 4 h).
 
+**CI** (run 25419954554): success — debug, release, debug-asan all
+green.
+
+---
+
+### S7 — SignalBufferRegistry full implementation (start)
+
+**Goal**: per plan §2 S7, replace S1's stubs in
+`signal_buffer_registry.cpp` with a working registry that:
+
+1. `onSignalsRegistered(driverId, signalsList)`:
+   - Resolves per-signal config (registry default, with optional
+     override from `setDriverConfigOverrides`).
+   - Estimates total bytes for the new signals via
+     `windowSeconds × estimatedRateHz × (sizeof(time_point) +
+     bytes_per_value) × lod_overhead_factor`.
+   - Hard-rejects if the post-registration total would exceed
+     `totalBudgetBytes` (when `rejectOnBudgetExceeded`); logs ERROR
+     + bumps `signal_buffer_budget_rejected` counter.
+   - Soft-warns at 80% crossing: logs WARN + bumps
+     `signal_buffer_budget_warned` counter.
+   - On success: allocates `SignalBuffer` instances (one per
+     metadata entry), inserts into `buffersBySignalId_`, records
+     the driver mapping in `signalsByDriverId_`, increments
+     `totalBytes_` and the registry-level memory gauge.
+2. `onSignal(timestamp, signalId, value)`:
+   - Mutex-protected `find` on `buffersBySignalId_`; on hit, calls
+     `buf->push(timestamp, value)`. Misses are silent (signal not
+     registered / unregistered race).
+3. `onSignalsUnregistered(driverId)`:
+   - Removes all signal entries belonging to the driver, decrements
+     `totalBytes_` by the sum of estimates released, updates the
+     gauge.
+4. New registry-level metrics (spec §3.9):
+   - `signal_buffer_total_memory_bytes` (gauge)
+   - `signal_buffer_budget_warned` (counter)
+   - `signal_buffer_budget_rejected` (counter)
+5. Estimation deviates slightly from spec §3.6's literal example
+   (which omits timestamp storage). Including timestamps brings
+   the estimate within the 20% accuracy that HALT trigger #6
+   requires; logged in concerns.md.
+6. Maintain a per-signal estimate map so unregistration can decrement
+   accurately.
+
+**Acceptance**:
+
+- Register one driver with 3 signals (Bool, Int64, Double) →
+  `signalCount() == 3`, `bufferFor(id)` returns each, `signalIds()`
+  contains all three.
+- Register with budget = 10 MB; first registration of 5 MB worth
+  succeeds; second registration of 7 MB rejected (over 10 MB);
+  rejected counter incremented; ERROR log emitted.
+- Soft-warn: register up to 80% threshold → WARN logged + counter
+  bumped; second registration that crosses 80% does not double-warn
+  if already at 80% (one-shot per crossing).
+- Unregister driver → buffers freed; bufferFor returns nullptr;
+  totalBytes_ decremented; signalCount drops.
+- Unknown signalId on `onSignal` is a no-op (no crash).
+- HALT trigger #6 self-check: estimated bytes for a 1 kHz / 60 s /
+  Double signal vs the actual `memoryBytes()` after pushing 60 000
+  samples — within 20%.
+
+**Freeze scope**: M2/M3/M4/M5 frozen `.hpp` not modified. The
+`SignalBufferRegistry` and `RegistryConfig` declarations are
+unchanged from S1; only the .cpp implementation grows.
+
+### S7 — SignalBufferRegistry full implementation (close)
+
+**Result**: green.
+
+**Changes**:
+
+- `src/buffer/signal_buffer_registry.hpp`:
+  - Added `signalEstimates_` map (per-signal byte estimate at
+    registration time, used for accurate decrement on unregister).
+  - Added `Bookkeeping` forward-declared inner struct + `bookkeeping_`
+    `unique_ptr` member to keep observability headers out of the
+    public header.
+- `src/buffer/signal_buffer_registry.cpp`:
+  - Added registry-level metrics:
+    - `signal_buffer_total_memory_bytes` (gauge)
+    - `signal_buffer_budget_warned` (counter)
+    - `signal_buffer_budget_rejected` (counter)
+  - `bytesPerValue` helper: 0.125 (Bool bit-packed), 8 (Int64,
+    Double), 32 (QString handle + small backing).
+  - `lodOverheadFactor` helper: 1.11 only when type is numeric AND
+    `cfg.lodEnabled.value_or(true)`; 1.0 otherwise.
+  - `estimateSignalBytes(meta, cfg)`:
+    `samples × (bytesPerValue + sizeof(time_point)) ×
+    lodOverheadFactor`. Includes timestamp storage to keep estimate
+    within HALT trigger #6's 20% accuracy window vs `memoryBytes()`.
+  - `onSignalsRegistered`: resolves per-signal config (registry
+    default + optional override), totals the estimate, hard-rejects
+    (with ERROR log + counter bump) when post-registration > 100%
+    of budget, soft-warns (one-shot per crossing) at the 80%
+    threshold, allocates `SignalBuffer` instances, updates
+    `totalBytes_`, and sets the gauge.
+  - `onSignal`: mutex-protected `find` then unlocks before invoking
+    `buf->push` so the writer's push doesn't hold the registry lock.
+    Unknown signalId is a silent miss.
+  - `onSignalsUnregistered`: removes all signal entries for the
+    driver, decrements `totalBytes_` by the recorded per-signal
+    estimates, updates the gauge.
+- `tests/unit/buffer/signal_buffer_registry_test.cpp` (8 cases):
+  - 3-signal registration confirms `signalCount`, `bufferFor`,
+    `signalIdsForDriver`.
+  - `onSignal` routing: Double-typed pushes counted; Int64 pushes
+    counted; unknown signalId is a silent miss.
+  - Unregister releases all buffers + budget; idempotent.
+  - Budget rejection: 1 MB budget vs 1.6 MB request → rejected,
+    counter bumped, no buffers allocated.
+  - Soft-warn one-shot: registering 500 Double signals at 1 kHz × 1s
+    crosses 80% of a 10 MB budget; second registration that doesn't
+    cross again does not double-warn.
+  - Per-driver config overrides applied per signalId.
+  - Estimate vs actual within 20% (HALT trigger #6 self-check):
+    1 kHz × 1 s Double signal → estimate / actual ratio in [0.80,
+    1.20].
+  - SignalValueSink interface conformance (cast to base, exercise
+    via virtuals).
+
+**Build verification** (local):
+
+- Debug + Release + debug-asan all build clean.
+- `clang-format --dry-run -Werror` clean (one auto-fix iteration).
+
+**Test verification** (local):
+
+- `ctest --preset=debug` — 311 / 311 pass (was 303; +8 from S7
+  tests).
+- `ctest --preset=release` — 311 / 311 pass.
+- debug-asan deferred to CI.
+
+**Frozen-file diff** vs 6fc6c06: empty.
+
+**Compile-fix attempts**: 0. **Test-fix attempts**: 1
+(soft-warn test miscalculated per-signal estimate by assuming
+`sizeof(time_point) == 16`, but it's 8 on this glibc/x86_64;
+adjusted signal count to safely cross the 80% threshold). Within
+HALT trigger budgets.
+
+**HALT trigger #6 status**: not fired. Estimate-vs-actual ratio
+self-test passes within ±20%.
+
+**Effort**: 5 h (plan estimate 5 h).
+
