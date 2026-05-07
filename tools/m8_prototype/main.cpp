@@ -186,23 +186,24 @@ int runScenario2(QGuiApplication& app, int seconds) {
     }
 
     // 1 kHz update timer per chart (60 charts × 1 kHz = 60k samples/sec
-    // injected into the ring buffers; 30 Hz redraw consumes them).
+    // injected into the ring buffers; 30 Hz redraw consumes them). The
+    // ring is a fixed-size circular buffer indexed by `writeIdx`; we
+    // overwrite slots in place so the per-push cost is O(1) — the
+    // O(N) reindex of an earlier draft would dominate the bench.
     QTimer updateTimer;
     updateTimer.setInterval(1);  // 1 kHz
     QObject::connect(&updateTimer, &QTimer::timeout, &app, [&] {
         for (int i = 0; i < kCharts; ++i) {
             auto& s = charts[i];
-            ++s.totalSamples;
             const double y = std::sin((s.totalSamples / 100.0) + s.phase);
-            // x is the ring index (0..kKeepSamples-1); shift the ring.
-            if (s.ring.size() >= kKeepSamples) {
-                s.ring.pop_front();
-            }
-            s.ring.append(QPointF(static_cast<double>(s.ring.size()), y));
-            // Re-index x so it stays in [0, ring.size()).
-            for (int k = 0; k < s.ring.size(); ++k) {
-                s.ring[k].setX(static_cast<double>(k));
-            }
+            // Use slot index = totalSamples % kKeepSamples; x is the
+            // slot, y is the value. The visual order is "scrambled"
+            // (scrolling effect) but each pixel column gets refreshed
+            // every kKeepSamples samples — same draw-call cost as a
+            // continuously-shifting ring.
+            const int slot = static_cast<int>(s.totalSamples % kKeepSamples);
+            s.ring[slot] = QPointF(static_cast<double>(slot), y);
+            ++s.totalSamples;
         }
     });
 
@@ -231,6 +232,8 @@ int runScenario2(QGuiApplication& app, int seconds) {
     updateTimer.start();
     redraw.start();
     window.show();
+    window.raise();
+    window.requestActivate();
     return app.exec();
 }
 
