@@ -13,11 +13,15 @@
 #include "decode/decoder_registrar.hpp"
 #include "observability/logging.hpp"
 #include "pipeline/pipeline_manager.hpp"
+#include "session/session_writer.hpp"
+#include "session/tee_signal_value_sink.hpp"
 
 #include <QAction>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDir>
 #include <QDockWidget>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -41,8 +45,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     pipelineManager_ = std::make_unique<signalforge::pipeline::PipelineManager>(this);
     signalBufferRegistry_ = std::make_unique<signalforge::buffer::SignalBufferRegistry>();
+
+    // M10 fan-out: route decoded signals through a TeeSink that
+    // always feeds the SignalBufferRegistry (M6) and may
+    // additionally feed a SessionWriter (M10) when a recording
+    // is active. The TeeSink is the DecoderRegistrar's single
+    // sink — preserving M5's frozen interface while enabling
+    // multi-consumer routing per ADR-007.
+    teeSink_ = std::make_unique<signalforge::session::TeeSignalValueSink>();
+    teeSink_->addSink(signalBufferRegistry_.get());
+    sessionWriter_ = std::make_unique<signalforge::session::SessionWriter>(*signalBufferRegistry_, this);
     {
-        std::shared_ptr<signalforge::decoder::SignalValueSink> sink(signalBufferRegistry_.get(),
+        std::shared_ptr<signalforge::decoder::SignalValueSink> sink(teeSink_.get(),
                                                                     [](signalforge::decoder::SignalValueSink*) {});
         decoderRegistrar_ = std::make_unique<signalforge::decoder::DecoderRegistrar>(
             pipelineManager_.get(), std::unordered_map<QString, QString>{}, std::move(sink), this);
@@ -60,6 +74,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     buildChartUi();
     buildConnectionUi();
+    buildSessionUi();
 }
 
 MainWindow::~MainWindow() = default;
@@ -343,6 +358,105 @@ void MainWindow::showEvent(QShowEvent* event) {
             }
         });
     }
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (sessionWriter_ != nullptr && sessionWriter_->isRecording()) {
+        const auto button = QMessageBox::question(
+            this, tr("Recording in progress"), tr("A session is currently being recorded.\n\nStop recording and exit?"),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Yes);
+        if (button != QMessageBox::Yes) {
+            event->ignore();
+            return;
+        }
+        // Detach + stop the writer.
+        if (teeSink_ != nullptr) {
+            teeSink_->removeSink(sessionWriter_.get());
+        }
+        (void)sessionWriter_->stop();
+    }
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::buildSessionUi() {
+    // "Session" menu with the Record action.
+    auto* menu = menuBar()->addMenu(tr("&Session"));
+    recordAction_ = menu->addAction(tr("&Record…"));
+    recordAction_->setShortcut(QKeySequence(tr("Ctrl+R")));
+    connect(recordAction_, &QAction::triggered, this, &MainWindow::onRecordToggle);
+
+    recordingStatusLabel_ = new QLabel;
+    recordingStatusLabel_->setText(tr("Idle"));
+    recordingStatusLabel_->setToolTip(tr("Session recording status"));
+    statusBar()->addPermanentWidget(recordingStatusLabel_);
+
+    if (sessionWriter_ != nullptr) {
+        connect(sessionWriter_.get(), &signalforge::session::SessionWriter::flushed, this,
+                &MainWindow::onRecordingFlushed);
+        connect(sessionWriter_.get(), &signalforge::session::SessionWriter::errorOccurred, this,
+                &MainWindow::onRecordingError);
+    }
+}
+
+void MainWindow::onRecordToggle() {
+    if (sessionWriter_ == nullptr) {
+        return;
+    }
+    if (sessionWriter_->isRecording()) {
+        // Stop path: detach from the tee then stop + close file.
+        if (teeSink_ != nullptr) {
+            teeSink_->removeSink(sessionWriter_.get());
+        }
+        const std::size_t bytes = sessionWriter_->stop();
+        recordAction_->setText(tr("&Record…"));
+        if (recordingStatusLabel_ != nullptr) {
+            recordingStatusLabel_->setText(tr("Stopped (%1 bytes)").arg(bytes));
+        }
+        SF_LOG_INFO("MainWindow: recording stopped ({} bytes -> {})", bytes, currentRecordingPath_.toStdString());
+        currentRecordingPath_.clear();
+        return;
+    }
+
+    // Start path: ask for a path.
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Save session recording"), QString(), tr("SFREPLAY (*.sfreplay)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    if (!sessionWriter_->start(path)) {
+        QMessageBox::critical(this, tr("Recording failed"), tr("Could not start recording: see log for details."));
+        return;
+    }
+    if (teeSink_ != nullptr) {
+        teeSink_->addSink(sessionWriter_.get());
+    }
+    currentRecordingPath_ = path;
+    recordAction_->setText(tr("&Stop recording"));
+    if (recordingStatusLabel_ != nullptr) {
+        recordingStatusLabel_->setText(tr("● Recording: %1 (0 bytes)").arg(QFileInfo(path).fileName()));
+    }
+    SF_LOG_INFO("MainWindow: recording started -> {}", path.toStdString());
+}
+
+void MainWindow::onRecordingFlushed(std::size_t bytes) {
+    if (recordingStatusLabel_ == nullptr || currentRecordingPath_.isEmpty()) {
+        return;
+    }
+    recordingStatusLabel_->setText(
+        tr("● Recording: %1 (%2 bytes)").arg(QFileInfo(currentRecordingPath_).fileName()).arg(bytes));
+}
+
+void MainWindow::onRecordingError(const QString& message) {
+    if (recordingStatusLabel_ != nullptr) {
+        recordingStatusLabel_->setText(tr("Recording error"));
+    }
+    if (recordAction_ != nullptr) {
+        recordAction_->setText(tr("&Record…"));
+    }
+    if (teeSink_ != nullptr && sessionWriter_ != nullptr) {
+        teeSink_->removeSink(sessionWriter_.get());
+    }
+    QMessageBox::critical(this, tr("Recording error"), message);
 }
 
 }  // namespace signalforge::app

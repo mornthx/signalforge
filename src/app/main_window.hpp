@@ -28,6 +28,12 @@ class ConnectionManager;
 class ConnectionListWidget;
 class ConnectionStatusWidget;
 }  // namespace signalforge::connection
+namespace signalforge::session {
+class SessionWriter;
+class TeeSignalValueSink;
+}  // namespace signalforge::session
+
+class QAction;
 
 namespace signalforge::app {
 
@@ -44,6 +50,7 @@ public:
 
 protected:
     void showEvent(QShowEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void onAddConnectionRequested();
@@ -54,18 +61,24 @@ private slots:
     void onLiveToggleChanged(bool live);
     void onTimePresetChanged(int index);
     void refreshStatusBar();
+    void onRecordToggle();
+    void onRecordingFlushed(std::size_t bytes);
+    void onRecordingError(const QString& message);
 
 private:
     void buildChartUi();
     void buildConnectionUi();
+    void buildSessionUi();
     void rebuildChartWidgets();
     [[nodiscard]] QStringList enumerateAvailableSchemaIds() const;
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
     std::unique_ptr<signalforge::buffer::SignalBufferRegistry> signalBufferRegistry_;
+    std::unique_ptr<signalforge::session::TeeSignalValueSink> teeSink_;
     std::unique_ptr<signalforge::decoder::DecoderRegistrar> decoderRegistrar_;
     std::unique_ptr<signalforge::connection::ConnectionManager> connectionManager_;
+    std::unique_ptr<signalforge::session::SessionWriter> sessionWriter_;
 
     // M8 chart UI.
     std::unique_ptr<signalforge::chart::ChartManager> chartManager_;
@@ -83,6 +96,11 @@ private:
     QDockWidget* connectionDock_ = nullptr;
     signalforge::connection::ConnectionListWidget* connectionList_ = nullptr;
     signalforge::connection::ConnectionStatusWidget* connectionStatus_ = nullptr;
+
+    // M10 session recording UI.
+    QAction* recordAction_ = nullptr;
+    QLabel* recordingStatusLabel_ = nullptr;
+    QString currentRecordingPath_;
 };
 
 }  // namespace signalforge::app

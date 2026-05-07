@@ -669,7 +669,90 @@ S7 CI: run 25518841332 (in_progress at S8 commit time).
   QTimeZone)` signature instead. CLAUDE.md §Required #2
   no-new-warnings rule respected.
 
-S8 commit: pending push (gated by S7 CI green).
+S8 commit: `80ff5d4` "tools: add sfreplay_inspect CLI (S8)".
+Pushed after S7 CI green (run 25518841332 ✓). S8 CI: run
+25519370707 (in_progress at S9 commit time).
+
+---
+
+## S9 — MainWindow Record toolbar + TeeSink helper (completed)
+
+- Start: 2026-05-08T04:11Z
+
+### Deliverables
+
+- `src/session/tee_signal_value_sink.{hpp,cpp}` (NEW): a
+  `signalforge::decoder::SignalValueSink` adapter that fans
+  every callback to N registered downstream sinks. Mutex
+  guarded; safe against concurrent membership changes.
+  - `addSink(SignalValueSink*)` — idempotent on duplicates,
+    no-op on nullptr.
+  - `removeSink(SignalValueSink*)` — safe if sink wasn't
+    registered.
+  - `size()` — observability.
+- `src/session/CMakeLists.txt`: appends
+  `tee_signal_value_sink.cpp` to the static library.
+- `src/app/main_window.{hpp,cpp}`: MainWindow now constructs
+  a `TeeSignalValueSink` at start-up, pre-registers the
+  `SignalBufferRegistry`, and passes the tee to
+  `DecoderRegistrar` (replacing the direct registry sink).
+  A `SessionWriter` is constructed but not started until the
+  user clicks **Record**.
+  - New `Session` menu with `Record…` action (Ctrl+R).
+  - On click: `QFileDialog::getSaveFileName` →
+    `SessionWriter::start` → `teeSink_->addSink(writer)`;
+    action label flips to **Stop recording**; status-bar
+    label shows `● Recording: <filename> (N bytes)`.
+  - On second click: `removeSink(writer)` → `writer->stop()`
+    → action resets, status shows `Stopped (N bytes)`.
+  - Status-bar bytes update on every `flushed` signal
+    (which the worker fires every 1 s during recording).
+  - On `errorOccurred`: status shows `Recording error`,
+    `QMessageBox::critical` surfaces the message,
+    writer detaches from tee.
+  - `closeEvent` prompts when recording is in flight:
+    Yes stops the recording before exit; Cancel ignores
+    the close.
+- `src/app/CMakeLists.txt`: links `signalforge_app_ui`
+  PUBLIC against `signalforge_session`.
+- `tests/unit/session/tee_sink_test.cpp` (NEW): 4 cases /
+  10 assertions for the TeeSink (fan-out, nullptr/duplicate
+  handling, removeSink, fan-out for unregistration).
+- `tests/unit/session/CMakeLists.txt`: appends the new
+  test target.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean (incl.
+  `signalforge` executable).
+- ctest: Debug **543/543** + Release **543/543** (+4 from
+  S8: 4 TeeSink cases).
+- `clang-format -i` re-applied; dry-run -Werror clean on
+  changed files.
+- Linker warning `crashpad_info_note.S.o: missing
+  .note.GNU-stack section` is **pre-existing** (visible in
+  M9 builds too); not introduced by S9 and not actionable
+  from CC's surface — it lives in Sentry's vendored
+  crashpad runtime.
+
+### Deviations from plan
+
+- The "red dot indicator" plan §S9 calls for is rendered as
+  a UTF-8 `●` glyph in the action label and the status
+  label. A QIcon-based indicator is V1.5+ polish.
+- The TeeSink lives in `src/session/` (with the writer)
+  rather than a new `src/app/` helper because it's
+  conceptually owned by the session layer (the writer is
+  its primary "extra" sink). Alternative placement under
+  `src/app/` is purely cosmetic.
+- The `app-close while recording` prompt is a single
+  Yes/Cancel dialog rather than a multi-button (Stop and
+  exit / Continue recording / Cancel) decision tree —
+  M10 spec §4.7 mentions both styles; the simpler version
+  ships, V1.5+ may extend.
+
+S9 commit: pending push (gated by S8 CI green).
+
 
 
 
