@@ -48,3 +48,17 @@ target_link_libraries(chart_manager_test
         signalforge_decoder
 )
 catch_discover_tests(chart_manager_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(signal_selector_tree_test
+    signal_selector_tree_test.cpp
+)
+target_link_libraries(signal_selector_tree_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Widgets
+        signalforge_chart
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(signal_selector_tree_test DISCOVERY_MODE PRE_TEST)

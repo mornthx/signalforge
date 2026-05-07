@@ -48,6 +48,14 @@ public:
     /// Currently-applied filter substring.
     [[nodiscard]] QString filter() const;
 
+    /// Re-read the registry and rebuild the tree. Call this after
+    /// `SignalBufferRegistry::onSignalsRegistered` /
+    /// `onSignalsUnregistered` (the M6 registry is not a `QObject`
+    /// and doesn't emit Qt signals — see `.claude/M8-concerns.md`
+    /// C2). Driver-startup code in MainWindow (S8) connects this
+    /// to its decoder-registration completion path.
+    void refresh();
+
 Q_SIGNALS:
     /// Emitted when the user toggles a signal's checkbox. Default
     /// behavior wires this to the active chart's

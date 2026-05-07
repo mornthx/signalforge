@@ -237,3 +237,59 @@ shared-reference round-trip.
 **Format**: clang-format clean on changed files.
 **Frozen-file diff**: empty.
 **Effort**: ~0.5 h (plan estimate 3 h).
+
+---
+
+## S6 — SignalSelector widget (start)
+
+**Goal**: per plan §S6 (6 h estimate), build the QTreeWidget-backed
+signal selector. Tree groups by driver id (parsed by the M5
+`<driverId>/<fieldName>` convention); signals without a `/` land
+in the "Derived" group (M7 expression-engine virtual driver).
+Filter line-edit narrows by signal-id substring. Checkbox toggle
+emits `signalToggled` and routes to the active chart's
+`addSignal` / `removeSignal`.
+
+**Deviation (C2)**: M6 `SignalBufferRegistry` is not a `QObject`,
+so it can't emit `signalsRegistered` / `signalsUnregistered` Qt
+signals as plan §S6 originally specified. Resolution: add a public
+`refresh()` slot that callers (S8 MainWindow) invoke after
+`registry.onSignalsRegistered`. Documented in `M8-concerns.md` C2.
+Tests use `selector.refresh()` directly.
+
+### S6 — close
+
+`Impl` PIMPL: `QLineEdit* filterEdit`, `QTreeWidget* tree`,
+group-label → top-level-item map, signal-id → leaf-item map.
+
+Tree population: iterate `registry.signalIds()`; for each id, parse
+`<driverId>/<fieldName>` and use either `Driver: <driverId>` or
+`Derived` (no slash, or driverId is `expression-engine`). Top-level
+items are auto-expanded; leaves carry the signal id in
+`Qt::UserRole` and start checked iff they're already in the active
+chart's visible signals.
+
+`refresh()`: `tree->clear()`, rebuild from scratch; re-applies
+the existing filter so newly-added items respect it. A
+`QSignalBlocker` prevents stray `itemChanged` emissions during
+the rebuild from accidentally toggling signals into the active
+chart.
+
+`setFilter(substring)` / `filter()`: substring match
+(case-insensitive) on signal id; group is hidden when all its
+children are hidden.
+
+`itemChanged` slot: filter to leaves (UserRole non-empty), emit
+`signalToggled(id, checked)`, default-route to `manager.chart(
+manager.activeChartId())->addSignal/removeSignal`.
+
+Unit test cases (6): empty registry → empty tree; single-driver
+group; two-driver groups; derived group from no-slash + the
+expression-engine driver id; filter narrows + clears; refresh
+picks up registry add/unregister.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 438/438 release (was 432 → +6 signal_selector_tree).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty.
+**Effort**: ~0.5 h (plan estimate 6 h).
