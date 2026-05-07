@@ -74,11 +74,7 @@ implementation-time uncertainty).
   variance ~0.001 ms² vs spec § 5.4 target < 5 ms² — orders
   of magnitude under.
 - [x] Run-to-run variance < 5%: < 2% on p99 (3-run mean).
-- [ ] **Pending: 1-hour soak test** (spec § 5.6, § 8.2). Per
-  user's S11 instruction the soak runs once in CI debug-asan
-  before final acceptance; documented as a manual verification
-  step. The 3-run bench's < 2% p99 variance + ASan-clean S1-S9
-  builds give a strong stability signal.
+- [x] 1-hour soak verified in M9 S5s — VmRSS growth 9.047%, 0/109k dropped frames. See tests/benchmark/results/M8-baseline.md §1-hour soak.
 
 ### §8.3 Functional correctness
 
