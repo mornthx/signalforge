@@ -11,6 +11,8 @@
 #include "drivers/udp_driver.hpp"
 #include "observability/logging.hpp"
 
+#include <QTimer>
+
 namespace signalforge::connection {
 
 namespace dr = signalforge::drivers;
@@ -46,10 +48,35 @@ const char* describe(Connection::State s) {
 
 Connection::Connection(ConnectionConfig config, QObject* parent) : QObject(parent), config_(std::move(config)) {
     registerConnectionMetatypes();
+    autoTimer_ = new QTimer(this);
+    autoTimer_->setSingleShot(true);
+    connect(autoTimer_, &QTimer::timeout, this, [this]() {
+        switch (autoSubState_) {
+        case AutoSubState::AwaitingDelay:
+            autoSubState_ = AutoSubState::Idle;
+            sendCurrentCommand();
+            break;
+        case AutoSubState::AwaitingResponse:
+            // Per spec §3.5: timeout on `expected` is a WARN, not
+            // an error — log and continue.
+            SF_LOG_WARN("Connection({}): auto-connect command {} timed out waiting for expected response",
+                        config_.id.toStdString(), autoIndex_);
+            autoSubState_ = AutoSubState::Idle;
+            autoExpected_.clear();
+            ++autoIndex_;
+            runNextCommand();
+            break;
+        case AutoSubState::Idle:
+            // Spurious timeout (timer was meant to fire but the
+            // sequence has already advanced); ignore.
+            break;
+        }
+    });
     rebuildDriver();
 }
 
 Connection::~Connection() {
+    cancelAutoConnect();
     // Driver must be Idle before destruction (M3 contract). If we
     // are still mid-flight, force a synchronous teardown.
     if (driver_ && driver_->state() != dr::DriverState::Idle) {
@@ -148,6 +175,7 @@ void Connection::wireDriverSignals() {
     // QueuedConnection so slots run on the Connection's own thread.
     connect(driver_.get(), &dr::DriverInterface::stateChanged, this, &Connection::onDriverState, Qt::QueuedConnection);
     connect(driver_.get(), &dr::DriverInterface::errorOccurred, this, &Connection::onDriverError, Qt::QueuedConnection);
+    connect(driver_.get(), &dr::DriverInterface::frameReceived, this, &Connection::onDriverFrame, Qt::QueuedConnection);
 }
 
 void Connection::setState(State next) {
@@ -194,20 +222,21 @@ void Connection::onDriverState(dr::DriverState driverState) {
     }
     case dr::DriverState::Running:
         setState(State::Connected);
-        // S7 will trigger AutoConnectCommandSequence here. Until
-        // then, emit a synthetic completion signal so consumers
-        // can already observe the contract.
         if (config_.autoConnectCommands.empty()) {
             Q_EMIT autoConnectCompleted(true);
+        } else {
+            startAutoConnectSequence();
         }
         break;
     case dr::DriverState::Stopping:
     case dr::DriverState::Closing:
+        cancelAutoConnect();
         if (state_ != State::Disconnecting) {
             setState(State::Disconnecting);
         }
         break;
     case dr::DriverState::Error:
+        cancelAutoConnect();
         setState(State::Error);
         break;
     }
@@ -215,6 +244,92 @@ void Connection::onDriverState(dr::DriverState driverState) {
 
 void Connection::onDriverError(dr::DriverError error) {
     setError(error.message);
+}
+
+void Connection::onDriverFrame(signalforge::frame::RawFrame frame) {
+    if (autoSubState_ != AutoSubState::AwaitingResponse || autoExpected_.isEmpty()) {
+        return;
+    }
+    if (frame.payload.contains(autoExpected_)) {
+        autoTimer_->stop();
+        autoSubState_ = AutoSubState::Idle;
+        autoExpected_.clear();
+        ++autoIndex_;
+        // Defer to next tick so we don't recurse on long
+        // sequences.
+        QTimer::singleShot(0, this, [this]() { runNextCommand(); });
+    }
+}
+
+void Connection::startAutoConnectSequence() {
+    autoIndex_ = 0;
+    autoSubState_ = AutoSubState::Idle;
+    autoSequenceFailed_ = false;
+    autoExpected_.clear();
+    runNextCommand();
+}
+
+void Connection::runNextCommand() {
+    if (autoIndex_ >= config_.autoConnectCommands.size()) {
+        Q_EMIT autoConnectCompleted(!autoSequenceFailed_);
+        return;
+    }
+    if (state_ != State::Connected || !driver_) {
+        // Connection has moved on (disconnect / error); stop.
+        cancelAutoConnect();
+        return;
+    }
+
+    const auto& cmd = config_.autoConnectCommands[autoIndex_];
+
+    if (cmd.delayBefore.count() > 0) {
+        autoSubState_ = AutoSubState::AwaitingDelay;
+        autoTimer_->start(static_cast<int>(cmd.delayBefore.count()));
+        return;
+    }
+    sendCurrentCommand();
+}
+
+void Connection::sendCurrentCommand() {
+    if (autoIndex_ >= config_.autoConnectCommands.size() || state_ != State::Connected || !driver_) {
+        return;
+    }
+    const auto& cmd = config_.autoConnectCommands[autoIndex_];
+
+    SF_LOG_INFO("Connection({}): sending auto-connect command [{}/{}] '{}' ({} bytes)", config_.id.toStdString(),
+                autoIndex_ + 1, config_.autoConnectCommands.size(), cmd.name.toStdString(), cmd.payload.size());
+
+    Q_EMIT autoConnectCommandSent(cmd.name);
+    const auto rc = driver_->write(cmd.payload);
+    if (rc != dr::DriverErrorCode::Success) {
+        SF_LOG_ERROR("Connection({}): auto-connect command [{}] write failed (code {}); aborting sequence",
+                     config_.id.toStdString(), autoIndex_, static_cast<int>(rc));
+        autoSequenceFailed_ = true;
+        // Per spec §3.5: error logs but the connection stays
+        // Connected. Stop running further commands.
+        Q_EMIT autoConnectCompleted(false);
+        return;
+    }
+
+    if (cmd.expected.has_value() && !cmd.expected->isEmpty()) {
+        autoExpected_ = *cmd.expected;
+        autoSubState_ = AutoSubState::AwaitingResponse;
+        const int timeoutMs = static_cast<int>(cmd.timeout.count() > 0 ? cmd.timeout.count() : 1000);
+        autoTimer_->start(timeoutMs);
+    } else {
+        ++autoIndex_;
+        QTimer::singleShot(0, this, [this]() { runNextCommand(); });
+    }
+}
+
+void Connection::cancelAutoConnect() {
+    if (autoTimer_) {
+        autoTimer_->stop();
+    }
+    autoSubState_ = AutoSubState::Idle;
+    autoExpected_.clear();
+    autoIndex_ = 0;
+    autoSequenceFailed_ = false;
 }
 
 }  // namespace signalforge::connection

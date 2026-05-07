@@ -3,6 +3,7 @@
 
 #include "drivers/driver_configs.hpp"
 #include "drivers/driver_interface.hpp"
+#include "frame/raw_frame.hpp"
 
 #include <QByteArray>
 #include <QObject>
@@ -12,6 +13,8 @@
 #include <optional>
 #include <variant>
 #include <vector>
+
+class QTimer;
 
 namespace signalforge::connection {
 
@@ -174,11 +177,33 @@ private:
 
     void onDriverState(signalforge::drivers::DriverState driverState);
     void onDriverError(signalforge::drivers::DriverError error);
+    void onDriverFrame(signalforge::frame::RawFrame frame);
+
+    void startAutoConnectSequence();
+    void runNextCommand();
+    void sendCurrentCommand();
+    void cancelAutoConnect();
 
     ConnectionConfig config_;
     std::unique_ptr<signalforge::drivers::DriverInterface> driver_;
     State state_ = State::Idle;
     QString lastError_;
+
+    // Auto-connect sequence state (S7). The sub-state machine is
+    // simple: at any time either (a) the timer is scheduled for
+    // an upcoming delayBefore wait, (b) the timer is scheduled
+    // for an `expected`-response timeout, or (c) the timer is
+    // idle and we are between commands.
+    enum class AutoSubState : int {
+        Idle = 0,
+        AwaitingDelay = 1,
+        AwaitingResponse = 2,
+    };
+    QTimer* autoTimer_ = nullptr;
+    AutoSubState autoSubState_ = AutoSubState::Idle;
+    std::size_t autoIndex_ = 0;
+    bool autoSequenceFailed_ = false;
+    QByteArray autoExpected_;
 };
 
 }  // namespace signalforge::connection

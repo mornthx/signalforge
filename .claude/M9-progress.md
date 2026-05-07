@@ -296,3 +296,57 @@ None.
 ### Deviations from plan
 
 None.
+
+---
+
+## S7 — AutoConnectCommandSequence + bytes round-trip (completed)
+
+- Start: 2026-05-07T13:25Z
+- Close: 2026-05-07T13:50Z
+
+### Deliverables
+
+- `connection.{hpp,cpp}` extended with auto-connect sequence
+  state machine (sub-states Idle / AwaitingDelay /
+  AwaitingResponse) + a single QTimer:
+  - On entering Connected with non-empty
+    autoConnectCommands, startAutoConnectSequence kicks off
+    `runNextCommand`.
+  - For each command: honor `delayBefore` via the timer,
+    call `driver_->write(payload)`, optionally wait for
+    `expected` to appear in incoming `frameReceived` payloads
+    within `timeout` (the timer's AwaitingResponse path).
+  - Per spec §3.5: timeout on `expected` is WARN-and-continue;
+    write failure is ERROR-and-abort with
+    `autoConnectCompleted(false)`. Connection stays Connected
+    in both cases (no auto-disconnect).
+  - cancelAutoConnect on transitions to Disconnecting / Error
+    so a mid-flight sequence does not race with shutdown.
+- `connection_autoconnect_test.cpp`: 4 cases — empty list →
+  immediate completed(true); ReplayDriver write failure →
+  completed(false) with connection still Connected;
+  cancellation via early disconnect; per-command
+  autoConnectCommandSent signal emission.
+
+### Build / test counts
+
+- Debug: 504/504 ctest pass (was 500 + 4 new S7 tests).
+- Release: 504/504 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Notes
+
+- Real loopback testing (with a TCP echo server confirming the
+  `expected` match path) lands in S10's integration suite.
+- Metric counters
+  (`connection_auto_command_timeouts`,
+  `connection_auto_command_failures`) per spec §3.7 are
+  observable today via SF_LOG_WARN/ERROR. Wiring them through
+  the M2 metrics registry is V1 polish (deferred to S9
+  MainWindow integration when the manager is connected to the
+  app's metrics handle).
+
+### Deviations from plan
+
+None.
