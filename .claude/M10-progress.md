@@ -594,7 +594,83 @@ suite).
   (M9-done.md §2.1-14 maps 7 spec tests to 6 unit + 2
   integration files); M10 follows the same shape.
 
-S7 commit: pending push (gated by S6 CI green).
+S7 commit: `434a39b` "session: full-stack integration round-trip
+test (S7)". Pushed after S6 CI green (run 25518330513 ✓).
+S7 CI: run 25518841332 (in_progress at S8 commit time).
+
+---
+
+## S8 — sfreplay_inspect CLI (completed)
+
+- Start: 2026-05-08T04:05Z
+
+### Deliverables
+
+- `tools/sfreplay_inspect/CMakeLists.txt` + `main.cpp` (~430
+  lines): standalone CLI mirroring the M5 schema_lint / M7
+  expr_lint pattern. Reads `.sfreplay` files and prints
+  header / catalog / record histogram / footer status.
+  Two modes: human-readable (default) and `--json` for
+  machine consumption.
+  - Independent byte-level parser (no SessionReader
+    dependency) — doubles as a third-party reference
+    implementation of `docs/format/sfreplay-v1.md`.
+  - `recordsEnd` correctly handled for footerless files
+    (incomplete recordings per spec §9): records walked to
+    EOF when the trailing 16 bytes don't match the footer
+    magic.
+  - V1 reserved Marker (type 3) + Heartbeat (type 4)
+    counted in the histogram; V2+ unknown types skipped via
+    `payloadLen`.
+- `CMakeLists.txt`: `add_subdirectory(tools/sfreplay_inspect)`
+  appended after `tools/expr_lint`.
+- `tests/integration/test_sfreplay_inspect.cpp`: 2 cases /
+  26 assertions:
+  - Fresh fixture: writer produces 8 signal-value records
+    on 2 signals; inspector reports `format_version=1`,
+    `initial_signal_count=2`, `record_histogram` matches,
+    `footer_present=true`, `file_complete=true`.
+  - Truncated fixture: footer stripped via `QFile::resize`;
+    inspector exits 0 (footerless is non-fatal),
+    `footer_present=false`, `file_complete=false`.
+- `tests/integration/CMakeLists.txt`: appended target +
+  `add_dependencies(test_sfreplay_inspect sfreplay_inspect)`
+  + `SIGNALFORGE_SFREPLAY_INSPECT_BINARY` compile-time
+  define so the test process locates the CLI in the build
+  tree.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **539/539** + Release **539/539** (+2 from
+  S7: 2 inspect cases).
+- Inspector smoke-tested manually on a hand-built fixture
+  (Python-generated 106-byte file): JSON output matches
+  expected layout.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S8 anticipated 4 h budget; took ~30 min via the
+  schema_lint pattern + the format-spec encode/decode
+  cross-check (the byte-level walkthrough in
+  docs/format/sfreplay-v1.md §12 exactly matches the
+  inspector's parser).
+- One inspector bug found during the integration test:
+  `recordsEnd = fileSize - kFooterSize` was always true,
+  even for footerless files; this caused the inspector to
+  flag the last record as truncated when in fact the
+  footer was missing. Fixed by pre-checking the trailing
+  16 bytes for the footer magic and adjusting
+  `recordsEnd` accordingly. Documented in code.
+- Initial Qt API deprecation warning from
+  `QDateTime::fromMSecsSinceEpoch(qint64, Qt::TimeSpec)` —
+  used the new `QDateTime::fromMSecsSinceEpoch(qint64,
+  QTimeZone)` signature instead. CLAUDE.md §Required #2
+  no-new-warnings rule respected.
+
+S8 commit: pending push (gated by S7 CI green).
+
 
 
 
