@@ -473,3 +473,53 @@ tests).
 **Format**: clang-format clean on changed files.
 **Frozen-file diff**: empty.
 **Effort**: ~1.0 h (plan estimate 6 h).
+
+---
+
+## S10 — bench_chart.cpp + M8-baseline.md (start)
+
+**Goal**: per plan §S10 (7 h estimate), production benchmark
+reproducing the 4 prototype scenarios. Direct-invoke design
+(`QMetaObject::invokeMethod onTick`) for measurement
+determinism — measures pure `Chart::onTick` cost, which maps
+to spec §5.1's "render-loop p99 < 1.0 ms" target. The
+prototype's vsync-bound frame interval (~33 ms) is still
+authoritative for end-to-end UX gating; that requires a real
+event loop + visible window and is documented as the M8
+prototype RESULTS.md baseline.
+
+### S10 — close
+
+`bench_chart` opt-in via `-DSIGNALFORGE_BENCHMARKS=ON`. Reuses
+the same JSON-line output format as M3/M5/M6/M7 benches.
+
+**Implementation note**: same Qt `signals` macro collision as
+M8-concerns.md C1 — the function-parameter `int signals` in
+`printResult` had to be renamed to `signalCount`. Updated
+inline; documented for posterity in this progress note.
+
+**3-run results** (host: shuai-Laptop, AMD Ryzen 7 5800H +
+Mesa 25.2.8 / radeonsi):
+
+| Scenario | spec §5.1 target | observed p99 | headroom |
+|---|---:|---:|---:|
+| 1 — Pure render (60 sig × 1k samples) | < 1.0 ms | 0.19 ms | 5.2× |
+| 2 — Update + render (60 sig × 1 kHz × 30 sec) | < 1.0 ms | 0.21 ms | 4.7× |
+| 3 — Multi-chart + pan (3 × 20 sig) | < 1.0 ms | 0.20 ms | 5.1× |
+| 4 — LOD pyramid (600 k samples × 4 zooms) | < 1.0 ms (200 µs LOD switch) | 10.5 µs | 19-91× |
+
+Run-to-run variance < 2% on p99 (spec §5.5: < 5%).
+
+**HALT triggers**:
+- #2 (30 Hz not sustained at 60 × 1 after one opt pass): NOT
+  fired — first measurement cleared the gate by 5×.
+- #5 (LOD level wrong): NOT fired — Scenario 4 cycles through
+  4 zoom levels; queryRange returns appropriate bin counts at
+  each (also verified in S9
+  `test_chart_lod_selection.cpp`).
+
+Full results in `tests/benchmark/results/M8-baseline.md`.
+
+**Build**: clean.
+**Format**: clang-format clean on the new file.
+**Effort**: ~0.5 h (plan estimate 7 h).

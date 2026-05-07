@@ -66,3 +66,14 @@ target_link_libraries(bench_expression_engine
         signalforge_decoder
         signalforge_expression
 )
+
+add_executable(bench_chart bench_chart.cpp)
+target_link_libraries(bench_chart
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+        signalforge_buffer
+        signalforge_chart
+        signalforge_decoder
+)
