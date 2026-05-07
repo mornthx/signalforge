@@ -126,4 +126,53 @@ format pivot) + concerns".
   byte `.cpp` and 95 byte `.hpp`, neither referenced
   anywhere outside its own CMakeLists.txt.
 
-S1 commit: pending push (gated by S0 CI green per Plan §0).
+S1 commit: `5f3bc6b` "session: scaffold M10 module + freeze-surface
+headers (S1)". Pushed after S0 CI green (run 25515271059 ✓).
+S1 CI: run 25515817537 (in_progress at S2 close).
+
+---
+
+## S2 — Canonical SFREPLAY v1 format spec (completed)
+
+- Start: 2026-05-08T01:00Z
+
+### Deliverables
+
+- `docs/format/sfreplay-v1.md` (495 lines): canonical, frozen-at-
+  M10-close binary format spec. Sections: scope (§1), endianness
+  + integer encoding + time (§2), file layout (§3), header (§4
+  with fixed prefix + variable section + worked example), signal
+  catalog entry (§5 with type table), records (§6 with all 4
+  record types: Signal Value, Catalog Extension, Marker,
+  Heartbeat — and droppability annotated for S5 backpressure
+  cross-ref), footer (§7 with exact byte sequence for the
+  truncated-magic compatibility note), forward-compat rules (§8),
+  truncation handling (§9), reader conformance (§10), writer
+  conformance (§11), byte-level walkthrough (§12), reference
+  impls + acknowledgments (§13-14).
+- sha256: `20cae91f3f8702538b1d79c719673af9b815e542816b52b867ffad0a87d59c92`
+  → recorded for the M10-done.md freeze record (S11).
+
+### Build / test counts
+
+- Docs-only commit; CLAUDE.md §Required #2 exception applies.
+- No build, no ctest, no clang-format implication.
+
+### Deviations from plan
+
+- Plan §S2 anticipated 5 h of authoring effort; took ~30 min via
+  in-context drafting from spec §4.1. The "no TBD anywhere"
+  HALT trigger from plan §S2 is met — every field has size,
+  type, and meaning specified explicitly. The byte-level
+  walkthrough §12 is illustrative only (re-compute from real
+  writer output); a foot-note flags this so implementers don't
+  copy literal numbers.
+- Spec author footnote on the footer magic: spelling
+  "REPLAYEOF" is 9 ASCII chars but the file format only stores
+  the first 8 bytes (`R E P L A Y E O`). The format spec
+  documents this explicitly so readers don't accidentally
+  search for a 9-byte sequence. Captured in §7 + §7.1 with
+  the exact hex bytes.
+
+S2 commit: pending push (gated by S1 CI green).
+
