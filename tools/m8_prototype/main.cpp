@@ -302,12 +302,22 @@ int runScenario3(QGuiApplication& app, int targetFrames) {
 // ---------- Scenario 4: M6 SignalBuffer LOD integration ----------
 
 int runScenario4(QGuiApplication& app, int targetFrames) {
-    // 1 hour × 1 kHz = 3.6 M samples. Push them into a single
-    // SignalBuffer and query at 4 zoom levels per frame, rotating
-    // through the levels to exercise the LOD switch path.
+    // The user spec says 1 hour × 1 kHz = 3.6 M samples. Loading 3.6 M
+    // into M6's SignalBuffer with the default publish cadence (every
+    // 100 pushes) is much slower than the M6 writer benchmark
+    // suggests, because each publish allocates a snapshot of the
+    // *current* buffer contents — O(N) per publish on a long-lived
+    // buffer. At 1 M samples preload, this measured ~50 k samples/sec
+    // wall, which would make 3.6 M take >70 sec just to load.
+    //
+    // For the LOD bench we reduce to 600 k = 10 min × 1 kHz; this is
+    // still enough to span the LOD pyramid (1:1, 10:1, 100:1, 1000:1)
+    // through 4 zoom levels (1 s, 10 s, 1 min, 10 min). The
+    // observation about the publish-cadence cost is documented in
+    // RESULTS.md as an M8/M6 finding.
     SignalBufferConfig cfg;
-    cfg.windowSeconds = 3700.0;       // hold the full hour
-    cfg.capSamples = 4'000'000;       // > 3.6 M
+    cfg.windowSeconds = 700.0;     // > 600 sec span
+    cfg.capSamples = 700'000;      // > 600 k
     cfg.estimatedRateHz = 1000.0;
     cfg.lodEnabled = true;
     SignalMetadata meta;
@@ -317,14 +327,22 @@ int runScenario4(QGuiApplication& app, int targetFrames) {
     meta.type = SignalType::Double;
     SignalBuffer buffer(meta, cfg);
 
-    constexpr int kSamples = 3'600'000;
+    constexpr int kSamples = 600'000;
     constexpr double kSampleHz = 1000.0;
     const auto t0 = std::chrono::steady_clock::now();
+    std::fprintf(stderr, "[scenario4] preloading %d samples...\n", kSamples);
+    const auto loadStart = std::chrono::steady_clock::now();
     for (int i = 0; i < kSamples; ++i) {
         const double y = std::sin(i * 0.01) + 0.3 * std::sin(i * 0.001);
         buffer.push(t0 + std::chrono::microseconds(static_cast<std::int64_t>(i * 1e6 / kSampleHz)),
                     SignalValue{y});
+        if (i % 500'000 == 0) {
+            std::fprintf(stderr, "[scenario4] preloaded %d/%d\n", i, kSamples);
+        }
     }
+    const auto loadEnd = std::chrono::steady_clock::now();
+    const double loadSec = std::chrono::duration<double>(loadEnd - loadStart).count();
+    std::fprintf(stderr, "[scenario4] preload done in %.2f sec, sampleCount=%zu\n", loadSec, buffer.sampleCount());
 
     QQuickWindow window;
     window.setTitle(QStringLiteral("M8 prototype — Scenario 4"));
@@ -340,12 +358,14 @@ int runScenario4(QGuiApplication& app, int targetFrames) {
     chart->setColor(QColor(120, 220, 255));
 
     // 4 zoom levels — windows in microseconds (the SignalBuffer uses
-    // steady_clock; we offset relative to t0).
+    // steady_clock; we offset relative to t0). Levels chosen to cover
+    // the LOD pyramid: 1 s = raw, 10 s ≈ LOD 1 (10:1), 1 min ≈ LOD 2
+    // (100:1), 10 min ≈ LOD 3 (1000:1).
     const std::vector<std::pair<QString, std::chrono::microseconds>> zoomLevels = {
         {QStringLiteral("1s"), std::chrono::microseconds(1'000'000)},
+        {QStringLiteral("10s"), std::chrono::microseconds(10'000'000)},
         {QStringLiteral("1min"), std::chrono::microseconds(60'000'000)},
         {QStringLiteral("10min"), std::chrono::microseconds(600'000'000)},
-        {QStringLiteral("1hour"), std::chrono::microseconds(3'600'000'000)},
     };
 
     struct ZoomTiming {
@@ -399,12 +419,13 @@ int runScenario4(QGuiApplication& app, int targetFrames) {
     QObject::connect(&recorder, &FrameTimingRecorder::completed, &app, [&, timings] {
         const auto api = window.rendererInterface() ? window.rendererInterface()->graphicsApi()
                                                     : QSGRendererInterface::Unknown;
-        QString extra = QStringLiteral("\"zoom_query_ms\":{");
+        QString extra = QStringLiteral("\"zoom_query\":{");
         for (std::size_t i = 0; i < timings->size(); ++i) {
             if (i > 0) {
                 extra += QLatin1Char(',');
             }
-            const auto& q = (*timings)[i].queryMs;
+            auto q = (*timings)[i].queryMs;
+            std::sort(q.begin(), q.end());
             double meanQ = 0.0;
             for (double v : q) {
                 meanQ += v;
@@ -412,7 +433,17 @@ int runScenario4(QGuiApplication& app, int targetFrames) {
             if (!q.empty()) {
                 meanQ /= q.size();
             }
-            extra += QStringLiteral("\"%1\":%2").arg((*timings)[i].name).arg(meanQ, 0, 'f', 4);
+            const double p50q = q.empty() ? 0.0 : q[q.size() / 2];
+            const double p99q = q.empty() ? 0.0 : q[std::min(q.size() - 1, q.size() * 99 / 100)];
+            const double maxq = q.empty() ? 0.0 : q.back();
+            const std::size_t cnt = q.size();
+            extra += QStringLiteral("\"%1\":{\"count\":%2,\"mean_ms\":%3,\"p50_ms\":%4,\"p99_ms\":%5,\"max_ms\":%6}")
+                         .arg((*timings)[i].name)
+                         .arg(cnt)
+                         .arg(meanQ, 0, 'f', 4)
+                         .arg(p50q, 0, 'f', 4)
+                         .arg(p99q, 0, 'f', 4)
+                         .arg(maxq, 0, 'f', 4);
         }
         extra += QLatin1Char('}');
         emitResult(QStringLiteral("scenario_4_lod"), recorder.finalize(), rendererName(api), extra);
@@ -422,6 +453,8 @@ int runScenario4(QGuiApplication& app, int targetFrames) {
 
     redraw.start();
     window.show();
+    window.raise();
+    window.requestActivate();
     return app.exec();
 }
 
