@@ -3,6 +3,7 @@
 
 #include "drivers/driver_configs.hpp"
 #include "drivers/driver_interface.hpp"
+#include "frame/raw_frame.hpp"
 
 #include <QObject>
 #include <QString>
@@ -59,6 +60,7 @@ private slots:
     void onWorkerStarted();
     void onWorkerStopped();
     void onWorkerErrorOccurred(const signalforge::drivers::DriverError& err);
+    void onWorkerFrame(signalforge::frame::RawFrame frame);
 
 private:
     void transitionTo(DriverState newState);

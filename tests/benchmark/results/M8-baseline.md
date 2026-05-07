@@ -169,3 +169,52 @@ prototype's 0.60 ms p99 baseline.
   queryRange call. M6 ADR-005's chunked-storage post-fix
   benchmark already showed this is sub-millisecond at much
   larger sample counts; no further work needed for V1.
+
+## 1-hour soak (S5s)
+
+Inherited from M8 §8.2 — completed in M9 milestone (per
+M9-plan.md §S5s). Run on the M9 dev workstation
+(shuai-Laptop, AMD Ryzen 7 5800H + Mesa 25.2.8 / radeonsi),
+host platform `offscreen` (no display server / no vsync),
+Release build of `tests/benchmark/bench_chart` with the new
+`--soak <seconds>` and `--memory-snapshot <interval>` flags.
+
+Workload: 60 signals × 1 chart, 1 kHz `onSignal` inject,
+~30 Hz redraw via real-clock `QTimer` (Qt::PreciseTimer).
+60 second VmRSS snapshots from `/proc/self/status`.
+Steady-state baseline taken at the first snapshot ≥
+2 × M6-`windowSeconds` (= 120 s) so transient buffer fill is
+not counted as growth.
+
+Inputs / outputs:
+
+- Command: `QT_QPA_PLATFORM=offscreen build/release/tests/benchmark/bench_chart --soak 3600 --memory-snapshot 60`
+- Raw snapshots: `tests/benchmark/results/m9-s5s/soak-1hour.jsonl` (60 + summary)
+- stderr: empty (no harness FAIL message; harness exited 0)
+
+Result:
+
+| Metric | Value | Gate | Verdict |
+|---|---:|---:|---:|
+| Run length | 3600 s | = 3600 s | ✅ |
+| VmRSS initial (sec=0) | 30 084 KiB | — | (warmup) |
+| VmRSS baseline (sec=179, first ≥ 120 s) | 131 844 KiB | — | (gate origin) |
+| VmRSS final (sec=3599) | 143 772 KiB | — | — |
+| **VmRSS growth** | **9.047 %** | **< 10 %** | **✅** |
+| Total redraws | 109 089 | (~3600 / 33 ms) | matches expected ~108 k |
+| **Dropped frames** (frame-to-frame > 50 ms) | **0** | **< 50** | **✅** |
+| inject_idx (final) | 3 351 071 | — | (~1 kHz × 3600 s) |
+
+Steady-state oscillation: VmRSS bounces in the
+~138-148 MiB band after sec=120, with no monotonic upward
+trend beyond the first 120 s buffer fill. Snapshot
+trajectory (sample, every ~10 min): 131.8 / 142.8 / 144.5 /
+141.0 / 138.7 / 142.9 / 143.4 / 143.7 MiB at sec≈179 / 599 /
+1199 / 1799 / 2399 / 2999 / 3299 / 3599. ASan/LSan
+verification is the CI debug-asan path's responsibility (per
+the host ASan-preload memory note); the host run captures
+RSS + frame stability only.
+
+Acceptance: ✅ M8 §5.6 + plan §S5s gates met with margin
+(0.95 % under the 10 % growth gate; 50 dropped-frame gate
+not exercised at all). No HALT triggered.

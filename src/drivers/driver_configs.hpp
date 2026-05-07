@@ -53,9 +53,16 @@ struct UdpConfig {
 ///
 /// Value type. Full parsing is M9's responsibility; M3's ReplayDriver only
 /// verifies file existence + 16-byte header non-zero check.
+///
+/// M9 additions (per M3-done.md "M9 adds: playback rate, loop mode" — M3
+/// did not freeze this struct; the additions are purely additive):
+///   - `playbackSpeed`: real-time multiplier (1.0 = real-time, 2.0 = 2x
+///     fast, 0.5 = half-speed). Validated > 0 in M9 ReplayDriver.
+///   - `loop`: when true, M9 ReplayDriver restarts at EOF.
 struct ReplayConfig {
-    QString sessionFilePath;  ///< Path to .sfreplay session file
-    // M9 adds: playback rate, loop mode, start offset
+    QString sessionFilePath;     ///< Path to .sfreplay session file
+    double playbackSpeed = 1.0;  ///< M9: real-time multiplier; rejected if <= 0
+    bool loop = false;           ///< M9: restart at EOF when true
 };
 
 }  // namespace signalforge::drivers
