@@ -47,3 +47,38 @@ chart smoke cases under `[chart][s1][smoke]`.
 (verified by `git diff 352f9972 -- 'src/buffer/*.hpp'
 'src/decode/*.hpp' 'src/expression/*.hpp' …` — no matches).
 **Effort**: ~1.5 h (plan estimate 4 h).
+
+---
+
+## S2 — TimeAxisManager full implementation + unit tests (start)
+
+**Goal**: per plan §S2 (4 h estimate), implement the state machine
+(visible range + live/paused) with `rangeChanged` / `liveModeChanged`
+Qt signals, plus a unit-test file with ≥ 90% line coverage.
+
+### S2 — close
+
+State machine: visible range is `[visibleEnd - duration,
+visibleEnd]` where `visibleEnd()` is dynamic (`now()`) in live
+mode and the captured `pausedAt_` in paused mode. Pan / zoom from
+live transitions to paused (anchoring the current `visibleEnd`).
+`pause()` / `resume()` / `setRange()` / `setPreset()` round-trip
+through the same machine.
+
+Defensive guards:
+- `zoom(factor, ...)` with `factor <= 0` is ignored.
+- `setRange(start, end)` with inverted or empty range is ignored.
+- `pause()` while paused / `resume()` while live are no-ops.
+
+Unit test cases (14): default state, pan-from-live, pan-when-paused,
+zoom-from-live, zoom-around-reference, zoom-non-positive-factor,
+pause/resume roundtrip, pause-when-paused, resume-when-live,
+setRange, setRange-inverted, setPreset, all-presets, visibleStart-
+tracks-now.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 414/414 release (was 400 → +14 TimeAxisManager).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty (only src/chart/ + tests/unit/chart/
+modified).
+**Effort**: ~1.0 h (plan estimate 4 h).
