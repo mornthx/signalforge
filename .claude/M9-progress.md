@@ -350,3 +350,65 @@ None.
 ### Deviations from plan
 
 None.
+
+---
+
+## S8 — ReplayDriver completion + integration test (completed)
+
+- Start: 2026-05-07T13:50Z
+- Close: 2026-05-07T14:15Z
+
+### Deliverables
+
+- `src/drivers/replay_driver.cpp` extended with full M9
+  semantics:
+  - V1 frame-stream format declared: 16-byte header beginning
+    with magic "SFREPLAY", followed by frame records
+    `{u64 nanosOffset, u32 payloadLen, u8[payloadLen]}` (LE).
+  - openOnIoThread keeps the file open (M3 closed it),
+    validates playbackSpeed > 0 (returns ConfigInvalid
+    otherwise), and detects whether frames follow the header
+    by checking the SFREPLAY magic. M3 fixtures (16 × 0xAB)
+    open successfully and run with no frame emission, so
+    existing M3 + M5 tests keep passing.
+  - startOnIoThread seeks past the header, initializes the
+    streaming timer (PreciseTimer, single-shot, lives on the
+    IO thread), and emits the first frame.
+  - emitNextFrame reads one record, emits frameOut, and
+    schedules the next tick using `(deltaNanos / playbackSpeed)`
+    for the wait. EOF + loop=true seeks back to header end
+    and continues.
+  - stopOnIoThread / closeOnIoThread cancel the timer and
+    close the file cleanly.
+  - New `frameOut` signal in the worker bridged to the
+    DriverInterface's existing frameReceived signal via
+    `ReplayDriver::onWorkerFrame`.
+- `tests/integration/test_replay_driver_full_cycle.cpp`: 4
+  cases — non-looping 3-frame emission, loop=true continuous
+  re-stream at 100x speed, playbackSpeed timing scaling
+  (100 ms@10x → wall time < 1 s), playbackSpeed <= 0 → Error
+  state.
+
+### Build / test counts
+
+- Debug: 508/508 ctest pass (was 504 + 4 new S8 tests).
+- Release: 508/508 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Note on M3 ReplayConfig + ReplayDriver
+
+`signalforge::drivers::ReplayConfig` was extended additively
+in S1 (playbackSpeed, loop fields). M3 explicitly invited this
+in M3-done.md "M9 adds…" comment, and driver_configs.hpp was
+not in the M3 freeze list.
+
+`signalforge::drivers::ReplayDriver` is also not in the M3
+freeze list (per M3-done.md "Freezes: None"). The freeze
+target was the `DriverInterface` abstract class, which M9
+does not modify (frameReceived signature unchanged; we just
+emit through it now).
+
+### Deviations from plan
+
+None.

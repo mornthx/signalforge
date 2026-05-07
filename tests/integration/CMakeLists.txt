@@ -301,3 +301,17 @@ target_link_libraries(test_signal_selector_tree_population
         signalforge_decoder
 )
 catch_discover_tests(test_signal_selector_tree_population DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_replay_driver_full_cycle
+    test_replay_driver_full_cycle.cpp
+)
+target_link_libraries(test_replay_driver_full_cycle
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Test
+        signalforge_connection
+        signalforge_drivers
+        signalforge_frame
+)
+catch_discover_tests(test_replay_driver_full_cycle DISCOVERY_MODE PRE_TEST)
