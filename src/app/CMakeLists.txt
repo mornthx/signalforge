@@ -9,11 +9,14 @@ target_link_libraries(signalforge_app_ui
     PUBLIC
         Qt6::Core
         Qt6::Widgets
+        Qt6::Quick
+        Qt6::QuickWidgets
         signalforge_frame
         signalforge_drivers
         signalforge_pipeline
         signalforge_decoder
         signalforge_buffer
+        signalforge_chart
     PRIVATE
         signalforge_observability
         signalforge_platform

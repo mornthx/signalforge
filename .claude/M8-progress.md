@@ -353,3 +353,66 @@ missing file graceful; invalid yaml rejection; missing
 **Format**: clang-format clean on changed files.
 **Frozen-file diff**: empty.
 **Effort**: ~0.5 h (plan estimate 5 h).
+
+---
+
+## S8 — MainWindow integration + window activation (start)
+
+**Goal**: per plan §S8 (5 h estimate), wire the M8 chart UI into
+MainWindow:
+
+- Eager-construct `SignalBufferRegistry` (was lazy via
+  ConnectionManager) so charts can attach immediately.
+- Central widget: `QSplitter` with `SignalSelector` on the left
+  and a vertical stack of charts (one `QQuickWidget` per chart)
+  on the right.
+- Toolbar: live/paused toggle (QToolButton, checkable), time-
+  range preset combo (Sec1 / Sec10 / Min1 / Min10 / Hour1),
+  "Add chart" button.
+- Status bar: frame rate (mean over last 60 frames across all
+  charts) + dropped frames + window-throttled flag.
+- Window activation (spec §4.6): `showEvent` → `raise()` +
+  `requestActivate()`; QTimer::singleShot(500): WARN if
+  `windowHandle()->isActive()` is false.
+
+### S8 — close
+
+`MainWindow` extended (existing class, not on M2-M7 freeze list):
+
+- `signalBufferRegistry_` constructed eagerly in the ctor (was
+  lazy via `openConnectionManager`); the existing
+  `openConnectionManager` flow continues to share this same
+  registry instance.
+- `chartManager_` constructed in the ctor.
+- `buildChartUi()`: assembles the central QSplitter (selector
+  left, charts right), the toolbar (live toggle, time-preset
+  combo, "+ Chart"), the status bar (FPS / dropped /
+  throttled labels), and a 1 Hz status-refresh timer that also
+  invokes `signalSelector_->refresh()` (per M8-concerns.md C2's
+  pull-based registry observation).
+- `onAddChart()`: `chartManager_->createChart()` + rebuild
+  chart widgets; logs INFO with the new id.
+- `rebuildChartWidgets()`: tears down + reattaches one
+  `QQuickWidget` per chart (host widget → chart `setParentItem`
+  on its `rootObject()`).
+- `onLiveToggleChanged(bool)`: `axis.resume()` / `axis.pause()`
+  + label update.
+- `onTimePresetChanged(int)`: `axis.setPreset(...)` for the
+  combo's index; resets the live toggle to checked.
+- `refreshStatusBar()`: aggregates `Chart::FrameStats` across
+  all charts; updates the three status-bar labels; invokes
+  `signalSelector_->refresh()` for tree freshness.
+- `showEvent`: `windowHandle()->raise()` +
+  `windowHandle()->requestActivate()`; 500-ms one-shot WARN if
+  the window isn't active by then (compositor throttling).
+
+App CMakeLists: links Qt6::Quick + Qt6::QuickWidgets +
+signalforge_chart on `signalforge_app_ui`.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 443/443 release (unchanged — UI integration is
+covered by S9 integration tests where an event loop runs).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty (`main_window.{hpp,cpp}` are app-
+level, not on the M2-M7 freeze list).
+**Effort**: ~0.5 h (plan estimate 5 h).
