@@ -64,16 +64,8 @@ template <typename T> struct LodBin {
 
 namespace {
 
-/// Per-LOD-level bookkeeping. `binSize` is fixed (10, 100, 1000); `bins`
-/// holds completed aggregates; `firstBinIndex` is the cumulative index
-/// (in bin-units) of `bins.front()`; `nextBinToEmit` is the cumulative
-/// bin index of the bin that the next emit will produce.
-template <typename T> struct LodLevel {
-    std::uint64_t binSize = 0;
-    std::deque<LodBin<T>> bins;
-    std::uint64_t firstBinIndex = 0;
-    std::uint64_t nextBinToEmit = 0;
-};
+// LodLevel is defined later (after ChunkedStore, since it needs
+// ChunkedStore<LodBin<T>> for cheap publish snapshots — ADR-005).
 
 /// Per-buffer chunk size in samples. Sealed chunks are exactly this
 /// size; the writer's mutable tail holds 0..kChunkSize - 1 samples.
@@ -312,6 +304,19 @@ template <typename T>
     }
     return snap.size();
 }
+
+/// Per-LOD-level bookkeeping. `binSize` is fixed (10 / 100 / 1000);
+/// `bins` holds completed aggregates as a `ChunkedStore<LodBin<T>>`
+/// so that `publishSegment` can snapshot it via shared_ptr-vector
+/// + tail copy (ADR-005). `firstBinIndex` is the cumulative bin
+/// index of the oldest retained bin; `nextBinToEmit` is the
+/// cumulative bin index of the bin that the next emit will produce.
+template <typename T> struct LodLevel {
+    std::uint64_t binSize = 0;
+    ChunkedStore<LodBin<T>> bins;
+    std::uint64_t firstBinIndex = 0;
+    std::uint64_t nextBinToEmit = 0;
+};
 
 /// NaN-safe min/max accumulator. For integer T, NaN check compiles out.
 /// `hasValue` becomes true on the first non-NaN sample; subsequent samples
@@ -740,12 +745,15 @@ public:
     struct Segment {
         // Chunked snapshots per ADR-005: chunk pointer-vector + tail
         // copy. Reader consumes via `at(i)` and the snapshotLowerBound
-        // / snapshotUpperBound helpers in this file.
+        // / snapshotUpperBound helpers in this file. LOD bins are also
+        // chunked to avoid an O(N/binSize) copy per publish — at N = 1 M
+        // and binSize = 10, the M6-style vector copy was 100 k bins per
+        // publish.
         typename ChunkedStore<T>::Snapshot values;
         typename ChunkedStore<std::chrono::steady_clock::time_point>::Snapshot timestamps;
-        std::shared_ptr<const std::vector<LodBin<T>>> lod1;
-        std::shared_ptr<const std::vector<LodBin<T>>> lod2;
-        std::shared_ptr<const std::vector<LodBin<T>>> lod3;
+        typename ChunkedStore<LodBin<T>>::Snapshot lod1;
+        typename ChunkedStore<LodBin<T>>::Snapshot lod2;
+        typename ChunkedStore<LodBin<T>>::Snapshot lod3;
     };
 
     [[nodiscard]] std::shared_ptr<const Segment> currentSegment() const noexcept {
@@ -759,7 +767,7 @@ public:
         if (level < 1 || level > 3) {
             return 0;
         }
-        return lodLevels_[static_cast<std::size_t>(level - 1)].bins.size();
+        return lodLevels_[static_cast<std::size_t>(level - 1)].bins.size();  // ChunkedStore::size()
     }
 
     [[nodiscard]] std::vector<SignalSample> queryRange(std::chrono::steady_clock::time_point t_start,
@@ -795,13 +803,13 @@ public:
         }
 
         // LOD output: 2 SignalSamples per bin (min @ t_start, max @ t_end).
-        const auto& binsPtr = (level == 1) ? seg->lod1 : (level == 2) ? seg->lod2 : seg->lod3;
-        if (!binsPtr || binsPtr->empty()) {
+        const auto& binsSnap = (level == 1) ? seg->lod1 : (level == 2) ? seg->lod2 : seg->lod3;
+        if (binsSnap.empty()) {
             return out;
         }
-        const auto& bins = *binsPtr;
-        out.reserve(bins.size() * 2);
-        for (const auto& bin : bins) {
+        out.reserve(binsSnap.size() * 2);
+        for (std::size_t i = 0; i < binsSnap.size(); ++i) {
+            const auto& bin = binsSnap.at(i);
             // Include a bin if any portion of its range overlaps the query window.
             if (bin.t_end < t_start || bin.t_start > t_end) {
                 continue;
@@ -852,7 +860,7 @@ protected:
         std::size_t bytes = values_.memoryBytes();
         if (lodEnabled_) {
             for (const auto& lvl : lodLevels_) {
-                bytes += lvl.bins.size() * sizeof(LodBin<T>);
+                bytes += lvl.bins.memoryBytes();
             }
         }
         return bytes;
@@ -870,13 +878,16 @@ protected:
     void publishSegment() override {
         auto seg = std::make_shared<Segment>();
         // O(N / kChunkSize) shared_ptr copies + O(kChunkSize) tail
-        // copies — see ADR-005 for the cost analysis.
+        // copies — see ADR-005 for the cost analysis. LOD bins are
+        // also chunked, so the per-publish copy cost stays bounded
+        // even at N = 1 M (where lod1 would otherwise be a 100 k-entry
+        // vector copy on every publish).
         seg->values = values_.snapshot();
         seg->timestamps = timestamps_.snapshot();
         if (lodEnabled_) {
-            seg->lod1 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[0].bins.begin(), lodLevels_[0].bins.end());
-            seg->lod2 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[1].bins.begin(), lodLevels_[1].bins.end());
-            seg->lod3 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[2].bins.begin(), lodLevels_[2].bins.end());
+            seg->lod1 = lodLevels_[0].bins.snapshot();
+            seg->lod2 = lodLevels_[1].bins.snapshot();
+            seg->lod3 = lodLevels_[2].bins.snapshot();
         }
         publishedSegment_.store(std::move(seg), std::memory_order_release);
     }

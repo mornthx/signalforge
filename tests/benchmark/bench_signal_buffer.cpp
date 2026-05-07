@@ -1,6 +1,8 @@
 // tests/benchmark/bench_signal_buffer.cpp
 //
-// M6 buffer benchmark: three scenarios per spec §5.4.
+// M6 buffer benchmark: three scenarios per spec §5.4 plus the
+// ADR-005 large-buffer scaling check (added with the chunked-storage
+// patch on `fix/m6-publish-cadence`).
 //
 //   1. Writer per type (Bool / Int64 / Double / QString) — tight push
 //      loop on a single SignalBuffer at a steady-state cap of 10 000
@@ -12,6 +14,10 @@
 //   3. End-to-end pipeline overhead — feeds frames through the M5
 //      SchemaDecoder with the M6 SignalBufferRegistry as sink, vs the
 //      same decoder with a counting-only sink. The ratio is reported.
+//   4. Large-buffer scaling (ADR-005) — push N samples (10 k / 100 k /
+//      1 M) into a single Double buffer with retention >= N (no
+//      eviction), reporting samples/sec at each N. The HALT-trigger #5
+//      gate is "Double @ 1 M ≥ 500 k samples/sec".
 //
 // JSON lines are emitted to stdout, one per scenario plus a final
 // summary. `tests/benchmark/results/M6-baseline.md` is authored from
@@ -224,12 +230,43 @@ void runEndToEndBench() {
     std::fflush(stdout);
 }
 
+// ---- Scenario 4: large-buffer scaling (ADR-005) ----
+
+void runLargeBufferBench(std::uint64_t totalSamples) {
+    SignalBufferConfig cfg;
+    cfg.windowSeconds = 1e9;                        // unbounded by time
+    cfg.capSamples = totalSamples + 1;              // no cap eviction
+    cfg.estimatedRateHz = 1e6;                      // sizing hint only
+    cfg.lodEnabled = true;                          // realistic chart config
+    SignalBuffer buf(makeMeta(QStringLiteral("bench/large/double"), SignalType::Double), cfg);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    const double sec = measureSeconds([&] {
+        for (std::uint64_t i = 0; i < totalSamples; ++i) {
+            buf.push(t0 + std::chrono::microseconds(static_cast<std::int64_t>(i)),
+                     SignalValue{static_cast<double>(i) * 0.001});
+        }
+    });
+    const double rate = static_cast<double>(totalSamples) / sec;
+    std::printf("{\"scenario\":\"large_buffer_scaling\",\"type\":\"double\","
+                "\"samples\":%llu,\"seconds\":%.4f,\"samples_per_sec\":%.1f}\n",
+                static_cast<unsigned long long>(totalSamples), sec, rate);
+    std::fflush(stdout);
+}
+
+void runLargeBufferBenches() {
+    runLargeBufferBench(10'000);
+    runLargeBufferBench(100'000);
+    runLargeBufferBench(1'000'000);
+}
+
 }  // namespace
 
 int main() {
     runWriterBenches();
     runReaderBench();
     runEndToEndBench();
+    runLargeBufferBenches();
     std::puts("{\"scenario\":\"summary\",\"status\":\"complete\"}");
     return 0;
 }
