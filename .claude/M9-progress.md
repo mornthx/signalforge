@@ -260,3 +260,39 @@ None.
 ### Deviations from plan
 
 None.
+
+---
+
+## S6 — ConnectionListWidget + ConnectionStatusWidget (completed)
+
+- Start: 2026-05-07T13:00Z
+- Close: 2026-05-07T13:25Z
+
+### Deliverables
+
+- `connection_list_widget.{hpp,cpp}` full impl: QListWidget
+  with one row per connection (display label = name + driver
+  type + state). Buttons: Add, Edit, Remove, Connect,
+  Disconnect. Double-click → editRequested. Wired to
+  manager's connectionAdded/Removed/StateChanged signals.
+  Emits addRequested + editRequested(id) so MainWindow can
+  pop the dialog.
+- `connection_status_widget.{hpp,cpp}` full impl: QLabel
+  showing "X/N connected" plus "errors: K" suffix when any
+  connection is errored. mousePressEvent emits clicked() so
+  MainWindow can open the connection list.
+- `connection_widgets_test.cpp`: 6 cases — list initial
+  population, list grow/shrink on signal, row label updates
+  on state change, Add button signal, status label
+  connect/disconnect counts, status error counter.
+
+### Build / test counts
+
+- Debug: 500/500 ctest pass (was 494 + 6 new S6 tests).
+- Release: 500/500 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Deviations from plan
+
+None.

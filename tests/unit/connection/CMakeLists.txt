@@ -74,3 +74,23 @@ target_link_libraries(connection_dialog_test
         signalforge_drivers
 )
 catch_discover_tests(connection_dialog_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(connection_widgets_test
+    connection_widgets_test.cpp
+)
+target_link_libraries(connection_widgets_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::Test
+        signalforge_connection
+        signalforge_drivers
+        signalforge_decoder
+        signalforge_pipeline
+)
+target_compile_definitions(connection_widgets_test
+    PRIVATE
+        SIGNALFORGE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/integration/fixtures"
+)
+catch_discover_tests(connection_widgets_test DISCOVERY_MODE PRE_TEST)
