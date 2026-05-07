@@ -75,6 +75,244 @@ template <typename T> struct LodLevel {
     std::uint64_t nextBinToEmit = 0;
 };
 
+/// Per-buffer chunk size in samples. Sealed chunks are exactly this
+/// size; the writer's mutable tail holds 0..kChunkSize - 1 samples.
+/// Tunable in the bench; see ADR-005 for the rationale (per-publish
+/// work bounded at O(N / kChunkSize + kChunkSize) instead of O(N)).
+constexpr std::size_t kChunkSize = 4096;
+
+/// Append-only chunked storage with O(1) push/pop_front and cheap
+/// snapshot publishing (ADR-005). Used by TypedBuffer for timestamps
+/// and by LinearTypedBuffer<T> for typed values; BoolTypedBuffer keeps
+/// its bit-packed deque for now (deferred per ADR-005 — bool's pack
+/// density already gives 64x compression vs the linear case).
+///
+/// Invariant: every sealed chunk has size == kChunkSize. The mutable
+/// tail holds the most recent 0..kChunkSize - 1 samples; when it
+/// fills, it is moved into a `shared_ptr<const std::vector<T>>` and
+/// pushed into `sealedChunks_`. firstChunkOffset_ tracks how many
+/// front samples of `sealedChunks_.front()` have been logically
+/// evicted; when it reaches the chunk's size, the chunk is dropped
+/// and the offset resets to 0.
+///
+/// Thread model: single-writer / multi-reader, like the deques it
+/// replaces. All non-snapshot methods are writer-only; readers
+/// consume the immutable `Snapshot` produced by `snapshot()` and
+/// captured into the published Segment.
+template <typename T> class ChunkedStore {
+public:
+    void push_back(const T& v) {
+        tail_.push_back(v);
+        ++totalSize_;
+        if (tail_.size() >= kChunkSize) {
+            sealedChunks_.push_back(std::make_shared<const std::vector<T>>(std::move(tail_)));
+            tail_.clear();
+            tail_.reserve(kChunkSize);
+        }
+    }
+
+    void pop_front() noexcept {
+        if (totalSize_ == 0) {
+            return;
+        }
+        --totalSize_;
+        if (!sealedChunks_.empty()) {
+            ++firstChunkOffset_;
+            if (firstChunkOffset_ == sealedChunks_.front()->size()) {
+                sealedChunks_.pop_front();
+                firstChunkOffset_ = 0;
+            }
+        } else {
+            // Sealed empty: front lives in the tail. O(tail_.size())
+            // shift on this rare path; only fires for caps < kChunkSize
+            // before the first seal, or briefly after a chunk drop.
+            tail_.erase(tail_.begin());
+        }
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept {
+        return totalSize_;
+    }
+    [[nodiscard]] bool empty() const noexcept {
+        return totalSize_ == 0;
+    }
+
+    [[nodiscard]] const T& front() const noexcept {
+        if (!sealedChunks_.empty()) {
+            return (*sealedChunks_.front())[firstChunkOffset_];
+        }
+        return tail_.front();
+    }
+    [[nodiscard]] const T& back() const noexcept {
+        if (!tail_.empty()) {
+            return tail_.back();
+        }
+        return sealedChunks_.back()->back();
+    }
+
+    /// Random access by logical retained index [0, size()).
+    [[nodiscard]] const T& at(std::size_t i) const noexcept {
+        if (!sealedChunks_.empty()) {
+            const std::size_t firstChunkRetained = sealedChunks_.front()->size() - firstChunkOffset_;
+            if (i < firstChunkRetained) {
+                return (*sealedChunks_.front())[firstChunkOffset_ + i];
+            }
+            i -= firstChunkRetained;
+            // Subsequent chunks are guaranteed kChunkSize (invariant).
+            const std::size_t numFollowing = sealedChunks_.size() - 1;
+            const std::size_t chunkRel = i / kChunkSize;
+            const std::size_t chunkOff = i % kChunkSize;
+            if (chunkRel < numFollowing) {
+                return (*sealedChunks_[1 + chunkRel])[chunkOff];
+            }
+            i -= numFollowing * kChunkSize;
+        }
+        return tail_[i];
+    }
+
+    void clear() noexcept {
+        sealedChunks_.clear();
+        tail_.clear();
+        firstChunkOffset_ = 0;
+        totalSize_ = 0;
+    }
+
+    /// Approximate retained-storage cost. The shared_ptr-controlled
+    /// chunks are still counted as "ours" since at least the writer
+    /// references them; readers may also hold them via the published
+    /// Segment, but that's a transient amplification and not budgeted.
+    [[nodiscard]] std::size_t memoryBytes() const noexcept {
+        std::size_t bytes = tail_.capacity() * sizeof(T);
+        for (const auto& chunk : sealedChunks_) {
+            bytes += chunk->size() * sizeof(T);
+        }
+        return bytes;
+    }
+
+    /// Immutable view of the writer's state at publish time. Captured
+    /// into the published `Segment` and read by reader-side queries.
+    struct Snapshot {
+        std::vector<std::shared_ptr<const std::vector<T>>> chunks;
+        std::shared_ptr<const std::vector<T>> tail;
+        std::size_t firstChunkOffset = 0;
+        std::size_t totalSize = 0;
+
+        [[nodiscard]] bool empty() const noexcept {
+            return totalSize == 0;
+        }
+        [[nodiscard]] std::size_t size() const noexcept {
+            return totalSize;
+        }
+
+        [[nodiscard]] const T& at(std::size_t i) const noexcept {
+            if (!chunks.empty()) {
+                const std::size_t firstChunkRetained = chunks[0]->size() - firstChunkOffset;
+                if (i < firstChunkRetained) {
+                    return (*chunks[0])[firstChunkOffset + i];
+                }
+                i -= firstChunkRetained;
+                const std::size_t numFollowing = chunks.size() - 1;
+                const std::size_t chunkRel = i / kChunkSize;
+                const std::size_t chunkOff = i % kChunkSize;
+                if (chunkRel < numFollowing) {
+                    return (*chunks[1 + chunkRel])[chunkOff];
+                }
+                i -= numFollowing * kChunkSize;
+            }
+            return (*tail)[i];
+        }
+    };
+
+    [[nodiscard]] Snapshot snapshot() const {
+        Snapshot snap;
+        snap.chunks.reserve(sealedChunks_.size());
+        for (const auto& c : sealedChunks_) {
+            snap.chunks.push_back(c);
+        }
+        snap.tail = std::make_shared<const std::vector<T>>(tail_);
+        snap.firstChunkOffset = firstChunkOffset_;
+        snap.totalSize = totalSize_;
+        return snap;
+    }
+
+private:
+    std::deque<std::shared_ptr<const std::vector<T>>> sealedChunks_;
+    std::vector<T> tail_;
+    std::size_t firstChunkOffset_ = 0;
+    std::size_t totalSize_ = 0;
+};
+
+/// Binary-search a `ChunkedStore<T>::Snapshot` for the smallest logical
+/// index `i` such that `snap.at(i) >= target`. Returns `snap.size()` if
+/// every retained value is less than `target`. Used by queryRange to
+/// implement the t_start / t_end window over chunked timestamps.
+/// O(chunks.size() + log(kChunkSize)). For 1 M samples / 4 k chunk
+/// size that's ~244 + 12 ops.
+template <typename T>
+[[nodiscard]] std::size_t snapshotLowerBound(const typename ChunkedStore<T>::Snapshot& snap, const T& target) {
+    if (snap.empty()) {
+        return 0;
+    }
+    std::size_t logicalStart = 0;
+    if (!snap.chunks.empty()) {
+        const auto& c0 = *snap.chunks[0];
+        const auto startIt = c0.begin() + static_cast<std::ptrdiff_t>(snap.firstChunkOffset);
+        const auto endIt = c0.end();
+        if (startIt != endIt && *(endIt - 1) >= target) {
+            const auto it = std::lower_bound(startIt, endIt, target);
+            return logicalStart + static_cast<std::size_t>(it - startIt);
+        }
+        logicalStart += static_cast<std::size_t>(endIt - startIt);
+    }
+    for (std::size_t c = 1; c < snap.chunks.size(); ++c) {
+        const auto& cv = *snap.chunks[c];
+        if (!cv.empty() && cv.back() >= target) {
+            const auto it = std::lower_bound(cv.begin(), cv.end(), target);
+            return logicalStart + static_cast<std::size_t>(it - cv.begin());
+        }
+        logicalStart += cv.size();
+    }
+    if (snap.tail && !snap.tail->empty()) {
+        const auto& tv = *snap.tail;
+        const auto it = std::lower_bound(tv.begin(), tv.end(), target);
+        return logicalStart + static_cast<std::size_t>(it - tv.begin());
+    }
+    return snap.size();
+}
+
+/// Same as `snapshotLowerBound` but for `upper_bound` semantics.
+template <typename T>
+[[nodiscard]] std::size_t snapshotUpperBound(const typename ChunkedStore<T>::Snapshot& snap, const T& target) {
+    if (snap.empty()) {
+        return 0;
+    }
+    std::size_t logicalStart = 0;
+    if (!snap.chunks.empty()) {
+        const auto& c0 = *snap.chunks[0];
+        const auto startIt = c0.begin() + static_cast<std::ptrdiff_t>(snap.firstChunkOffset);
+        const auto endIt = c0.end();
+        if (startIt != endIt && *(endIt - 1) > target) {
+            const auto it = std::upper_bound(startIt, endIt, target);
+            return logicalStart + static_cast<std::size_t>(it - startIt);
+        }
+        logicalStart += static_cast<std::size_t>(endIt - startIt);
+    }
+    for (std::size_t c = 1; c < snap.chunks.size(); ++c) {
+        const auto& cv = *snap.chunks[c];
+        if (!cv.empty() && cv.back() > target) {
+            const auto it = std::upper_bound(cv.begin(), cv.end(), target);
+            return logicalStart + static_cast<std::size_t>(it - cv.begin());
+        }
+        logicalStart += cv.size();
+    }
+    if (snap.tail && !snap.tail->empty()) {
+        const auto& tv = *snap.tail;
+        const auto it = std::upper_bound(tv.begin(), tv.end(), target);
+        return logicalStart + static_cast<std::size_t>(it - tv.begin());
+    }
+    return snap.size();
+}
+
 /// NaN-safe min/max accumulator. For integer T, NaN check compiles out.
 /// `hasValue` becomes true on the first non-NaN sample; subsequent samples
 /// update min/max. If every sample in a bin is NaN, mn/mx are left as
@@ -151,6 +389,9 @@ struct SignalBuffer::TypedBuffer {
             timestamps_.pop_front();
             ++totalEvicted_;
         }
+        // (timestamps_ is now a ChunkedStore<TimePoint>; same API
+        // shape — front/empty/pop_front/push_back/size — so the
+        // eviction loop is unchanged from the M6 deque version.)
 
         // 4. Bump cumulative push count.
         ++pushCount_;
@@ -274,10 +515,11 @@ protected:
     }
 
 public:
-    /// Total memory: the timestamp deque (approximated as size × element
-    /// size) + the per-type value bytes.
+    /// Total memory: the chunked timestamp store + the per-type value
+    /// bytes. Bound by retained samples regardless of how readers
+    /// hold transient snapshots.
     [[nodiscard]] std::size_t memoryBytes() const noexcept {
-        return timestamps_.size() * sizeof(std::chrono::steady_clock::time_point) + valueMemoryBytes();
+        return timestamps_.memoryBytes() + valueMemoryBytes();
     }
 
     void clear() {
@@ -308,7 +550,12 @@ protected:
     /// push (and any associated eviction). Default: no-op (Bool, String).
     virtual void onPushCompleted() {}
 
-    std::deque<std::chrono::steady_clock::time_point> timestamps_;
+    // ChunkedStore replaces M6's `std::deque<TimePoint>` (ADR-005).
+    // Same logical API — push_back / pop_front / front / size / empty
+    // / at — but with sealed-chunk + mutable-tail storage so that
+    // publishSegment captures it as O(N/kChunkSize) shared_ptr copies
+    // rather than an O(N) element copy.
+    ChunkedStore<std::chrono::steady_clock::time_point> timestamps_;
 
     Metric* samplesStoredMetric_ = nullptr;
     Metric* samplesEvictedMetric_ = nullptr;
@@ -334,15 +581,18 @@ class BoolTypedBuffer final : public SignalBuffer::TypedBuffer {
 public:
     using TypedBuffer::TypedBuffer;
 
-    /// Immutable snapshot of bool storage. Bits live in `packedBits` with
-    /// `firstBitOffset` leading bits skipped (in the first word) so the
-    /// reader can decode bit i (0 ≤ i < totalBits) as
+    /// Immutable snapshot of bool storage. Bits live in `packedBits`
+    /// with `firstBitOffset` leading bits skipped (in the first word)
+    /// so the reader can decode bit i (0 ≤ i < totalBits) as
     /// `(packedBits[(firstBitOffset + i) / 64] >> ((firstBitOffset + i) % 64)) & 1`.
+    /// Timestamps are a chunked snapshot per ADR-005; bool's bit-pack
+    /// is left in deque form (deferred per ADR-005's BoolTypedBuffer
+    /// note: bool already gets 64x compression via packing).
     struct Segment {
         std::shared_ptr<const std::vector<std::uint64_t>> packedBits;
         std::size_t firstBitOffset = 0;
         std::size_t totalBits = 0;
-        std::shared_ptr<const std::vector<std::chrono::steady_clock::time_point>> timestamps;
+        ChunkedStore<std::chrono::steady_clock::time_point>::Snapshot timestamps;
     };
 
     [[nodiscard]] std::shared_ptr<const Segment> currentSegment() const noexcept {
@@ -355,22 +605,22 @@ public:
         QueryTimer timer(*this);
         std::vector<SignalSample> out;
         const auto seg = currentSegment();
-        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+        if (!seg || seg->timestamps.empty()) {
             return out;
         }
-        const auto& ts = *seg->timestamps;
         const auto& packed = *seg->packedBits;
         const std::size_t firstBit = seg->firstBitOffset;
 
-        // Binary search the time range; ts is monotonically increasing.
-        const auto lo = std::lower_bound(ts.begin(), ts.end(), t_start);
-        const auto hi = std::upper_bound(ts.begin(), ts.end(), t_end);
-        out.reserve(static_cast<std::size_t>(hi - lo));
-        for (auto it = lo; it != hi; ++it) {
-            const std::size_t idx = static_cast<std::size_t>(it - ts.begin());
+        const std::size_t lo = snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
+        const std::size_t hi = snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+        if (hi <= lo) {
+            return out;
+        }
+        out.reserve(hi - lo);
+        for (std::size_t idx = lo; idx < hi; ++idx) {
             const std::size_t bitIdx = firstBit + idx;
             const bool b = ((packed[bitIdx / 64] >> (bitIdx % 64)) & std::uint64_t{1}) != 0;
-            out.push_back({*it, SignalValue{b}});
+            out.push_back({seg->timestamps.at(idx), SignalValue{b}});
         }
         return out;
     }
@@ -379,20 +629,19 @@ public:
         QueryTimer timer(*this);
         std::vector<SignalSample> out;
         const auto seg = currentSegment();
-        if (!seg || !seg->timestamps || seg->timestamps->empty() || n == 0) {
+        if (!seg || seg->timestamps.empty() || n == 0) {
             return out;
         }
-        const auto& ts = *seg->timestamps;
         const auto& packed = *seg->packedBits;
         const std::size_t firstBit = seg->firstBitOffset;
-        const std::size_t total = ts.size();
+        const std::size_t total = seg->timestamps.size();
         const std::size_t take = std::min(n, total);
         const std::size_t startIdx = total - take;
         out.reserve(take);
         for (std::size_t idx = startIdx; idx < total; ++idx) {
             const std::size_t bitIdx = firstBit + idx;
             const bool b = ((packed[bitIdx / 64] >> (bitIdx % 64)) & std::uint64_t{1}) != 0;
-            out.push_back({ts[idx], SignalValue{b}});
+            out.push_back({seg->timestamps.at(idx), SignalValue{b}});
         }
         return out;
     }
@@ -400,18 +649,17 @@ public:
     [[nodiscard]] std::optional<LatestValue> queryLatestOne() const override {
         QueryTimer timer(*this);
         const auto seg = currentSegment();
-        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+        if (!seg || seg->timestamps.empty()) {
             return std::nullopt;
         }
-        const auto& ts = *seg->timestamps;
         const auto& packed = *seg->packedBits;
         const std::size_t firstBit = seg->firstBitOffset;
-        const std::size_t idx = ts.size() - 1;
+        const std::size_t idx = seg->timestamps.size() - 1;
         const std::size_t bitIdx = firstBit + idx;
         const bool b = ((packed[bitIdx / 64] >> (bitIdx % 64)) & std::uint64_t{1}) != 0;
         LatestValue lv;
         lv.value = SignalValue{b};
-        lv.timestamp = ts.back();
+        lv.timestamp = seg->timestamps.at(idx);
         lv.age = std::chrono::steady_clock::now() - lv.timestamp;
         return lv;
     }
@@ -462,8 +710,7 @@ protected:
         seg->packedBits = std::make_shared<std::vector<std::uint64_t>>(packed_.begin(), packed_.end());
         seg->firstBitOffset = headBitOffset_;
         seg->totalBits = totalBits_;
-        seg->timestamps = std::make_shared<std::vector<std::chrono::steady_clock::time_point>>(timestamps_.begin(),
-                                                                                               timestamps_.end());
+        seg->timestamps = timestamps_.snapshot();
         publishedSegment_.store(std::move(seg), std::memory_order_release);
     }
 
@@ -491,8 +738,11 @@ public:
     }
 
     struct Segment {
-        std::shared_ptr<const std::vector<T>> values;
-        std::shared_ptr<const std::vector<std::chrono::steady_clock::time_point>> timestamps;
+        // Chunked snapshots per ADR-005: chunk pointer-vector + tail
+        // copy. Reader consumes via `at(i)` and the snapshotLowerBound
+        // / snapshotUpperBound helpers in this file.
+        typename ChunkedStore<T>::Snapshot values;
+        typename ChunkedStore<std::chrono::steady_clock::time_point>::Snapshot timestamps;
         std::shared_ptr<const std::vector<LodBin<T>>> lod1;
         std::shared_ptr<const std::vector<LodBin<T>>> lod2;
         std::shared_ptr<const std::vector<LodBin<T>>> lod3;
@@ -518,7 +768,7 @@ public:
         QueryTimer timer(*this);
         std::vector<SignalSample> out;
         const auto seg = currentSegment();
-        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+        if (!seg || seg->timestamps.empty()) {
             return out;
         }
 
@@ -530,14 +780,16 @@ public:
 
         if (level == 0) {
             // Raw range: binary search timestamps, copy values across.
-            const auto& ts = *seg->timestamps;
-            const auto& vals = *seg->values;
-            const auto lo = std::lower_bound(ts.begin(), ts.end(), t_start);
-            const auto hi = std::upper_bound(ts.begin(), ts.end(), t_end);
-            out.reserve(static_cast<std::size_t>(hi - lo));
-            for (auto it = lo; it != hi; ++it) {
-                const std::size_t idx = static_cast<std::size_t>(it - ts.begin());
-                out.push_back({*it, SignalValue{vals[idx]}});
+            const std::size_t lo =
+                snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
+            const std::size_t hi =
+                snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+            if (hi <= lo) {
+                return out;
+            }
+            out.reserve(hi - lo);
+            for (std::size_t idx = lo; idx < hi; ++idx) {
+                out.push_back({seg->timestamps.at(idx), SignalValue{seg->values.at(idx)}});
             }
             return out;
         }
@@ -564,17 +816,15 @@ public:
         QueryTimer timer(*this);
         std::vector<SignalSample> out;
         const auto seg = currentSegment();
-        if (!seg || !seg->timestamps || seg->timestamps->empty() || n == 0) {
+        if (!seg || seg->timestamps.empty() || n == 0) {
             return out;
         }
-        const auto& ts = *seg->timestamps;
-        const auto& vals = *seg->values;
-        const std::size_t total = ts.size();
+        const std::size_t total = seg->timestamps.size();
         const std::size_t take = std::min(n, total);
         const std::size_t startIdx = total - take;
         out.reserve(take);
         for (std::size_t idx = startIdx; idx < total; ++idx) {
-            out.push_back({ts[idx], SignalValue{vals[idx]}});
+            out.push_back({seg->timestamps.at(idx), SignalValue{seg->values.at(idx)}});
         }
         return out;
     }
@@ -582,15 +832,13 @@ public:
     [[nodiscard]] std::optional<LatestValue> queryLatestOne() const override {
         QueryTimer timer(*this);
         const auto seg = currentSegment();
-        if (!seg || !seg->timestamps || seg->timestamps->empty()) {
+        if (!seg || seg->timestamps.empty()) {
             return std::nullopt;
         }
-        const auto& ts = *seg->timestamps;
-        const auto& vals = *seg->values;
-        const std::size_t idx = ts.size() - 1;
+        const std::size_t idx = seg->timestamps.size() - 1;
         LatestValue lv;
-        lv.value = SignalValue{vals[idx]};
-        lv.timestamp = ts.back();
+        lv.value = SignalValue{seg->values.at(idx)};
+        lv.timestamp = seg->timestamps.at(idx);
         lv.age = std::chrono::steady_clock::now() - lv.timestamp;
         return lv;
     }
@@ -601,7 +849,7 @@ protected:
     }
 
     [[nodiscard]] std::size_t valueMemoryBytes() const noexcept override {
-        std::size_t bytes = values_.size() * sizeof(T);
+        std::size_t bytes = values_.memoryBytes();
         if (lodEnabled_) {
             for (const auto& lvl : lodLevels_) {
                 bytes += lvl.bins.size() * sizeof(LodBin<T>);
@@ -621,9 +869,10 @@ protected:
 
     void publishSegment() override {
         auto seg = std::make_shared<Segment>();
-        seg->values = std::make_shared<std::vector<T>>(values_.begin(), values_.end());
-        seg->timestamps = std::make_shared<std::vector<std::chrono::steady_clock::time_point>>(timestamps_.begin(),
-                                                                                               timestamps_.end());
+        // O(N / kChunkSize) shared_ptr copies + O(kChunkSize) tail
+        // copies — see ADR-005 for the cost analysis.
+        seg->values = values_.snapshot();
+        seg->timestamps = timestamps_.snapshot();
         if (lodEnabled_) {
             seg->lod1 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[0].bins.begin(), lodLevels_[0].bins.end());
             seg->lod2 = std::make_shared<std::vector<LodBin<T>>>(lodLevels_[1].bins.begin(), lodLevels_[1].bins.end());
@@ -651,20 +900,22 @@ protected:
                 if (binIdx >= firstIntactBin) {
                     // Bin covers cumulative samples [binIdx*binSize, (binIdx+1)*binSize).
                     // values_ holds samples [E, N); position of cumulative i is (i - E).
+                    // Chunked-store random access (`values_.at(i)`) is O(1)
+                    // — same big-O as the M6 deque's operator[].
                     const std::size_t start = static_cast<std::size_t>(binIdx * lvl.binSize - E);
                     const std::size_t end = static_cast<std::size_t>((binIdx + 1) * lvl.binSize - E);
                     LodBin<T> entry{};
                     bool hasValue = false;
                     for (std::size_t i = start; i < end; ++i) {
-                        accumulateMinMax<T>(values_[i], entry.min_val, entry.max_val, hasValue);
+                        accumulateMinMax<T>(values_.at(i), entry.min_val, entry.max_val, hasValue);
                     }
                     if (!hasValue) {
                         // All samples in the bin were NaN; emit the first sample's value.
-                        entry.min_val = values_[start];
-                        entry.max_val = values_[start];
+                        entry.min_val = values_.at(start);
+                        entry.max_val = values_.at(start);
                     }
-                    entry.t_start = timestamps_[start];
-                    entry.t_end = timestamps_[end - 1];
+                    entry.t_start = timestamps_.at(start);
+                    entry.t_end = timestamps_.at(end - 1);
                     if (lvl.bins.empty()) {
                         lvl.firstBinIndex = binIdx;
                     }
@@ -675,7 +926,7 @@ protected:
         }
     }
 
-    std::deque<T> values_;
+    ChunkedStore<T> values_;
     std::atomic<std::shared_ptr<const Segment>> publishedSegment_{};
     LodLevel<T> lodLevels_[3];
     bool lodEnabled_;
