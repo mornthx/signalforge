@@ -825,7 +825,54 @@ S9 CI: run 25519876612 (in_progress at S10 commit time).
   path (which has its own M5 / M6 perf gates). Documented
   in M10-baseline.md "Hand-off notes".
 
-S10 commit: pending push (gated by S9 CI green).
+S10 commit: `8853d14` "bench: M10 SessionWriter throughput
+at 60k events/sec (S10)". Pushed after S9 CI green
+(run 25519876612 ✓). S10 CI: run 25520409745 (in_progress
+at S11 commit time).
+
+---
+
+## S11 — M10 completion report (this commit)
+
+- Start: 2026-05-08T04:35Z
+
+### Deliverables
+
+- `docs/m10-hardware-verification.md`: 6-test manual
+  protocol mirroring `docs/m9-hardware-verification.md`.
+  Covers GUI round-trip, persistence across restart,
+  quit-while-recording prompt, mid-stream catalog
+  extension, backpressure under heavy load, disk-full /
+  IO error. Execution deferred to operator post-merge.
+- `.claude/M10-done.md`: spec §2.1 deliverables
+  checklist (17 items all ✅), freezes (3 sha256s),
+  acceptance self-check vs spec §8, test count matrix,
+  manual hardware verification table (results pending),
+  deviations table referencing M10-concerns.md C1/C2/C3,
+  commit manifest, CI verification status, hand-off
+  notes for M11/M12/M13, HALT trigger disposition table,
+  V1.5+/V2 deferred items.
+
+### Build / test counts
+
+- No code change (only `.claude/M10-done.md` +
+  `docs/m10-hardware-verification.md`). CLAUDE.md
+  §Required #2 docs-only exception applies.
+- Latest verified test counts (from S10 + earlier
+  pushes): Debug **545/545** + Release **545/545**;
+  debug-asan build clean.
+
+### Deviations from plan
+
+- Manual hardware verification protocol authored;
+  execution by operator post-merge. Same shape as M9
+  closure.
+- Push + PR creation via the user's Phase 5
+  authorization (push origin milestone/M10 + gh pr
+  create).
+
+S11 commit: `_TBD_` (this commit on push).
+
 
 
 
