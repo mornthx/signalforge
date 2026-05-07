@@ -34,10 +34,16 @@ constexpr auto kPrefixPublishes = QLatin1String("signal_buffer_publishes_");
 constexpr auto kPrefixQueries = QLatin1String("signal_buffer_queries_");
 constexpr auto kPrefixQueryUs = QLatin1String("signal_buffer_query_us_");
 
-/// Default writer publish cadence (samples per publish). Spec §3.5 / §4.4
-/// default. Time-based fallback (every 1 ms) is deferred to a future
-/// tuning pass per plan §S4 note.
-constexpr int kDefaultPublishCadence = 100;
+/// Writer publish-cadence floor (samples per publish). Spec §3.5 / §4.4
+/// default. The actual cadence is computed adaptively per push as
+/// `clamp(kPublishCadenceFloor, sampleCount / kPublishCadenceRatio,
+/// kPublishCadenceCap)` — see ADR-005. The floor preserves the
+/// original M6 baseline behavior on small buffers; the ratio + cap
+/// keep amortized per-push cost roughly constant on long-lived
+/// buffers (M8 chart use case).
+constexpr int kPublishCadenceFloor = 100;
+constexpr int kPublishCadenceRatio = 100;
+constexpr int kPublishCadenceCap = 5000;
 
 /// LOD bin sizes per spec §3.4. Three decimation levels above raw.
 constexpr std::uint64_t kLodBinSize1 = 10;
@@ -171,11 +177,18 @@ struct SignalBuffer::TypedBuffer {
         // and string are no-ops because LOD is disabled).
         onPushCompleted();
 
-        // 7. Snapshot publish on cadence: build an immutable Segment of the
-        // current state and atomic-store it for readers. Memory-bytes gauge
-        // is also updated here (rather than per push) since publish is the
-        // natural amortization point for accounting work.
-        if (++pushesSincePublish_ >= publishCadence_) {
+        // 7. Snapshot publish on adaptive cadence (per ADR-005): build
+        // an immutable Segment of the current state and atomic-store it
+        // for readers. Cadence scales with retained sample count so per-
+        // publish O(N) copy work is amortized into roughly constant per-
+        // push cost on long-lived buffers (M8 chart use case). Memory-
+        // bytes gauge is also updated here (rather than per push) since
+        // publish is the natural amortization point for accounting work.
+        ++pushesSincePublish_;
+        const int cadence =
+            std::clamp(static_cast<int>(samplesRetained() / kPublishCadenceRatio),
+                       kPublishCadenceFloor, kPublishCadenceCap);
+        if (pushesSincePublish_ >= cadence) {
             publishSegment();
             pushesSincePublish_ = 0;
             ++publishCount_;
@@ -301,7 +314,9 @@ protected:
 
     /// Build an immutable Segment of the current writer-private state and
     /// atomic-store it on the per-derivation `publishedSegment_`. Called
-    /// from `push()` once every `publishCadence_` successful pushes.
+    /// from `push()` once every `cadence` successful pushes, where
+    /// `cadence` is `clamp(kPublishCadenceFloor, samplesRetained() /
+    /// kPublishCadenceRatio, kPublishCadenceCap)` per ADR-005.
     virtual void publishSegment() = 0;
 
     /// Hook for derivations to update LOD aggregators after a successful
@@ -323,7 +338,8 @@ protected:
     std::uint64_t pushCount_ = 0;
     double estimatedRateHz_;
 
-    int publishCadence_ = kDefaultPublishCadence;
+    // Cadence is computed dynamically per push (ADR-005); no stored
+    // configuration here. `pushesSincePublish_` resets on each publish.
     int pushesSincePublish_ = 0;
     std::uint64_t publishCount_ = 0;
 };
