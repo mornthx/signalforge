@@ -527,3 +527,55 @@ test_connection_lifecycle_full_stack.cpp), plus the manual
 hardware verification protocol covers the integration points
 that automated tests can't reach (real serial port + real
 TCP host etc.).
+
+---
+
+## S5s — Inherited M8 1-hour soak (completed)
+
+- Start: 2026-05-07T20:25Z (harness implementation)
+- Run start: 2026-05-07T21:14Z
+- Run close: 2026-05-07T22:14Z (3600 s)
+
+### Deliverables
+
+- `tests/benchmark/bench_chart.cpp`: `--soak <seconds>` and
+  `--memory-snapshot <interval>` flags. Soak mode drives 60
+  signals × 1 chart at 1 kHz inject + ~30 Hz redraw via
+  real-clock `QTimer`; reads `/proc/self/status` VmRSS at the
+  given interval; emits `soak_snapshot` jsonl rows + a
+  `soak_summary` row. Internal acceptance gate: VmRSS growth
+  vs steady-state baseline (sec ≥ 120) < 10 %, dropped
+  frames < 50.
+- `tests/benchmark/results/m9-s5s/soak-1hour.jsonl`: 60
+  snapshot rows + summary.
+- `tests/benchmark/results/M8-baseline.md`: appended
+  `## 1-hour soak (S5s)` section with full numbers.
+
+### Result
+
+- VmRSS baseline (sec=179, first ≥ 120 s): 131 844 KiB.
+- VmRSS final (sec=3599): 143 772 KiB.
+- **VmRSS growth: 9.047 %** (gate < 10 % → ✅).
+- Total redraws: 109 089. **Dropped frames: 0** (gate < 50
+  → ✅).
+- Harness exit code: 0. stderr empty. No HALT trigger
+  fired.
+
+### Build / test counts
+
+- Release build of `bench_chart` clean (only target rebuilt).
+- `clang-format --dry-run -Werror` clean on the diff.
+
+### Deviations from plan
+
+- Plan §S5s also asked to update `.claude/M8-done.md` §8.2
+  marking the soak ✅. The session permission rule blocked
+  editing a prior milestone's done.md (treats them as freeze
+  records). The result is therefore captured in
+  `M8-baseline.md` and `M9-done.md §Inherited concerns`,
+  not in M8-done.md itself. Recorded in
+  `.claude/M9-concerns.md` as C3.
+- ASan/LSan-clean is delegated to CI's `debug-asan` path
+  (host /etc/ld.so.preload blocks local ASan runtime, per
+  the project memory note). The 1-hour soak measures host
+  VmRSS + frame stability only.

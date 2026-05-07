@@ -21,14 +21,21 @@
 #include "chart/time_axis_manager.hpp"
 #include "decode/decoder_interface.hpp"
 
+#include <QFile>
 #include <QGuiApplication>
 #include <QMetaObject>
 #include <QString>
+#include <QTextStream>
+#include <QTimer>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <string>
 #include <vector>
 
 using signalforge::buffer::SignalBufferRegistry;
@@ -281,12 +288,178 @@ void runScenario4(SignalBufferRegistry& registry) {
     printResult("scenario_4_lod", 1, 1, kTicks, tickMs);
 }
 
+// ---- Soak mode (M9 inherited M8 spec §5.6 + plan §S5s) ----
+//
+// Drives 60 charts × 1 kHz inject × 30 Hz redraw via real QTimers
+// for `--soak <seconds>`. Captures /proc/self/status VmRSS every
+// `--memory-snapshot <seconds>` and reports growth + dropped
+// frames at the end. ASan/LSan safety is the CI debug-asan
+// gate's responsibility (host ld.so.preload blocks local ASan).
+
+std::int64_t readVmRssKb() {
+    // Linux-only. /proc/self/status has a "VmRSS:\t<n> kB" line.
+    std::ifstream f("/proc/self/status");
+    if (!f.is_open()) {
+        return -1;
+    }
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("VmRSS:", 0) == 0) {
+            const char* p = line.c_str() + 6;
+            while (*p == ' ' || *p == '\t') {
+                ++p;
+            }
+            return std::strtoll(p, nullptr, 10);
+        }
+    }
+    return -1;
+}
+
+int runSoak(int soakSeconds, int memSnapshotSeconds) {
+    constexpr int kCharts = 60;
+    constexpr int kInjectIntervalMs = 1;   // 1 kHz
+    constexpr int kRenderIntervalMs = 33;  // ~30 Hz
+    constexpr int kFrameOverrunBudgetMs = 50;
+    // M6 default windowSeconds is 60. Take the leak baseline at
+    // 2× window so transient buffer fill is excluded from the
+    // growth gate. Final / baseline must satisfy < 10% per
+    // M8 spec §5.6 (steady-state interpretation).
+    constexpr int kBaselineSeconds = 120;
+
+    SignalBufferRegistry registry;
+    std::vector<SignalMetadata> metas;
+    metas.reserve(kCharts);
+    for (int i = 0; i < kCharts; ++i) {
+        metas.push_back(makeMeta(QStringLiteral("soak/s%1").arg(i), SignalType::Double));
+    }
+    registry.onSignalsRegistered(QStringLiteral("soak"), metas);
+
+    TimeAxisManager axis;
+    Chart chart(registry, axis);
+    chart.setWidth(1920);
+    chart.setHeight(1080);
+    for (const auto& m : metas) {
+        chart.addSignal(m.id);
+    }
+
+    const auto t0 = std::chrono::steady_clock::now();
+    std::int64_t injectIdx = 0;
+
+    QTimer injectTimer;
+    injectTimer.setTimerType(Qt::PreciseTimer);
+    injectTimer.setInterval(kInjectIntervalMs);
+    QObject::connect(&injectTimer, &QTimer::timeout, [&]() {
+        for (int c = 0; c < kCharts; ++c) {
+            registry.onSignal(t0 + std::chrono::microseconds(injectIdx * 1000), metas[c].id,
+                              SignalValue{std::sin(injectIdx * 0.01 + c * 0.1)});
+        }
+        ++injectIdx;
+    });
+
+    QTimer renderTimer;
+    renderTimer.setTimerType(Qt::PreciseTimer);
+    renderTimer.setInterval(kRenderIntervalMs);
+    auto lastFrame = std::chrono::steady_clock::now();
+    long long totalFrames = 0;
+    long long droppedFrames = 0;
+    QObject::connect(&renderTimer, &QTimer::timeout, [&]() {
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrame).count();
+        if (totalFrames > 0 && elapsed > kFrameOverrunBudgetMs) {
+            ++droppedFrames;
+        }
+        lastFrame = now;
+        ++totalFrames;
+        runOneTick(chart);
+    });
+
+    const std::int64_t vmRssInitialKb = readVmRssKb();
+    std::int64_t vmRssBaselineKb = -1;  // captured at t ≈ kBaselineSeconds
+
+    QTimer memTimer;
+    memTimer.setInterval(memSnapshotSeconds * 1000);
+    QObject::connect(&memTimer, &QTimer::timeout, [&]() {
+        const std::int64_t kb = readVmRssKb();
+        const auto now = std::chrono::steady_clock::now();
+        const auto sec = std::chrono::duration_cast<std::chrono::seconds>(now - t0).count();
+        if (vmRssBaselineKb < 0 && sec >= kBaselineSeconds) {
+            vmRssBaselineKb = kb;
+        }
+        std::printf("{\"scenario\":\"soak_snapshot\",\"sec\":%lld,\"vmrss_kb\":%lld,\"total_frames\":%lld,"
+                    "\"dropped_frames\":%lld,\"inject_idx\":%lld}\n",
+                    static_cast<long long>(sec), static_cast<long long>(kb), totalFrames, droppedFrames,
+                    static_cast<long long>(injectIdx));
+        std::fflush(stdout);
+    });
+
+    QTimer stopTimer;
+    stopTimer.setSingleShot(true);
+    stopTimer.setInterval(soakSeconds * 1000);
+    QObject::connect(&stopTimer, &QTimer::timeout, []() { QCoreApplication::quit(); });
+
+    injectTimer.start();
+    renderTimer.start();
+    memTimer.start();
+    stopTimer.start();
+
+    QCoreApplication::exec();
+
+    const std::int64_t vmRssFinalKb = readVmRssKb();
+    // The growth gate compares final vs the post-warmup baseline
+    // (steady-state interpretation; transient buffer fill before
+    // M6 windowSeconds eviction kicks in is not a leak).
+    const std::int64_t vmRssBaselineForGate = (vmRssBaselineKb > 0) ? vmRssBaselineKb : vmRssInitialKb;
+    const double growthPct =
+        (vmRssBaselineForGate > 0)
+            ? (100.0 * (vmRssFinalKb - vmRssBaselineForGate) / static_cast<double>(vmRssBaselineForGate))
+            : 0.0;
+    std::printf("{\"scenario\":\"soak_summary\",\"soak_seconds\":%d,\"snapshot_interval_seconds\":%d,"
+                "\"vmrss_initial_kb\":%lld,\"vmrss_baseline_kb\":%lld,\"vmrss_final_kb\":%lld,"
+                "\"vmrss_growth_pct\":%.3f,\"total_frames\":%lld,\"dropped_frames\":%lld,"
+                "\"inject_idx\":%lld}\n",
+                soakSeconds, memSnapshotSeconds, static_cast<long long>(vmRssInitialKb),
+                static_cast<long long>(vmRssBaselineForGate), static_cast<long long>(vmRssFinalKb), growthPct,
+                totalFrames, droppedFrames, static_cast<long long>(injectIdx));
+    std::fflush(stdout);
+
+    // Acceptance gates per M8 spec §7 trigger #6 + plan §S5s
+    // (steady-state interpretation: baseline at 2× windowSeconds).
+    if (soakSeconds < kBaselineSeconds + 30) {
+        std::fprintf(stderr, "soak: --soak too short (need >= %d sec for steady-state baseline)\n",
+                     kBaselineSeconds + 30);
+        return 0;  // smoke run; no gate enforcement
+    }
+    const bool growthOk = vmRssBaselineForGate <= 0 || growthPct < 10.0;
+    const bool droppedOk = droppedFrames < 50;
+    if (!growthOk || !droppedOk) {
+        std::fprintf(stderr, "soak FAILED: growth=%.3f%% (gate <10), dropped=%lld (gate <50)\n", growthPct,
+                     droppedFrames);
+        return 1;
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    // Each scenario uses its own registry to avoid cross-scenario
-    // metric counter / signal-id collisions.
+    int soakSeconds = 0;
+    int memSnapshotSeconds = 60;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--soak") == 0 && i + 1 < argc) {
+            soakSeconds = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--memory-snapshot") == 0 && i + 1 < argc) {
+            memSnapshotSeconds = std::atoi(argv[++i]);
+        }
+    }
+
     QGuiApplication app(argc, argv);
+
+    if (soakSeconds > 0) {
+        return runSoak(soakSeconds, memSnapshotSeconds);
+    }
+
+    // Default: each scenario uses its own registry to avoid
+    // cross-scenario metric counter / signal-id collisions.
     {
         SignalBufferRegistry r1;
         runScenario1(r1);

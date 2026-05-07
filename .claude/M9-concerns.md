@@ -101,4 +101,36 @@ transition.
 
 If soak fails: HALT and assess M8 hotfix vs M9 regression.
 
-**Status**: scheduled as plan subtask S5s.
+**Status**: ✅ executed at M9 close. 3600 s run on dev
+workstation: VmRSS growth 9.047 % (gate < 10 %), dropped
+frames 0 (gate < 50). Numbers in
+`tests/benchmark/results/M8-baseline.md §1-hour soak (S5s)`
+and `.claude/M9-done.md §Inherited concerns`. No HALT
+trigger fired.
+
+---
+
+## C3 — M8-done.md §8.2 left unchanged
+
+`M9-plan.md §S5s` asked to flip the "Pending: 1-hour soak
+test" checkbox in `.claude/M8-done.md` §8.2 once the soak
+passed. The session permission hook treats prior-milestone
+done.md files as freeze records and blocks edits to them.
+
+**Resolution**: leave `M8-done.md` untouched. The S5s
+result is captured in:
+
+- `tests/benchmark/results/M8-baseline.md §1-hour soak (S5s)` —
+  full table + methodology;
+- `.claude/M9-progress.md §S5s` — log entry with numbers;
+- `.claude/M9-done.md §Inherited concerns` — same numbers
+  in the milestone closure report.
+
+Anyone reading `M8-done.md` §8.2's "Pending" checkbox should
+follow the cross-reference embedded in that bullet's note
+("the soak runs … before final acceptance") to the M9
+artifacts above. A future session with explicit per-edit
+authorization may flip the checkbox; this is documentation
+hygiene, not a correctness issue.
+
+**Status**: documented; no further action this milestone.
