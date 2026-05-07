@@ -187,3 +187,53 @@ is exercised in S9 integration tests where a Qt event loop runs).
 **Format**: clang-format clean on changed files.
 **Frozen-file diff**: empty (only `src/chart/chart.cpp` modified).
 **Effort**: ~1.0 h (plan estimate 5 h).
+
+---
+
+## S5 — ChartManager (start)
+
+**Goal**: per plan §S5 (3 h estimate), implement
+ChartManager::createChart / removeChart / chart / chartIds /
+activeChartId / setActiveChartId. yaml save/load deferred to S7
+(stubs that log + return false).
+
+Test target: chart_manager_test covering create/remove round-trip,
+activeChart tracking, chartIds() insertion order.
+
+### S5 — close
+
+`createChart(cfg)`: honors `cfg.id` if non-empty and free;
+otherwise generates `chart-<n>` with a monotonic suffix
+(`nextChartIdSuffix_`). Stores the unique_ptr<Chart> in
+`charts_`, appends id to `chartOrder_`, and if no active chart
+yet, the new id becomes active (emits `activeChartChanged`).
+Emits `chartCreated`.
+
+`removeChart(id)`: erases from map + chartOrder_; if the removed
+chart was active, rotates active to the new front of chartOrder_
+(or empty string if no charts remain). Emits `chartRemoved` +
+`activeChartChanged` as appropriate.
+
+`setActiveChartId(id)`: defensive — ignores unknown ids;
+no-op if same id is already active. Emits `activeChartChanged`
+on transition.
+
+`timeAxis()`: returns the manager-owned reference (single
+TimeAxisManager shared by all charts per decision M8.3 / spec
+§3.3).
+
+`saveConfigToFile` / `loadConfigFromFile`: stubs that log
+WARN. S7 fills these in alongside the canonical
+`schemas/charts_v1.yaml` schema example.
+
+Unit test cases (7): empty manager, createChart unique-id +
+auto-active, createChart explicit id, createChart colliding id
+falls back to generated, removeChart rotates active id,
+setActiveChartId no-op + unknown-id rejection, timeAxis()
+shared-reference round-trip.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 432/432 release (was 425 → +7 chart_manager).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty.
+**Effort**: ~0.5 h (plan estimate 3 h).
