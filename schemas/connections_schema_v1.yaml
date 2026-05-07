@@ -1,0 +1,70 @@
+schema_version: 1
+description: |
+  SignalForge V1 connection persistence schema (M9 frozen).
+  Canonical example. The file format is consumed and produced by
+  signalforge::connection::ConnectionManager via yaml-cpp.
+
+  Top-level keys (M9 freeze): schema_version, connections.
+  Per-connection keys: id, displayName, driverType, driverConfig,
+    decoderSchemaId, autoConnectOnStartup, autoConnectCommands.
+  Per-command keys: name, payload, expected, timeout, delayBefore.
+
+  Field naming under driverConfig matches the M3
+  signalforge::drivers::*Config struct field names (per M9-concerns.md
+  C1: M9 reuses M3's structs in the variant rather than duplicating
+  them in a new namespace). For example, Serial uses `device`, not
+  `portName`.
+
+connections:
+  - id: dev-board-serial
+    displayName: "Dev Board (USB Serial)"
+    driverType: serial
+    driverConfig:
+      device: /dev/ttyUSB0
+      baudRate: 115200
+      dataBits: 8
+      parity: none           # one of: none, even, odd, mark, space
+      stopBits: 1
+      flowControl: none      # one of: none, hardware, software
+    decoderSchemaId: dev-board-frame-v1
+    autoConnectOnStartup: false
+    autoConnectCommands:
+      - name: "Enable telemetry"
+        payload: !!binary "RU5BQkxFX1RFTEVNRVRSWQo="
+        expected: !!binary "T0sK"
+        timeout: 1000
+        delayBefore: 100
+
+  - id: tcp-monitor
+    displayName: "Network Monitor"
+    driverType: tcp
+    driverConfig:
+      host: 192.168.1.100
+      port: 9090
+      connectTimeout: 5000   # milliseconds
+    decoderSchemaId: simple-protocol-v1
+    autoConnectOnStartup: false
+    autoConnectCommands: []
+
+  - id: udp-listener
+    displayName: "Sensor UDP feed"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "0.0.0.0"
+      localBindPort: 7000
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: udp-protocol-v1
+    autoConnectOnStartup: false
+
+  - id: replay-fixture
+    displayName: "Recorded session"
+    driverType: replay
+    driverConfig:
+      sessionFilePath: "/var/tmp/yesterday.sfreplay"
+      playbackSpeed: 1.0
+      loop: false
+    decoderSchemaId: ""
+    autoConnectOnStartup: false

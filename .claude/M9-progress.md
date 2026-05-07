@@ -164,3 +164,50 @@ signals stay wired across driver rebuilds.
 ### Deviations from plan
 
 None.
+
+---
+
+## S4 — yaml save/load + canonical schema + persistence test (completed)
+
+- Start: 2026-05-07T12:15Z
+- Close: 2026-05-07T12:35Z
+
+### Deliverables
+
+- `schemas/connections_schema_v1.yaml` — canonical example with
+  one of each driver type (serial / tcp / udp / replay), an
+  auto-connect command with `!!binary` payload + `expected`,
+  schema_version: 1.
+- `schemas/connections_schema_v1.json` — JSON-Schema doc form
+  with per-driverType conditional sub-schemas.
+- `connection_manager.cpp` save/load via yaml-cpp:
+  - emit / read all 4 driverConfig variants matching M3 field
+    names (concerns C1)
+  - `YAML::Binary` for `payload` + `expected` (NUL/CRLF
+    survive)
+  - `loadConfigFile` is reset-then-load: clears existing
+    connections first
+  - missing file → INFO log + return false (graceful)
+  - parse error → ERROR log + return false (graceful)
+  - schema_version != 1 → ERROR log + return false
+  - per-connection malformed entries skip with WARN, valid
+    entries continue
+  - load sets `configPath_` so subsequent CRUD auto-saves to
+    the same path
+  - save uses an `orderedIds_` walk so output order matches
+    insertion order (deterministic)
+- `connection_persistence_test.cpp`: 7 cases covering 4-driver
+  round-trip, binary payload + NUL/CRLF/0xFF, missing file,
+  malformed yaml, wrong schema_version, save→load→save
+  bit-identical, empty manager round-trip.
+
+### Build / test counts
+
+- Debug: 486/486 ctest pass (was 479 + 7 new S4 tests).
+- Release: 486/486 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Deviations from plan
+
+None.

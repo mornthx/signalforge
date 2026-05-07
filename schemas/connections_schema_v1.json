@@ -1,0 +1,166 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://signalforge.example/schemas/connections_schema_v1.json",
+  "title": "SignalForge Connections Schema v1",
+  "description": "Documentation-only JSON-Schema description of M9's yaml connection schema v1. Runtime validation is performed by signalforge::connection::ConnectionManager (src/connection/connection_manager.cpp), not by this document. Mirrors M5/M7's pattern.",
+  "type": "object",
+  "required": ["schema_version", "connections"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version identifier. Must be 1 for V1."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional free-form description of this connections file's purpose."
+    },
+    "connections": {
+      "type": "array",
+      "minItems": 0,
+      "description": "Sequence of connection definitions. Each connection wraps one driver instance plus its post-connect command sequence.",
+      "items": {
+        "type": "object",
+        "required": ["id", "driverType", "driverConfig"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique identifier within the file. ConnectionManager auto-generates when not provided at add-time."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable name shown in the connection list."
+          },
+          "driverType": {
+            "type": "string",
+            "enum": ["serial", "tcp", "udp", "replay"],
+            "description": "Discriminator for driverConfig. Must agree with the driverConfig shape."
+          },
+          "driverConfig": {
+            "type": "object",
+            "description": "Driver-type-specific configuration. Field names match M3's signalforge::drivers::*Config struct field names (see M9-concerns.md C1)."
+          },
+          "decoderSchemaId": {
+            "type": "string",
+            "description": "M5 decoder schema reference. Empty string is valid (raw frames flow through without decoding)."
+          },
+          "autoConnectOnStartup": {
+            "type": "boolean",
+            "default": false,
+            "description": "FORWARD-COMPATIBILITY ONLY in V1 per design decision M9.2. Schema accepts the key; runtime ignores it. Effect deferred to V1.5+."
+          },
+          "autoConnectCommands": {
+            "type": "array",
+            "default": [],
+            "description": "Sequential commands sent after the connection enters Connected. Failures log but do not disconnect (spec §3.5).",
+            "items": {
+              "type": "object",
+              "required": ["payload"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Optional label used in logs and the Connection signal autoConnectCommandSent."
+                },
+                "payload": {
+                  "type": "string",
+                  "description": "Raw bytes encoded as yaml !!binary (base64). NUL/CRLF survive the round-trip."
+                },
+                "expected": {
+                  "type": "string",
+                  "description": "Optional expected response. yaml !!binary (base64). Timeout is a WARN, not a hard failure."
+                },
+                "timeout": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 1000,
+                  "description": "Milliseconds to wait for the expected response before logging a WARN and continuing."
+                },
+                "delayBefore": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Milliseconds to wait before sending this command's payload."
+                }
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "driverType": { "const": "serial" } } },
+            "then": {
+              "properties": {
+                "driverConfig": {
+                  "type": "object",
+                  "required": ["device"],
+                  "properties": {
+                    "device": { "type": "string", "minLength": 1 },
+                    "baudRate": { "type": "integer", "minimum": 1, "default": 115200 },
+                    "dataBits": { "type": "integer", "enum": [5, 6, 7, 8], "default": 8 },
+                    "parity": { "type": "string", "enum": ["none", "even", "odd", "mark", "space"], "default": "none" },
+                    "stopBits": { "type": "integer", "enum": [1, 2], "default": 1 },
+                    "flowControl": { "type": "string", "enum": ["none", "hardware", "software"], "default": "none" }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "driverType": { "const": "tcp" } } },
+            "then": {
+              "properties": {
+                "driverConfig": {
+                  "type": "object",
+                  "required": ["host", "port"],
+                  "properties": {
+                    "host": { "type": "string", "minLength": 1 },
+                    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                    "connectTimeout": { "type": "integer", "minimum": 0, "default": 5000 }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "driverType": { "const": "udp" } } },
+            "then": {
+              "properties": {
+                "driverConfig": {
+                  "type": "object",
+                  "properties": {
+                    "localBindAddress": { "type": "string", "default": "0.0.0.0" },
+                    "localBindPort": { "type": "integer", "minimum": 0, "maximum": 65535, "default": 0 },
+                    "remoteHost": { "type": "string" },
+                    "remotePort": { "type": "integer", "minimum": 0, "maximum": 65535, "default": 0 },
+                    "multicastGroup": { "type": "string" },
+                    "multicastTtl": { "type": "integer", "minimum": 1, "maximum": 255, "default": 1 }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "driverType": { "const": "replay" } } },
+            "then": {
+              "properties": {
+                "driverConfig": {
+                  "type": "object",
+                  "required": ["sessionFilePath"],
+                  "properties": {
+                    "sessionFilePath": { "type": "string", "minLength": 1 },
+                    "playbackSpeed": { "type": "number", "exclusiveMinimum": 0, "default": 1.0 },
+                    "loop": { "type": "boolean", "default": false }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
