@@ -130,3 +130,58 @@ revised gate.
 | Reader throughput | ✅ |
 | End-to-end overhead (ADR-004 threshold) | ✅ |
 | Run-to-run variance < 5% | ✅ (0.74 pp on the e2e gate) |
+| Large-buffer scaling (ADR-005, post-chunked-storage) | ✅ (5.8× over 500 k @ 1 M target) |
+
+## Large-buffer scaling (post-ADR-005, chunked storage)
+
+> Acceptance gate (HALT trigger #5 from the publish-cadence
+> patch): Double @ 1 M ≥ 500 k samples/sec on a buffer with
+> retention ≥ N (no eviction). Measured 3-run mean **2.9 M/sec**
+> — **5.8× over** the gate.
+
+Run conditions: same as M6 §1 (release-bench preset, GCC 13,
+host shuai-Laptop). Bench scenario added in
+`tests/benchmark/bench_signal_buffer.cpp::runLargeBufferBench` on
+the `fix/m6-publish-cadence` branch.
+
+Scenario: push N samples into a single Double buffer with
+`capSamples = N + 1` and `windowSeconds = 1e9` (no eviction);
+LOD enabled (the realistic M8 chart configuration). 3 runs at
+each N.
+
+| N samples | Run 1 (s/s) | Run 2 (s/s) | Run 3 (s/s) | mean | (s/N) |
+|---:|---:|---:|---:|---:|---:|
+|   10 000  | 22.85 M | 15.87 M | 20.56 M | **19.8 M** | ~50 ns |
+|  100 000  | 10.38 M |  9.99 M | 11.05 M | **10.5 M** | ~95 ns |
+|  1 000 000 |  2.87 M |  2.92 M |  2.89 M |  **2.9 M** | ~345 ns |
+
+Pre-ADR-005 (deque-based storage, M6 baseline), the same
+scenario at N = 1 M extrapolates from the M8 prototype's measured
+~40 k samples/sec for a 600 k preload — call it ~30 k/sec at 1 M.
+Post-ADR-005: **2.9 M/sec — ~95× faster** at this scale.
+
+The per-push wall cost grows from ~50 ns (10 k) to ~95 ns (100 k)
+to ~345 ns (1 M). The growth comes from two unavoidable terms:
+
+1. The per-publish work scales as O(N / kChunkSize) shared_ptr
+   copies (244 chunks at 1 M × ~30 ns = ~7.3 µs per publish; with
+   cadence 100, that's ~73 ns per push amortized).
+2. Heap-allocator pressure grows with allocation count
+   (snapshot-tail copies + LOD-bin chunk seals); at 1 M total
+   pushes there are ~244 chunk seals × 4 stores (values +
+   timestamps + 3 LOD levels) = ~1 200 `make_shared<vector>`
+   allocations.
+
+This is acceptable headroom for M8: at 1 kHz live-data rate, the
+push budget is 1 ms per push (1 sec / 1000 samples). Even at the
+1 M pole the per-push cost is 0.34 µs — three orders of magnitude
+inside budget. M8 charts with hours of retained data hit the
+acceptable regime cleanly.
+
+### Optimization passes (post-M6 closure)
+
+| Pass | Change | Effect on 1 M throughput |
+|---|---|---|
+| ADR-005 v1 (discarded) | Adaptive cadence `clamp(N/100, 100, 5000)` | (would have been ~500 k/s but broke S9 test + violated §3.5 staleness contract) |
+| ADR-005 v2 (this) | Chunked storage for `values_` + `timestamps_` | 30 k/s → 207 k/s |
+| ADR-005 v2 + LOD chunking | Same chunking applied to LodLevel<T>::bins | 207 k/s → **2.9 M/s** |
