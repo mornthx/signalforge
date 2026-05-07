@@ -119,3 +119,48 @@ Verified stable across 8 consecutive `ctest -R 'S2:'` runs.
 ### Deviations from plan
 
 None.
+
+---
+
+## S3 — ConnectionManager CRUD + Qt signals + tests (completed)
+
+- Start: 2026-05-07T11:55Z
+- Close: 2026-05-07T12:15Z
+
+### Deliverables
+
+- `connection_manager.cpp` full impl: addConnection (auto-id +
+  duplicate rejection), editConnection (Idle-only, id-preserving),
+  removeConnection (Idle-only), connectConnection /
+  disconnectConnection / connectAll / disconnectAll,
+  connectionCount / connectedCount / erroredCount, lookups,
+  generateId (random 32-bit hex with collision check),
+  wireConnection (lambda forwarders for `stateChanged` /
+  `errorOccurred` → manager-level `connectionStateChanged` /
+  `connectionError`).
+- `connection_manager_test.cpp`: 12 cases covering CRUD,
+  signal forwarding with id, edit-while-connected rejection,
+  remove-while-connected rejection, connectAll/disconnectAll
+  fan-out, insertion-order ids, erroredCount tracking, and
+  unknown-id rejection paths.
+
+### Build / test counts
+
+- Debug: 479/479 ctest pass (was 467 + 12 new S3 tests).
+- Release: 479/479 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Bug found and fixed during S3
+
+`Qt::UniqueConnection` ASSERTs when applied to lambda slots
+("Unique connection requires the slot to be a pointer to a
+member function of a QObject subclass"). Fixed by removing the
+flag — `wireConnection` is now called exactly once per
+Connection (from `addConnection`) and never re-invoked, since
+`setConfig` keeps the same Connection object across edit so its
+signals stay wired across driver rebuilds.
+
+### Deviations from plan
+
+None.
