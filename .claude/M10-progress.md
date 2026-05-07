@@ -174,5 +174,102 @@ S1 CI: run 25515817537 (in_progress at S2 close).
   search for a 9-byte sequence. Captured in §7 + §7.1 with
   the exact hex bytes.
 
-S2 commit: pending push (gated by S1 CI green).
+S2 commit: `5df89c3` "docs: M10 S2 — canonical SFREPLAY v1
+format spec". Pushed after S1 CI green (run 25515817537 ✓).
+S2 CI: run 25516338270 (in_progress at S3 commit time).
+
+---
+
+## S3 — SessionWriter lifecycle + worker thread (completed)
+
+- Start: 2026-05-08T03:05Z
+
+### Deliverables
+
+- `src/session/session_writer.cpp`: real `start()` /
+  `stop()` lifecycle. `start()` creates a `QThread` named
+  `session-writer-worker`, moves a fresh `SessionFileWriter`
+  onto it, opens the file synchronously via
+  `Qt::BlockingQueuedConnection` (within spec §5.3's <100 ms
+  start budget), then kicks off the worker's
+  `processQueue()` via `Qt::QueuedConnection`. `stop()`
+  enqueues a `StopEvent`, waits for the worker, captures
+  byte count, transitions to `Idle`. The destructor
+  defensively calls `stop()` if a recording is in flight.
+- `SignalValueSink` overrides on `SessionWriter`:
+  `onSignalsRegistered` always grows the live
+  `metadata_.signalCatalog` (so the next `start()` writes a
+  catalog reflecting every signal observed since
+  construction); during recording it also enqueues a
+  `CatalogExtensionEvent` for the worker.
+  `onSignal` enqueues a `WriteSignalEvent` only while
+  recording; `eventsRecorded_` increments on success,
+  `droppedEvents_` on rejection.
+- `src/session/session_file_writer.cpp`: real `openFile`
+  (opens file with truncate, seeds `signalIdToIndex_` from
+  the metadata snapshot — actual header write is S4),
+  `enqueue` (basic bounded — full C3 policy is S5),
+  `processQueue` (drain loop with `QWaitCondition`-based
+  blocking; exits on `StopEvent` and on
+  `QThread::isInterruptionRequested`). The file is left as
+  zero bytes on disk for S3 — S4 fills in the SFREPLAY v1
+  header / catalog / records / footer.
+- `tests/unit/session/CMakeLists.txt`: two targets —
+  `session_smoke_test` (2 cases, M10 S1 freeze surface
+  smoke) and `session_writer_lifecycle_test` (9 cases,
+  M10 S3 lifecycle).
+- `tests/unit/session/session_smoke_test.cpp`: 2 cases —
+  `RecordingState` enum distinct values; `SessionMetadata`
+  default-constructible.
+- `tests/unit/session/session_writer_lifecycle_test.cpp`:
+  9 lifecycle cases (53 assertions). Coverage:
+  - Idle at construction (counters / state / path)
+  - `start()` opens file + transitions; `recordingStarted`
+    signal fires; metadata set; file exists on disk;
+    `stop()` returns byte count; `recordingStopped` fires
+    with matching byte count; `recordingEnd` populated
+  - `start()` while already recording rejected (false);
+    in-flight recording preserved
+  - `stop()` in `Idle` is no-op returning 0
+  - 3 start/stop cycles each leave their file on disk
+  - destructor joins worker for in-flight recording
+    without explicit stop()
+  - signal catalog tracking via
+    `onSignalsRegistered` before AND during recording
+  - signal events while recording increment counter; no
+    drops at low rate
+  - signals before `start()` are not counted (writer is
+    still `Idle`)
+- `tests/unit/CMakeLists.txt`: `add_subdirectory(session)`
+  appended after connection.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean
+  (incremental — only `signalforge_session` and the new
+  test targets rebuilt).
+- ctest: Debug **517/517** pass; Release **517/517** pass.
+  (+11 from S2 close: 2 smoke + 9 lifecycle.)
+- `clang-format -i` on changed files; dry-run -Werror
+  clean afterward.
+
+### Deviations from plan
+
+- Plan §S3 anticipated 6 unit cases; S3 ships **9** to
+  cover the historical-catalog-tracking behavior more
+  thoroughly (the `onSignalsRegistered`-while-Idle path
+  was not in the plan but is core to the S4 encoder
+  contract). Expansion is additive — no spec contradiction.
+- The fanout question — how SessionWriter receives signals
+  when wired up alongside `SignalBufferRegistry` —
+  was deferred to S9 (MainWindow integration) per a
+  TeeSink helper. M5 / M6 do not expose a multi-sink API
+  on the registry; modifying either freeze surface is
+  forbidden. This is **not** a concern (no spec
+  contradiction), only a sequencing decision; tests for
+  S3-S5 call `SessionWriter` methods directly to simulate
+  fanout.
+
+S3 commit: pending push (gated by S2 CI green).
+
 
