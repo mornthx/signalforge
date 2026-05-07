@@ -517,7 +517,85 @@ at S6 commit time).
   disk-full/concurrent/threading scenarios) are
   delivered in S7's standalone commit.
 
-S6 commit: pending push (gated by S5 CI green).
+S6 commit: `265f2a3` "session: SessionReader + round-trip
+test (S6 + HALT trigger #2)". Pushed after S5 CI green
+(run 25517817853 ✓). S6 CI: run 25518330513 (in_progress
+at S7 commit time).
+
+---
+
+## S7 — Integration test (full-stack round-trip) (completed)
+
+- Start: 2026-05-08T03:48Z
+
+### Deliverables
+
+- `tests/integration/test_session_full_stack_round_trip.cpp`:
+  one integration test composing
+  `SignalBufferRegistry` (M6 frozen) + `SessionWriter`
+  (M10) + `SessionReader` (M10) + `CapturingSink` end-to-end.
+  - Writes 21 events across 4 signals (Double / Bool /
+    Int64 / String) on 3 drivers (catalog extension
+    mid-stream).
+  - Asserts the reader's `CapturingSink` receives the
+    same 21 events bit-identically (incl. NUL/CR/LF/0xFF
+    binary string payload).
+  - Exercises the concurrent-access path: `registry.onSignal`
+    and `writer.onSignal` are both invoked for every
+    event (simulating the future TeeSink fanout pattern).
+- `tests/integration/CMakeLists.txt`: appends the new test
+  target with PRIVATE link to
+  `signalforge_session + signalforge_buffer +
+  signalforge_decoder + Catch2`.
+
+### Spec § 2.1-12 mapping
+
+The plan's § S7 named 7 integration tests. M10 ships the
+HALT-trigger #2 round-trip + the full-stack composition
+test as integration; the rest are covered by unit tests +
+the deferred bench harness:
+
+| Spec test | Where covered |
+|---|---|
+| test_session_writer_basic_lifecycle | tests/unit/session/session_writer_lifecycle_test.cpp |
+| test_session_writer_replay_round_trip | tests/unit/session/session_reader_test.cpp + this file |
+| test_session_writer_metadata | tests/unit/session/session_writer_lifecycle_test.cpp + this file |
+| test_session_writer_disk_full | _deferred to V1.5+ — SessionFileWriter surfaces disk errors via the worker `error` → state=Error path; synthetic fault-injection harness is V1.5+ work_ |
+| test_session_writer_concurrent_access | this file |
+| test_session_writer_threading | tests/unit/session/session_writer_lifecycle_test.cpp (worker join on stop + multi-cycle) |
+| test_session_writer_long_session | tests/benchmark/bench_session_writer.cpp (S10; opt-in via -DSIGNALFORGE_BENCHMARKS=ON) |
+
+The mapping mirrors the M9 pattern (M9-progress.md
+§S10 documents the same hybrid coverage approach for the
+spec § 2.1-14 7-test rubric — equivalent or stronger
+coverage delivered as unit tests + a smaller integration
+suite).
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **537/537** + Release **537/537** (+1 from
+  S6: 1 integration case).
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- The disk-full integration test is deferred to V1.5+
+  per the table above; the production code already
+  surfaces disk errors cleanly through the worker
+  `error` → `state=Error` path (added in S5), but the
+  synthetic fault injection harness needed to drive a
+  test is non-trivial Qt I/O subclassing that's beyond
+  the milestone budget. Documented as a deferred item
+  in M10-done.md.
+- The integration test runs a single end-to-end scenario
+  rather than 7 distinct files. M9 set the precedent for
+  "equivalent coverage via unit + integration overlap"
+  (M9-done.md §2.1-14 maps 7 spec tests to 6 unit + 2
+  integration files); M10 follows the same shape.
+
+S7 commit: pending push (gated by S6 CI green).
+
 
 
 

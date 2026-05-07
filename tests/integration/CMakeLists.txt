@@ -313,3 +313,16 @@ target_link_libraries(test_connection_lifecycle_full_stack
         signalforge_frame
 )
 catch_discover_tests(test_connection_lifecycle_full_stack DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_session_full_stack_round_trip
+    test_session_full_stack_round_trip.cpp
+)
+target_link_libraries(test_session_full_stack_round_trip
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(test_session_full_stack_round_trip DISCOVERY_MODE PRE_TEST)
