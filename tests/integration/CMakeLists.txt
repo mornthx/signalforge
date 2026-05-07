@@ -261,3 +261,43 @@ foreach(expression_test
     )
     catch_discover_tests(${expression_test} DISCOVERY_MODE PRE_TEST)
 endforeach()
+
+# M8 chart-subsystem integration tests (spec §2.1-12).
+# Most tests use QGuiApplication; the SignalSelector test uses
+# QApplication (QtWidgets) since SignalSelector is a QWidget.
+foreach(chart_test
+    test_chart_basic_rendering
+    test_chart_30hz_sustained
+    test_chart_global_time_axis
+    test_chart_lod_selection
+    test_chart_signal_type_display
+    test_chart_window_activation
+)
+    add_executable(${chart_test} ${chart_test}.cpp)
+    target_link_libraries(${chart_test}
+        PRIVATE
+            Catch2::Catch2WithMain
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Quick
+            Qt6::Test
+            signalforge_buffer
+            signalforge_chart
+            signalforge_decoder
+    )
+    catch_discover_tests(${chart_test} DISCOVERY_MODE PRE_TEST)
+endforeach()
+
+add_executable(test_signal_selector_tree_population
+    test_signal_selector_tree_population.cpp
+)
+target_link_libraries(test_signal_selector_tree_population
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Widgets
+        signalforge_buffer
+        signalforge_chart
+        signalforge_decoder
+)
+catch_discover_tests(test_signal_selector_tree_population DISCOVERY_MODE PRE_TEST)

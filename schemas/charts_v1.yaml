@@ -1,0 +1,56 @@
+# schemas/charts_v1.yaml
+#
+# Canonical example documenting M8's chart configuration schema
+# (`~/.config/signalforge/charts.yaml` shape). Frozen at M8 close;
+# sha256 recorded in `.claude/M8-done.md`.
+#
+# Top-level keys:
+#   schema_version  required, must be 1 for V1
+#   charts          required, sequence of chart entries
+#
+# Per-chart keys:
+#   id              required, unique stable identifier
+#   title           optional, human-readable display name
+#   time_axis_id    optional, V1.5+ (multi-axis); leave unset / null for V1
+#   signals         optional, sequence of per-signal configs
+#
+# Per-signal keys:
+#   signal_id       required, the registry's signal id
+#   display_mode    optional, one of: line, step, point
+#                   (default: line for Double/Int64, step for Bool,
+#                   point for QString — see M8 spec §3.4 / §4.8)
+#   color           optional, "#RRGGBB" hex; auto-assigned from
+#                   the chart's color palette if missing/invalid
+#   visible         optional, default true; toggles visibility
+#                   without removing the signal from the chart
+
+schema_version: 1
+charts:
+  - id: chart-1
+    title: "Power monitoring"
+    time_axis_id: ~     # null = global axis (V1)
+    signals:
+      - signal_id: serial-driver-1/voltage
+        display_mode: line
+        color: "#7AC0FF"
+        visible: true
+      - signal_id: serial-driver-1/current
+        display_mode: line
+        color: "#FF7A7A"
+        visible: true
+      - signal_id: power_total      # M7 derived signal (no slash)
+        display_mode: line
+        color: "#7AFF9E"
+        visible: true
+
+  - id: chart-2
+    title: "Alarms"
+    signals:
+      - signal_id: over_temperature  # M7 derived bool signal
+        display_mode: step
+        color: "#FFDA7A"
+        visible: true
+      - signal_id: under_voltage
+        display_mode: step
+        color: "#C47AFF"
+        visible: false  # in chart but hidden by user
