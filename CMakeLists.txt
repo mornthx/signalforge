@@ -17,6 +17,9 @@ qt_standard_project_setup()
 include(cmake/dependencies.cmake)
 
 option(SIGNALFORGE_BENCHMARKS "Build the M3 driver benchmark executables (throughput/latency/footprint)" OFF)
+option(SIGNALFORGE_M8_PROTOTYPE
+    "Build the M8 chart prototype harness (lives on prototype/m8-perf, not for production)"
+    OFF)
 
 enable_testing()
 
@@ -36,4 +39,7 @@ add_subdirectory(src/ui_widgets)
 add_subdirectory(src/ui_quick)
 add_subdirectory(src/app)
 add_subdirectory(tools/schema_lint)
+if(SIGNALFORGE_M8_PROTOTYPE)
+    add_subdirectory(tools/m8_prototype)
+endif()
 add_subdirectory(tests)
