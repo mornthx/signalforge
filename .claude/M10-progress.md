@@ -436,7 +436,89 @@ commit time).
   counter increment") is fully covered by the other
   4 cases.
 
-S5 commit: pending push (gated by S4 CI green).
+S5 commit: `2871403` "session: implement C3 4-point
+backpressure policy (S5)". Pushed after S4 CI green
+(run 25517324427 ✓). S5 CI: run 25517817853 (in_progress
+at S6 commit time).
+
+---
+
+## S6 — SessionReader (β path) (completed)
+
+- Start: 2026-05-08T03:38Z
+
+### Deliverables
+
+- `src/session/session_reader.{hpp,cpp}` (NEW; ADR-007 β
+  path): synchronous reader for SFREPLAY v1 files.
+  - API: `open(filePath)` → `replayAll(SignalValueSink&)`
+    → `close()`. `metadata()` exposes the parsed header,
+    `recordsRead()` + `fileComplete()` expose the most
+    recent replay's stats.
+  - Header parser: validates magic + `formatVersion=1` +
+    `headerLen`, then walks the variable section
+    (`recordedAt`, `descLen/desc`, `schemaIdLen/schemaId`,
+    `signalCount`, signal catalog).
+  - Signal entry parser: full per-entry layout with
+    conditional `scale` / `offset` decoding gated by the
+    `hasX` flags.
+  - Record dispatcher: type 1 (Signal Value) decoded per
+    catalog type tag (bool=1B / int64=8B / double=8B /
+    string=4B+UTF-8); type 2 (Catalog Extension) appends
+    to running catalog + emits `onSignalsRegistered` to
+    the sink; types 3 (Marker) + 4 (Heartbeat) + unknown
+    V2+ types skipped via `payloadLen`.
+  - Truncation tolerance: a partial last record at EOF
+    stops replay cleanly; a missing footer reports
+    `false` from `replayAll()` without raising.
+  - Per-event timestamps reconstructed by adding the
+    file's `timestampNs` to a reader-side
+    `steady_clock` origin captured at `open()`. Absolute
+    steady-clock values aren't preserved across writer /
+    reader processes; only relative ordering.
+- `src/session/CMakeLists.txt`: adds `session_reader.cpp`
+  to the static library.
+- `tests/unit/session/session_reader_test.cpp`: 6 cases
+  / 56 assertions including the **HALT-trigger #2 gate**:
+  - `S6: open + metadata + close lifecycle`
+  - `S6: open rejects bad magic`
+  - **`S7: round-trip preserves all 4 type variants`** —
+    bool / int64 / double / string + binary string
+    payload (NUL + CR + LF + 0xFF) round-trip
+    bit-identically; timestamps monotonic in the order
+    written
+  - `S7: catalog extension mid-stream round-trip`
+  - `S7: truncated file replays partial then reports
+    false`
+  - `S7: heartbeat / marker records ignored by reader`
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **536/536** + Release **536/536** (+6 from
+  S5: 6 reader/round-trip cases).
+- ASan local blocked by host preload; CI is the
+  authoritative gate.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S6 anticipated 5 hours of work; took ~30 min
+  by mirroring the writer encoder's helper structure
+  (LE template helpers + per-type dispatch). The
+  HALT-trigger #2 gate test passed first try with no
+  iteration.
+- Plan §S7 was scheduled separately (round-trip + 7
+  named integration tests at `tests/integration/`).
+  The HALT-trigger #2 round-trip test has landed here
+  in S6 because the reader's primary purpose is
+  round-trip; the remaining S7 deliverables (the named
+  integration tests at `tests/integration/`,
+  disk-full/concurrent/threading scenarios) are
+  delivered in S7's standalone commit.
+
+S6 commit: pending push (gated by S5 CI green).
+
 
 
 

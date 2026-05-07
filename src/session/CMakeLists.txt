@@ -1,6 +1,7 @@
 add_library(signalforge_session STATIC
     session_writer.cpp
     session_file_writer.cpp
+    session_reader.cpp
 )
 
 set_target_properties(signalforge_session PROPERTIES AUTOMOC ON)

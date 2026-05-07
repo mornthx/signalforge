@@ -49,3 +49,16 @@ target_link_libraries(session_writer_backpressure_test
         signalforge_decoder
 )
 catch_discover_tests(session_writer_backpressure_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(session_reader_test
+    session_reader_test.cpp
+)
+target_link_libraries(session_reader_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(session_reader_test DISCOVERY_MODE PRE_TEST)
