@@ -523,3 +523,26 @@ Full results in `tests/benchmark/results/M8-baseline.md`.
 **Build**: clean.
 **Format**: clang-format clean on the new file.
 **Effort**: ~0.5 h (plan estimate 7 h).
+
+---
+
+## S11 — done.md + freeze record + PR (start)
+
+`.claude/M8-done.md` written per execution-manual §6.2 with all
+sections: deliverables checklist, acceptance self-check, test
+count matrix, benchmark summary, freezes (5 sha256s), commit
+manifest, CI status, hand-off, HALT trail (none), concerns.
+
+5 frozen artifacts (sha256s in done.md):
+- `src/chart/chart.hpp` — `fac097b1...`
+- `src/chart/chart_manager.hpp` — `415f0aa1...`
+- `src/chart/time_axis_manager.hpp` — `3a7d5320...`
+- `src/chart/signal_selector.hpp` — `ebacfcc6...`
+- `schemas/charts_v1.yaml` — `2dd45ebd...`
+
+1-hour soak: documented as a manual pre-merge verification per
+the user's S11 note (not iterating in CI). The 3-run < 2% p99
+variance gives a proxy stability signal.
+
+PR body lists scope + perf summary + freeze record + CI status.
+After PR creation: `gh pr checks <PR> --watch`.
