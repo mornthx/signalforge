@@ -70,3 +70,52 @@ in this milestone: **None.**" + the same file's "M9 adds:
 playback rate, loop mode" comment authorize this without HALT.
 The change is also necessary for S8 (ReplayDriver completion
 needs these fields).
+
+---
+
+## S2 — Connection lifecycle state machine + driver dispatch (completed)
+
+- Start: 2026-05-07T11:32Z
+- Close: 2026-05-07T11:55Z
+- Goal: implement the 5-state lifecycle, wire driver state
+  callbacks, ship 10 unit tests at ≥ 80% coverage.
+
+### Deliverables
+
+- `src/connection/connection.cpp`: full `connectDriver()` /
+  `disconnectDriver()` impl, `onDriverState` translator
+  (Idle/Opening/Open/Running/Stopping/Closing/Error → 5
+  Connection states), `onDriverError` forwarder.
+- Driver signals connected with `Qt::QueuedConnection` (M3
+  drivers emit from their IO thread).
+- Connection destructor force-closes the driver if non-Idle
+  (M3 driver dtor contract).
+- `tests/unit/connection/connection_test.cpp`: 10 cases
+  covering construction with each DriverType, full Idle →
+  Connected → Idle round trip via Replay driver fixture,
+  rejection paths (re-connect when Connected, disconnect when
+  Idle), Error → Idle reset, setConfig gating, Replay
+  invalid path → Error path, autoConnectCompleted contract.
+
+### Build / test counts
+
+- Debug: 467/467 ctest pass (was 460 baseline + 7 S1 smoke; +10
+  S2 full = 467 total).
+- Release: 467/467 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Stability fix during S2
+
+Initial run intermittently failed `S2: disconnectDriver returns
+Connection to Idle`. Root cause: my `onDriverState` translator
+called `driver_->start()` whenever it saw `DriverState::Open`,
+including the Open state the driver passes through *on its way
+out* (Running → Stopping → Open → Closing → Idle). That spurious
+`start()` triggered a re-Run and the connection never reached
+Idle. Fixed by gating the auto-start on `state_ == Connecting`.
+Verified stable across 8 consecutive `ctest -R 'S2:'` runs.
+
+### Deviations from plan
+
+None.

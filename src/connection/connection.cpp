@@ -1,9 +1,7 @@
 // src/connection/connection.cpp
 //
-// S1: minimal scaffolding. The state machine, error wiring, and
-// auto-connect command sequencing land in S2/S7. S1 establishes
-// the freeze-surface header and the constructor's driver-factory
-// dispatch so the static lib links.
+// S2: state machine + driver dispatch + signal forwarding.
+// Auto-connect command sequencing lands in S7.
 
 #include "connection/connection.hpp"
 
@@ -21,10 +19,27 @@ namespace {
 
 void registerConnectionMetatypes() {
     static bool once = [] {
+        dr::registerMetatypes();
         qRegisterMetaType<Connection::State>("signalforge::connection::Connection::State");
         return true;
     }();
     (void)once;
+}
+
+const char* describe(Connection::State s) {
+    switch (s) {
+    case Connection::State::Idle:
+        return "Idle";
+    case Connection::State::Connecting:
+        return "Connecting";
+    case Connection::State::Connected:
+        return "Connected";
+    case Connection::State::Disconnecting:
+        return "Disconnecting";
+    case Connection::State::Error:
+        return "Error";
+    }
+    return "?";
 }
 
 }  // namespace
@@ -34,18 +49,51 @@ Connection::Connection(ConnectionConfig config, QObject* parent) : QObject(paren
     rebuildDriver();
 }
 
-Connection::~Connection() = default;
+Connection::~Connection() {
+    // Driver must be Idle before destruction (M3 contract). If we
+    // are still mid-flight, force a synchronous teardown.
+    if (driver_ && driver_->state() != dr::DriverState::Idle) {
+        driver_->stop();
+        driver_->close();
+    }
+}
 
 bool Connection::connectDriver() {
-    // S2 fills in the actual state-machine + driver dispatch.
-    SF_LOG_DEBUG("Connection::connectDriver() stub for {}", config_.id.toStdString());
-    return false;
+    if (state_ != State::Idle && state_ != State::Error) {
+        SF_LOG_WARN("Connection({}): connectDriver rejected; state is {}", config_.id.toStdString(), describe(state_));
+        return false;
+    }
+    if (!driver_) {
+        setError(QStringLiteral("driver not constructed"));
+        setState(State::Error);
+        return false;
+    }
+    lastError_.clear();
+    setState(State::Connecting);
+    const auto rc = driver_->open();
+    if (rc != dr::DriverErrorCode::Success) {
+        setError(QStringLiteral("driver open() rejected: code %1").arg(static_cast<int>(rc)));
+        setState(State::Error);
+        return false;
+    }
+    return true;
 }
 
 bool Connection::disconnectDriver() {
-    // S2 fills in.
-    SF_LOG_DEBUG("Connection::disconnectDriver() stub for {}", config_.id.toStdString());
-    return false;
+    if (state_ == State::Idle) {
+        return false;
+    }
+    if (!driver_) {
+        setState(State::Idle);
+        return true;
+    }
+    setState(State::Disconnecting);
+    driver_->stop();
+    driver_->close();
+    // Driver close is synchronous (per M3 contract). The driver
+    // emits stateChanged(Idle) which onDriverState translates back
+    // to Connection::State::Idle.
+    return true;
 }
 
 Connection::State Connection::state() const noexcept {
@@ -93,7 +141,13 @@ void Connection::rebuildDriver() {
 }
 
 void Connection::wireDriverSignals() {
-    // S2 fills in: connect driver_->stateChanged → onDriverState etc.
+    if (!driver_) {
+        return;
+    }
+    // Drivers emit signals from their IO thread (per M3 docs); use
+    // QueuedConnection so slots run on the Connection's own thread.
+    connect(driver_.get(), &dr::DriverInterface::stateChanged, this, &Connection::onDriverState, Qt::QueuedConnection);
+    connect(driver_.get(), &dr::DriverInterface::errorOccurred, this, &Connection::onDriverError, Qt::QueuedConnection);
 }
 
 void Connection::setState(State next) {
@@ -109,12 +163,58 @@ void Connection::setError(const QString& message) {
     Q_EMIT errorOccurred(message);
 }
 
-void Connection::onDriverState(dr::DriverState /*driverState*/) {
-    // S2: translate DriverState → Connection::State.
+void Connection::onDriverState(dr::DriverState driverState) {
+    // Translate driver lifecycle into Connection state. The
+    // Connection state machine collapses driver Opening + Open into
+    // Connecting (we auto-progress with start() at Open) and
+    // Stopping + Closing into Disconnecting.
+    switch (driverState) {
+    case dr::DriverState::Idle:
+        // Reached after a clean stop()+close() cycle, OR straight
+        // from Error after the user disconnects. Either way we are
+        // back to Idle.
+        setState(State::Idle);
+        break;
+    case dr::DriverState::Opening:
+        // Already in Connecting.
+        break;
+    case dr::DriverState::Open: {
+        // Auto-progress to Running only if we're connecting. The
+        // driver also passes through Open on the way back to Idle
+        // (Stopping → Open → Closing → Idle); we must not call
+        // start() during that disconnect path.
+        if (state_ == State::Connecting) {
+            const auto rc = driver_->start();
+            if (rc != dr::DriverErrorCode::Success) {
+                setError(QStringLiteral("driver start() rejected: code %1").arg(static_cast<int>(rc)));
+                setState(State::Error);
+            }
+        }
+        break;
+    }
+    case dr::DriverState::Running:
+        setState(State::Connected);
+        // S7 will trigger AutoConnectCommandSequence here. Until
+        // then, emit a synthetic completion signal so consumers
+        // can already observe the contract.
+        if (config_.autoConnectCommands.empty()) {
+            Q_EMIT autoConnectCompleted(true);
+        }
+        break;
+    case dr::DriverState::Stopping:
+    case dr::DriverState::Closing:
+        if (state_ != State::Disconnecting) {
+            setState(State::Disconnecting);
+        }
+        break;
+    case dr::DriverState::Error:
+        setState(State::Error);
+        break;
+    }
 }
 
-void Connection::onDriverError(dr::DriverError /*error*/) {
-    // S2: forward + transition.
+void Connection::onDriverError(dr::DriverError error) {
+    setError(error.message);
 }
 
 }  // namespace signalforge::connection
