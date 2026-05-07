@@ -579,3 +579,50 @@ TCP host etc.).
   (host /etc/ld.so.preload blocks local ASan runtime, per
   the project memory note). The 1-hour soak measures host
   VmRSS + frame stability only.
+
+S5s commit: `bd3cc5a` "bench: M9 S5s 1-hour soak harness +
+9.05% RSS growth result".
+
+---
+
+## S11 — M9 completion report (this commit)
+
+- Start: 2026-05-07T22:15Z
+
+### Deliverables
+
+- `.claude/M9-done.md`: spec §2.1 deliverables checklist,
+  freezes (4 sha256s — 2 hpp + 2 schema), test count
+  matrix, manual hardware verification section
+  (results _pending_ — protocol in
+  `docs/m9-hardware-verification.md`), inherited M8 soak
+  result, deviations / concerns, commit manifest, CI
+  verification status, hand-off notes for M10/M11/M12/M13,
+  HALT-trigger disposition table, V1.5+/V2 deferred items.
+- Commit-manifest S5s + S11 rows landed; CI table extended
+  with the two new commit rows pending push.
+
+### Build / test counts
+
+- No code change (only `.claude/M9-done.md`). Build graph
+  unaffected — CLAUDE.md §Required #2 docs-only exception
+  applies. clang-format dry-run: not applicable (no .cpp /
+  .hpp touched).
+- Latest verified test counts (from S10 + S5s): Debug
+  506/506; Release 506/506; debug-asan build clean. S5s did
+  not change ctest count (bench_chart is opt-in via
+  -DSIGNALFORGE_BENCHMARKS=ON, never run by ctest /
+  CI per the bench CMakeLists comment).
+
+### Deviations from plan
+
+- Hardware verification protocol (6 tests in
+  `docs/m9-hardware-verification.md`) is left as _pending_
+  in M9-done.md §Manual hardware verification: this session
+  has no real hardware (USB-Serial dongle, target devices,
+  socat fixtures left to the operator's host). The protocol
+  is fully documented and runnable; results will be
+  appended in a follow-up commit when the operator runs it.
+- Push + PR creation deferred — CLAUDE.md §Forbidden #4
+  requires per-operation authorization for `git push` and
+  `gh pr create`. CC stops here and asks the human.
