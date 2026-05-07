@@ -2,6 +2,7 @@
 #include "scenario_runner.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace {
@@ -83,6 +84,12 @@ ScenarioResult FrameTimingRecorder::finalize() const {
                 ++r.droppedFrames;
             }
         }
+        double sqdev = 0.0;
+        for (double v : intervalMs_) {
+            const double d = v - r.meanMs;
+            sqdev += d * d;
+        }
+        r.stdDevMs = std::sqrt(sqdev / static_cast<double>(intervalMs_.size()));
     }
     if (!renderMs_.empty()) {
         std::vector<double> rsort = renderMs_;

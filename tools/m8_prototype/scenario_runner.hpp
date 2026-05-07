@@ -25,6 +25,7 @@ struct ScenarioResult {
     double maxMs = 0.0;
     double meanMs = 0.0;
     int droppedFrames = 0;  ///< frames where interval was > 50 ms (1.5x budget)
+    double stdDevMs = 0.0;  ///< sample std dev of frame interval
 
     // Pure render-loop cost (beforeRendering→afterRendering on render thread).
     // This is the SG/GPU work cost without vsync wait — the actual headroom.

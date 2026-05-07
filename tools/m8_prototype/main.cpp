@@ -75,12 +75,12 @@ void emitResult(const QString& scenarioName, const ScenarioResult& r, const QStr
                 const QString& extraJson = QString{}) {
     std::printf("{\"scenario\":\"%s\",\"renderer\":\"%s\","
                 "\"frames\":%d,\"p50_ms\":%.4f,\"p95_ms\":%.4f,\"p99_ms\":%.4f,"
-                "\"max_ms\":%.4f,\"mean_ms\":%.4f,\"dropped_frames\":%d,"
+                "\"max_ms\":%.4f,\"mean_ms\":%.4f,\"std_dev_ms\":%.4f,\"dropped_frames\":%d,"
                 "\"render_samples\":%d,\"render_p50_ms\":%.4f,\"render_p95_ms\":%.4f,"
                 "\"render_p99_ms\":%.4f,\"render_max_ms\":%.4f%s}\n",
                 scenarioName.toLocal8Bit().constData(), renderer.toLocal8Bit().constData(), r.framesRecorded, r.p50Ms,
-                r.p95Ms, r.p99Ms, r.maxMs, r.meanMs, r.droppedFrames, r.renderSamples, r.renderP50Ms, r.renderP95Ms,
-                r.renderP99Ms, r.renderMaxMs,
+                r.p95Ms, r.p99Ms, r.maxMs, r.meanMs, r.stdDevMs, r.droppedFrames, r.renderSamples, r.renderP50Ms,
+                r.renderP95Ms, r.renderP99Ms, r.renderMaxMs,
                 extraJson.isEmpty() ? "" : (QStringLiteral(",") + extraJson).toLocal8Bit().constData());
     std::fflush(stdout);
 }
@@ -294,6 +294,8 @@ int runScenario3(QGuiApplication& app, int targetFrames) {
 
     panTimer.start();
     window.show();
+    window.raise();
+    window.requestActivate();
     return app.exec();
 }
 
