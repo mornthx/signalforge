@@ -1,0 +1,98 @@
+add_executable(expression_smoke_test
+    expression_smoke_test.cpp
+)
+target_link_libraries(expression_smoke_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(expression_smoke_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_evaluation_test
+    expression_evaluation_test.cpp
+)
+target_link_libraries(expression_evaluation_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_decoder
+)
+catch_discover_tests(expression_evaluation_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_validator_test
+    expression_validator_test.cpp
+)
+target_link_libraries(expression_validator_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_decoder
+)
+target_compile_definitions(expression_validator_test
+    PRIVATE
+        SIGNALFORGE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/integration/fixtures"
+)
+catch_discover_tests(expression_validator_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_engine_lifecycle_test
+    expression_engine_lifecycle_test.cpp
+)
+target_link_libraries(expression_engine_lifecycle_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(expression_engine_lifecycle_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_registrar_test
+    expression_registrar_test.cpp
+)
+target_link_libraries(expression_registrar_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_buffer
+        signalforge_decoder
+)
+target_compile_definitions(expression_registrar_test
+    PRIVATE
+        SIGNALFORGE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/integration/fixtures"
+)
+catch_discover_tests(expression_registrar_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_class_test
+    expression_class_test.cpp
+)
+target_link_libraries(expression_class_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_decoder
+)
+catch_discover_tests(expression_class_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(expression_examples_test
+    expression_examples_test.cpp
+)
+target_link_libraries(expression_examples_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_expression
+        signalforge_decoder
+)
+target_compile_definitions(expression_examples_test
+    PRIVATE
+        SIGNALFORGE_REPO_ROOT="${CMAKE_SOURCE_DIR}"
+)
+catch_discover_tests(expression_examples_test DISCOVERY_MODE PRE_TEST)

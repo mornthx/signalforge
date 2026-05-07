@@ -1,0 +1,91 @@
+# schemas/expression_schema_v1.yaml
+#
+# Canonical example documenting M7's yaml expression schema v1.
+# Frozen at M7 close. Sha256 recorded in `.claude/M7-done.md`.
+#
+# This file describes every supported key in the schema. yaml authors
+# should follow this structure when creating their own expression
+# files; `expr_lint` validates content against this schema's rules.
+#
+# Validation pipeline (see `src/expression/expression_validator.cpp`):
+#
+#   1. yaml-cpp parse: yaml syntax with line numbers.
+#   2. Top-level shape check: `schema_version` and `expressions`.
+#   3. Per-expression: `id`, `formula` required; uniqueness;
+#      no collision with base-signal IDs.
+#   4. exprtk compile (restricted parser settings):
+#      reject `if`/`while`/`for`/`?:`/`switch`, local-var-def, string
+#      ops, side-effect assignments.
+#   5. Source signal extraction (regex over identifiers, filtering
+#      reserved words + the §3.1 whitelist + exprtk constants).
+#   6. Source-signal validation against the registry's available-
+#      signals catalog: each must exist; none may be QString-typed.
+#   7. Forbidden function check: `sgn`, `cot`, statistical aggregates,
+#      `if(cond, then, else)` rejected with actionable error.
+#   8. Cycle detection across all expressions (DFS three-color);
+#      reports cycle path in error.
+#   9. Topological sort produces evaluation order
+#      (sources-before-consumers).
+#
+# Restricted operator/function whitelist (M7 spec §3.1):
+#
+#   Arithmetic: + - * / % ^ (power)
+#   Comparison: <  >  ==  !=  <=  >=
+#   Logical:    and  or  not  xor
+#   Math built-ins: min, max, abs, sqrt, log, log10, exp,
+#                    sin, cos, tan, floor, ceil, round
+#
+# Anything else (control flow, user-defined functions, string ops,
+# additional exprtk built-ins) is rejected with an actionable
+# user-facing error.
+
+# Required: schema version. Must be 1 for V1.
+schema_version: 1
+
+# Optional: free-form description of this file's purpose.
+description: "Canonical reference for yaml expression schema v1"
+
+# Required: sequence of expression definitions.
+# Each entry below documents one supported key set.
+expressions:
+
+  # Minimal: id + formula. Output type defaults to `double`.
+  - id: power_total
+    formula: voltage * current
+
+  # Full key set. `name`, `unit`, `description`, `type` are optional.
+  - id: power_efficiency
+    name: "Power efficiency ratio"
+    unit: ""           # dimensionless
+    formula: power_total / power_input
+    type: double       # default; allowed values: double, bool, int64
+    description: "Ratio of computed power_total over the configured input"
+
+  # Bool output via comparison. Result is true when condition holds.
+  - id: over_temperature
+    name: "Over-temperature alarm"
+    unit: ""
+    formula: temperature > 80.0
+    type: bool
+    description: "Set when temperature exceeds 80°C"
+
+  # Int64 output via round() — for counters, indices, etc.
+  - id: rounded_count
+    name: "Rounded count"
+    unit: ""
+    formula: round(counter * 1.5)
+    type: int64
+
+  # Logical operators are allowed (V1 spec §3.1 whitelist).
+  - id: needs_attention
+    name: "Multi-condition alarm"
+    unit: ""
+    formula: (temperature > 80.0) and (current > 10.0)
+    type: bool
+
+  # Math built-ins are allowed.
+  - id: peak_envelope
+    name: "Peak envelope"
+    unit: V
+    formula: max(voltage, abs(voltage_offset)) + sqrt(noise_floor)
+    type: double

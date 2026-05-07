@@ -57,3 +57,12 @@ target_link_libraries(bench_signal_buffer
         signalforge_decoder
         signalforge_frame
 )
+
+add_executable(bench_expression_engine bench_expression_engine.cpp)
+target_link_libraries(bench_expression_engine
+    PRIVATE
+        Qt6::Core
+        signalforge_buffer
+        signalforge_decoder
+        signalforge_expression
+)

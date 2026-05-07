@@ -1,0 +1,33 @@
+# examples/expressions/power_calculations.yaml
+#
+# Power and efficiency derived signals. Assumes the registry exposes
+# the following base signals:
+#
+#   voltage      double  V
+#   current      double  A
+#   power_input  double  W   (configured / nominal input)
+
+schema_version: 1
+description: "Instantaneous power and efficiency derived signals"
+
+expressions:
+  - id: power_total
+    name: "Total power"
+    unit: W
+    formula: voltage * current
+    type: double
+    description: "Instantaneous power = V × I"
+
+  - id: power_efficiency
+    name: "Power efficiency ratio"
+    unit: ""
+    formula: power_total / power_input
+    type: double
+    description: "Ratio of measured output power to configured input"
+
+  - id: high_efficiency
+    name: "High-efficiency mode"
+    unit: ""
+    formula: power_efficiency > 0.85
+    type: bool
+    description: "Set when efficiency is above 85%"

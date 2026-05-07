@@ -1,0 +1,8 @@
+schema_version: 1
+expressions:
+  - id: alpha
+    formula: gamma + 1
+  - id: beta
+    formula: alpha * 2
+  - id: gamma
+    formula: beta - 3

@@ -1,0 +1,4 @@
+schema_version: 1
+expressions:
+  - id: phantom
+    formula: nonexistent_signal * 2

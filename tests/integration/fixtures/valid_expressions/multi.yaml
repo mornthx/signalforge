@@ -1,0 +1,19 @@
+schema_version: 1
+description: "Multi-expression valid fixture for S3 happy-path test."
+expressions:
+  - id: power_total
+    name: "Total power"
+    unit: W
+    formula: voltage * current
+    type: double
+    description: "Instantaneous power"
+  - id: power_efficiency
+    name: "Efficiency ratio"
+    unit: ""
+    formula: power_total / power_input
+    type: double
+  - id: over_temperature
+    name: "Over-temp alarm"
+    unit: ""
+    formula: temperature > 80.0
+    type: bool
