@@ -13,10 +13,13 @@
 #include "buffer/signal_buffer.hpp"
 #include "decode/decoder_interface.hpp"
 
+#include <QMouseEvent>
+#include <QPoint>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometry>
 #include <QSGGeometryNode>
 #include <QSGNode>
+#include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -124,6 +127,11 @@ struct Chart::Impl {
     /// Last `onTick` wall time (steady_clock). Used to compute
     /// per-frame interval for the dropped-frame metric.
     std::chrono::steady_clock::time_point lastTickAt{};
+
+    /// Click+drag pan state. While `dragging` is true,
+    /// `dragLastX` stores the previous mouse-x in chart-local px.
+    bool dragging = false;
+    double dragLastX = 0.0;
 };
 
 Chart::Chart(signalforge::buffer::SignalBufferRegistry& registry, TimeAxisManager& timeAxis, ChartConfig config,
@@ -131,6 +139,7 @@ Chart::Chart(signalforge::buffer::SignalBufferRegistry& registry, TimeAxisManage
     : QQuickItem(parent), registry_(&registry), timeAxis_(&timeAxis), config_(std::move(config)),
       impl_(std::make_unique<Impl>()) {
     setFlag(ItemHasContents, true);
+    setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton);
     redrawTimer_.setInterval(33);  // 30 Hz; precise timer per spec §9 note
     redrawTimer_.setTimerType(Qt::PreciseTimer);
     QObject::connect(&redrawTimer_, &QTimer::timeout, this, &Chart::onTick);
@@ -452,6 +461,68 @@ QSGNode* Chart::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* /*data*/)
     }
 
     return root;
+}
+
+void Chart::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        impl_->dragging = true;
+        impl_->dragLastX = event->position().x();
+        event->accept();
+    } else if (event->button() == Qt::RightButton) {
+        Q_EMIT contextMenuRequested(event->globalPosition().toPoint());
+        event->accept();
+    } else {
+        QQuickItem::mousePressEvent(event);
+    }
+}
+
+void Chart::mouseMoveEvent(QMouseEvent* event) {
+    if (!impl_->dragging) {
+        QQuickItem::mouseMoveEvent(event);
+        return;
+    }
+    const double curX = event->position().x();
+    const double dx = curX - impl_->dragLastX;
+    impl_->dragLastX = curX;
+    if (dx != 0.0 && width() > 0.0) {
+        // Convert pixel delta into a time-axis pan offset. Dragging
+        // right (positive dx) shifts the visible window earlier in
+        // time (offset negative) so the chart appears to scroll
+        // toward the past — matches the user's mental model of
+        // "grabbing" the data.
+        const auto durNs = std::chrono::duration_cast<std::chrono::nanoseconds>(timeAxis_->visibleDuration()).count();
+        const double pxToNs = static_cast<double>(durNs) / width();
+        const auto offset = std::chrono::nanoseconds(static_cast<std::int64_t>(-dx * pxToNs));
+        timeAxis_->pan(offset);
+    }
+    event->accept();
+}
+
+void Chart::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && impl_->dragging) {
+        impl_->dragging = false;
+        event->accept();
+    } else {
+        QQuickItem::mouseReleaseEvent(event);
+    }
+}
+
+void Chart::wheelEvent(QWheelEvent* event) {
+    const int steps = event->angleDelta().y() / 120;  // each detent ≈ 15°
+    if (steps == 0) {
+        QQuickItem::wheelEvent(event);
+        return;
+    }
+    // Positive scroll = zoom in (factor < 1 shrinks duration).
+    const double factor = std::pow(1.1, -steps);
+    const double xFrac = (width() > 0.0) ? std::clamp(event->position().x() / width(), 0.0, 1.0) : 0.5;
+    const auto axisStart = timeAxis_->visibleStart();
+    const auto axisEnd = timeAxis_->visibleEnd();
+    const auto durNs = std::chrono::duration_cast<std::chrono::nanoseconds>(axisEnd - axisStart).count();
+    const auto refOffsetNs = static_cast<std::int64_t>(static_cast<double>(durNs) * xFrac);
+    const auto refPoint = axisStart + std::chrono::nanoseconds(refOffsetNs);
+    timeAxis_->zoom(factor, refPoint);
+    event->accept();
 }
 
 }  // namespace signalforge::chart

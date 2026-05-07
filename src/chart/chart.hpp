@@ -116,10 +116,21 @@ public:
     // QQuickItem overrides
     QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* data) override;
 
+protected:
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+
+public:
 Q_SIGNALS:
     void signalAdded(const QString& signalId);
     void signalRemoved(const QString& signalId);
     void redrawCompleted(std::uint64_t redrawIndex);
+    /// Emitted on right-click. Argument is the global cursor position;
+    /// MainWindow (S8) hosts the actual `QMenu` (QQuickItem can't show
+    /// QtWidgets menus natively).
+    void contextMenuRequested(const QPoint& globalPos);
 
 private Q_SLOTS:
     void onTick();  ///< 30 Hz timer slot.

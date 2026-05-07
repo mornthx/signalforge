@@ -20,4 +20,5 @@ target_link_libraries(signalforge_chart
         signalforge_decoder
     PRIVATE
         signalforge_observability
+        yaml-cpp::yaml-cpp
 )

@@ -293,3 +293,63 @@ picks up registry add/unregister.
 **Format**: clang-format clean on changed files.
 **Frozen-file diff**: empty.
 **Effort**: ~0.5 h (plan estimate 6 h).
+
+---
+
+## S7 — Pan/zoom interaction + context menu + persistence yaml (start)
+
+**Goal**: per plan §S7 (5 h estimate):
+1. Chart mouse handlers for pan (click+drag), zoom (wheel),
+   context-menu (right-click → Qt signal for MainWindow to host
+   the QMenu).
+2. yaml save/load via yaml-cpp in ChartManager (the stubs from
+   S5).
+3. Canonical example schema at `schemas/charts_v1.yaml`.
+4. `chart_config_persistence_test.cpp` covering yaml roundtrip,
+   missing-file graceful, invalid-yaml ERROR.
+
+### S7 — close
+
+Mouse handlers (Chart.cpp):
+- `mousePressEvent`: Left → start drag (capture x); Right → emit
+  `contextMenuRequested(globalPos)` so MainWindow (S8) hosts the
+  QMenu (QQuickItem can't directly show QtWidgets menus).
+- `mouseMoveEvent`: while dragging, convert pixel delta to a
+  duration via `pxToNs = visibleDuration / width` and call
+  `timeAxis_->pan(-dx * pxToNs)` (negative — dragging right
+  scrolls the chart toward the past, matching grab-the-data
+  intuition).
+- `mouseReleaseEvent`: clears drag state.
+- `wheelEvent`: factor = 1.1^(-steps) — positive scroll zooms
+  in. Reference point = the time under the cursor (computed
+  from the cursor x-fraction across the chart). Calls
+  `timeAxis_->zoom(factor, refPoint)`.
+
+`setAcceptedMouseButtons(Left | Right)` enabled in constructor;
+unit-test cases that don't exercise mouse events are unaffected.
+
+yaml save/load (chart_manager.cpp + yaml-cpp PRIVATE link):
+- `saveConfigToFile(path)`: emits `schema_version: 1` + `charts:`
+  sequence using YAML::Emitter; writes via QFile.
+- `loadConfigFromFile(path)`: missing file → false (graceful per
+  spec §8.4); yaml parse error or missing top-level `charts:`
+  sequence → false + ERROR log; on success, replaces existing
+  charts (calls `removeChart` on each, then `createChart` for
+  each from yaml).
+- `displayModeToYaml` / `displayModeFromYaml` helpers map the
+  enum to `line` / `step` / `point` strings.
+
+Schema example: `schemas/charts_v1.yaml` documents top-level +
+per-chart + per-signal keys with two-chart canonical example.
+Frozen at M8 close per spec §6.1; sha256 recorded in
+`M8-done.md` (S11).
+
+Unit test cases (5): yaml round-trip preserves charts + signals;
+missing file graceful; invalid yaml rejection; missing
+`charts:` rejection; load replaces existing manager state.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 443/443 release (was 438 → +5 chart_config_persistence).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty.
+**Effort**: ~0.5 h (plan estimate 5 h).
