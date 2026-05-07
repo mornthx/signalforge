@@ -61,3 +61,16 @@ target_link_libraries(connection_persistence_test
         signalforge_pipeline
 )
 catch_discover_tests(connection_persistence_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(connection_dialog_test
+    connection_dialog_test.cpp
+)
+target_link_libraries(connection_dialog_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Widgets
+        signalforge_connection
+        signalforge_drivers
+)
+catch_discover_tests(connection_dialog_test DISCOVERY_MODE PRE_TEST)

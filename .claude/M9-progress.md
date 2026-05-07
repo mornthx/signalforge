@@ -211,3 +211,52 @@ None.
 ### Deviations from plan
 
 None.
+
+---
+
+## S5 — ConnectionDialog modal + dynamic QStackedWidget (completed)
+
+- Start: 2026-05-07T12:35Z
+- Close: 2026-05-07T13:00Z
+
+### Deliverables
+
+- `connection_dialog.hpp` expanded with widget pointers,
+  per-page builders, and getters/setters for test hooks
+  (`stackedWidget()`, `okButton()`, `setDriverType()`).
+- `connection_dialog.cpp` full impl:
+  - Common header: display name + decoder schema combo
+    (editable; populated from `availableSchemaIds_`) +
+    auto-connect-on-startup checkbox (with V1.5+ tooltip per
+    M9.2) + driver type combo.
+  - 4-page `QStackedWidget`: Serial (device + baud + dataBits
+    + parity + stopBits + flowControl with the M3 string
+    enums), TCP (host + port + connectTimeout), UDP (local +
+    remote + multicast), Replay (file picker via
+    `QFileDialog` + speed + loop).
+  - Auto-connect commands page: hex-payload + hex-expected
+    add/remove with ms timeout/delay editors.
+  - Continuous validation: OK button disabled when invalid;
+    `revalidate` is wired to every input change.
+  - "Test connection" button (V1: stub log; full driver
+    round-trip is S10 territory per spec §3.1).
+  - SerialPortInfo pre-populates the device line edit.
+- `connection_dialog_test.cpp`: 8 cases covering offscreen
+  construction, page swap on driver type change, empty
+  validation, Serial round-trip, TCP empty-host/port-0
+  rejection, UDP bind-or-send intent, Replay
+  empty-path/zero-speed rejection, AutoConnectCommand
+  pre-fill round-trip with NUL byte.
+- CMake: signalforge_connection now PUBLIC-links Qt6::SerialPort
+  for QSerialPortInfo.
+
+### Build / test counts
+
+- Debug: 494/494 ctest pass (was 486 + 8 new S5 tests).
+- Release: 494/494 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Deviations from plan
+
+None.

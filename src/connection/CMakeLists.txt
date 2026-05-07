@@ -14,6 +14,7 @@ target_link_libraries(signalforge_connection
     PUBLIC
         Qt6::Core
         Qt6::Widgets
+        Qt6::SerialPort
         signalforge_drivers
         signalforge_decoder
         signalforge_frame
