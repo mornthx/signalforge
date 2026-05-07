@@ -82,3 +82,54 @@ tracks-now.
 **Frozen-file diff**: empty (only src/chart/ + tests/unit/chart/
 modified).
 **Effort**: ~1.0 h (plan estimate 4 h).
+
+---
+
+## S3 — Chart core: SG node management + per-signal renderers (start)
+
+**Goal**: per plan §S3 (8 h estimate; HALT at >150% = 12 h),
+implement Chart's public lifecycle API (addSignal / removeSignal /
+setDisplayMode / setSignalVisible / config / setConfig) backed by
+a Chart::Impl PIMPL holding a per-signal SG-node map, plus the
+auto-display-mode lookup (spec §3.4 / §4.8). Data population is
+deferred to S4; here we land the lifecycle + node-allocation
+plumbing.
+
+Test target: unit tests cover addSignal/removeSignal round-trip,
+auto-display-mode by signal type, setDisplayMode override,
+setSignalVisible toggle. These tests don't need an event loop —
+just exercise the public API and read back via config().
+
+### S3 — close
+
+`Chart::Impl` PIMPL holds the per-signal `QSGGeometryNode*` map +
+a `pendingRemovals` set. `updatePaintNode` consumes the pending
+set (deleting nodes whose signals were removed / hidden /
+mode-changed), then ensures every visible signal has a node
+allocated with the appropriate drawing mode (Line/Step →
+DrawLineStrip; Point → DrawPoints) and material color. Vertex
+data is left empty in S3 — S4 populates it from
+`bufferFor(id)->queryRange(start, end, target=width())`.
+
+Auto-display-mode lookup (spec §3.4 / §4.8): `addSignal(id)`
+without explicit mode reads the registry's metadata and selects
+Step (Bool), Line (Int64 / Double), or Point (QString); falls
+back to Line when no buffer is registered for `id`.
+
+Default-color palette: 8-entry rotating palette, looping for
+larger sets. Theming is V1.5+ per spec §2.2-9.
+
+Unit test cases (11): addSignal/removeSignal round-trip;
+duplicate-id no-op; empty-id no-op; missing-id removeSignal
+no-op; auto-mode for each of Bool/Int64/Double/QString;
+explicit-mode override; missing-buffer fallback to Line;
+setDisplayMode + missing-id no-op; setSignalVisible toggle
+(visibility flag, not removal); setConfig replacement; stats()
+returns zeros pre-tick.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 425/425 release (was 414 → +11 chart_signal_lifecycle).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty (only src/chart/ + tests/unit/chart/
+modified).
+**Effort**: ~1.0 h (plan estimate 8 h; HALT threshold at 12 h).
