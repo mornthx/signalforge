@@ -37,10 +37,10 @@ implementation-time uncertainty).
 
 ## PR and merge state
 
-- **PR number**: (filled after `gh pr create` runs)
-- **PR URL**: (filled after `gh pr create` runs)
-- **Head commit at PR creation**: M8 closure commit (this
-  report's commit).
+- **PR number**: #13
+- **PR URL**: https://github.com/mornthx/signalforge/pull/13
+- **Head commit at PR creation**: `6f3aaba` (the S11 closure
+  commit).
 - **CI status at PR creation**: green on each subtask commit
   (S1-S10); S11 commit's CI run is pending at PR-creation time.
 - **Merge SHA**: (filled after merge during Phase 3 of next
