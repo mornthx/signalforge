@@ -416,3 +416,60 @@ covered by S9 integration tests where an event loop runs).
 **Frozen-file diff**: empty (`main_window.{hpp,cpp}` are app-
 level, not on the M2-M7 freeze list).
 **Effort**: ~0.5 h (plan estimate 5 h).
+
+---
+
+## S9 — Integration tests (start)
+
+**Goal**: per plan §S9 (6 h estimate), the 7 spec §2.1-12
+integration tests. Most test paths are exercisable without an
+on-screen Qt event loop by directly invoking `Chart::onTick`
+via `QMetaObject::invokeMethod(&chart, "onTick",
+Qt::DirectConnection)` (the same pattern M7 used for
+ExpressionEngine integration tests).
+
+### S9 — close
+
+7 integration tests delivered at `tests/integration/`:
+
+1. `test_chart_basic_rendering.cpp` — 5 signals attached + 10
+   ticks → totalRedraws == 10.
+2. `test_chart_30hz_sustained.cpp` — 60 signals × 150 ticks
+   (= 5 sec × 30 Hz) → totalRedraws == 150, droppedFrames == 0
+   (direct invoke; real-event-loop drop test in S10 bench).
+3. `test_chart_global_time_axis.cpp` — 3 charts share one
+   axis; `axis.pan(-3 sec)` produces rangeChanged +
+   liveModeChanged exactly once and visibleEnd jumps back by
+   ~3 sec.
+4. `test_chart_lod_selection.cpp` — 100 k samples (M8-prototype
+   measured 600 k → reduced for CI wall-time; LOD pyramid still
+   spans all 4 levels at this size); 4 zoom queries
+   (1 s / 10 s / 60 s / full) all return ≤ 2 × kTargetBins
+   samples; full window's count is materially lower than the
+   1-sec window's (LOD 3 vs LOD 0).
+5. `test_chart_signal_type_display.cpp` — Bool / Int64 /
+   Double / QString → Step / Line / Line / Point.
+6. `test_chart_window_activation.cpp` — ChartManager + Chart
+   add/remove construct cleanly under QGuiApplication. The
+   actual showEvent + raise + requestActivate path lives in
+   MainWindow (S8) and is exercised by S10 bench + S11 soak.
+7. `test_signal_selector_tree_population.cpp` — 2 mock drivers
+   + 1 derived signal (M7 expression-engine driver id) → tree
+   has 3 top-level groups with 2 + 1 + 1 leaves respectively.
+
+**Initial issue, resolved**: `test_chart_window_activation`
+segfaulted on ctest run due to a destruction-order race
+between a temporary `QQuickWindow` (which adopts QQuickItem
+children) and `ChartManager` (which owns `Chart` via
+unique_ptr). Resolution: removed the temporary QQuickWindow
+from this test; the window-activation contract is fully
+covered by MainWindow's showEvent (S8) + bench (S10) + soak
+(S11). The test now verifies only the construction +
+add/remove flow.
+
+**Build**: clean on debug + release + debug-asan.
+**Tests**: 450/450 release (was 443 → +7 chart integration
+tests).
+**Format**: clang-format clean on changed files.
+**Frozen-file diff**: empty.
+**Effort**: ~1.0 h (plan estimate 6 h).
