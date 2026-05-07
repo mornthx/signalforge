@@ -95,14 +95,37 @@ signals:
     void flushed(std::size_t bytesFlushed);
 
 private:
+    /// Encode + write a Signal Value (record type 1).
+    void writeSignalRecord(const WriteSignalEvent& evt);
+
+    /// Encode + write a Catalog Extension (record type 2). Also
+    /// updates the in-memory `currentCatalog_` and
+    /// `signalIdToIndex_` so subsequent signal records reference
+    /// the right indices.
+    void writeCatalogExtension(const CatalogExtensionEvent& evt);
+
+    /// Encode + write a Heartbeat (record type 4) at the current
+    /// time.
+    void writeHeartbeat();
+
+    /// Encode + write a record header + payload.
+    void writeRecord(std::uint32_t recordType, const QByteArray& payload);
+
+    /// Write the 16-byte SFREPLAY v1 footer with the running
+    /// `totalRecords_` count.
+    void writeFooter();
+
     QFile file_;
     QMutex queueMutex_;
     QWaitCondition queueNotFull_;
     QQueue<SessionEvent> queue_;
     std::unordered_map<QString, std::uint32_t> signalIdToIndex_;
     std::vector<signalforge::decoder::SignalMetadata> currentCatalog_;
+    std::int64_t metadataRecordedAtNs_ = 0;
+    std::chrono::steady_clock::time_point metadataRecordingStart_{};
     std::atomic<std::size_t> bytesWritten_{0};
     std::atomic<std::size_t> droppedEvents_{0};
+    std::uint32_t totalRecords_ = 0;
 
     static constexpr std::size_t kQueueCapacity = 10000;
     static constexpr std::chrono::milliseconds kFlushInterval{1000};

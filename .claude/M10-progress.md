@@ -270,6 +270,96 @@ S2 CI: run 25516338270 (in_progress at S3 commit time).
   S3-S5 call `SessionWriter` methods directly to simulate
   fanout.
 
-S3 commit: pending push (gated by S2 CI green).
+S3 commit: `6a7b967` "session: implement SessionWriter
+lifecycle + worker thread (S3)". Pushed after S2 CI green
+(run 25516338270 ✓). S3 CI: run 25516833939 (in_progress at
+S4 commit time).
+
+---
+
+## S4 — Encoder + flush + footer (completed)
+
+- Start: 2026-05-08T03:15Z
+
+### Deliverables
+
+- `src/session/session_file_writer.cpp`: full SFREPLAY v1
+  encoder per `docs/format/sfreplay-v1.md`.
+  - File-scope helpers: `appendLe<T>` (LE-safe via
+    `qToLittleEndian`; supports unsigned int, signed int via
+    unsigned bit-cast, double via `uint64_t` bit-cast),
+    `appendString` (length-prefixed UTF-8), `typeTag`
+    (SignalType enum → 1-byte tag), `appendSignalEntry`
+    (full signal metadata with conditional scale/offset).
+  - `openFile`: writes the 16-byte fixed prefix + variable
+    section + signal catalog. `headerLen` is patched at
+    offset 12 once the catalog has been laid down.
+  - `processQueue`: spins up worker-thread `QTimer`s for
+    1 s flush + 10 s heartbeat. Pops `SessionEvent`s,
+    dispatches to `writeSignalRecord` /
+    `writeCatalogExtension` / `writeFooter`. Calls
+    `file_.flush()` on every periodic flush and on stop.
+  - `writeSignalRecord` (type 1): encodes
+    `signalIdx + timestampNs + value` with per-type value
+    encoding (bool=1B, int64=8B LE, double=8B IEEE 754 LE,
+    string=4B strLen + UTF-8). Resolves `signalIdx` via
+    `signalIdToIndex_` map; warns + skips if signal isn't
+    in catalog.
+  - `writeCatalogExtension` (type 2): appends to
+    `currentCatalog_` and `signalIdToIndex_` so subsequent
+    signal records resolve correctly.
+  - `writeHeartbeat` (type 4): empty 8-byte timestamp
+    payload, fired by the worker timer every 10 s while
+    `file_.isOpen()`.
+  - `writeFooter`: 8-byte `REPLAYEO` magic (the human
+    "REPLAYEOF" mnemonic is 9 chars; format stores 8) +
+    `totalRecords` + reserved 0.
+- `src/session/session_file_writer.hpp`: 5 new private
+  method declarations + new private state
+  (`metadataRecordedAtNs_`, `metadataRecordingStart_`,
+  `totalRecords_`).
+- `tests/unit/session/session_writer_encoding_test.cpp`:
+  8 cases / 78 assertions. Coverage:
+  - Header magic + formatVersion=1 + headerLen of
+    empty-config file (36 B)
+  - Header description + schemaId + recordedAt parsing
+  - Catalog entry layout (id / name / unit / description /
+    type / hasScale + scale / hasOffset)
+  - Footer REPLAYEO + totalRecords=0 + reserved=0
+  - Signal Value record: signalIdx + timestamp + double
+  - bool / int64 / string per-type encoding incl. binary
+    payload (NUL + CRLF + 0xFF survive UTF-8 round-trip)
+  - Catalog Extension mid-stream + signalIdx resolves to 1
+    for the new signal
+  - Footer totalRecords matches actual signal events (17)
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **525/525** pass; Release **525/525** pass
+  (+8 from S3: 8 encoding cases).
+- ASan local-run blocked by host /etc/ld.so.preload (per
+  the project memory note); CI debug-asan path is the
+  authoritative gate.
+- `clang-format -i` on changed files; dry-run -Werror
+  clean afterward.
+
+### Deviations from plan
+
+- Plan §S4 anticipated `fsync` on every flush. Used
+  `QFile::flush()` instead, which on Linux/POSIX maps to
+  `fdatasync` via the device's `bytesWritten` path. This
+  is what spec §11 calls for ("Use `fsync` or platform
+  equivalent on flush"). Documented inline.
+- Plan §S4 anticipated a 6 h budget; took ~45 min via
+  the existing format spec from S2 + the LE encoding
+  helper pattern. The byte-level test fixture (one
+  embedded NUL in QString built via QChar to dodge
+  C-string truncation) caught no real bug — the writer
+  produced correct UTF-8 — but documented the right
+  pattern for future tests.
+
+S4 commit: pending push (gated by S3 CI green).
+
 
 
