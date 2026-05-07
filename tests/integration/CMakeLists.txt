@@ -296,3 +296,20 @@ target_link_libraries(test_replay_driver_full_cycle
         signalforge_frame
 )
 catch_discover_tests(test_replay_driver_full_cycle DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_connection_lifecycle_full_stack
+    test_connection_lifecycle_full_stack.cpp
+)
+target_link_libraries(test_connection_lifecycle_full_stack
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::Test
+        signalforge_connection
+        signalforge_drivers
+        signalforge_decoder
+        signalforge_pipeline
+        signalforge_frame
+)
+catch_discover_tests(test_connection_lifecycle_full_stack DISCOVERY_MODE PRE_TEST)
