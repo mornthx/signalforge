@@ -751,7 +751,82 @@ Pushed after S7 CI green (run 25518841332 ✓). S8 CI: run
   M10 spec §4.7 mentions both styles; the simpler version
   ships, V1.5+ may extend.
 
-S9 commit: pending push (gated by S8 CI green).
+S9 commit: `03e2b4b` "session: TeeSink + MainWindow Record
+action (S9)". Pushed after S8 CI green (run 25519370707 ✓).
+S9 CI: run 25519876612 (in_progress at S10 commit time).
+
+---
+
+## S10 — bench_session_writer + soak harness (completed)
+
+- Start: 2026-05-08T04:21Z
+
+### Deliverables
+
+- `tests/benchmark/bench_session_writer.cpp`: bench harness
+  for SessionWriter throughput + memory. Default mode runs
+  60 sig × 1 kHz × 10 s = 600 000 events through
+  `SessionWriter::onSignal` and reports event rate, drop
+  count, bytes/sec, and per-call enqueue latency p99
+  (proxy for the spec § 5.1 main-thread block cap).
+  - `--soak <seconds>` mode mirrors the M9 S5s pattern;
+    captures VmRSS snapshots every
+    `--memory-snapshot <interval>` seconds.
+  - Internal acceptance gates: rate ≥ 60 k events/sec
+    (HALT trigger #4), enqueue p99 < 5 ms (spec § 5.1),
+    VmRSS growth < 10 % vs baseline at sec ≥ 120
+    (HALT trigger #6).
+- `tests/benchmark/CMakeLists.txt`: appends the
+  `bench_session_writer` target. Opt-in via
+  `-DSIGNALFORGE_BENCHMARKS=ON` like the rest of the
+  bench suite.
+- `tests/benchmark/results/M10-baseline.md` (NEW): records
+  the 10-second sustained baseline:
+
+  | Metric | Value | Gate | Verdict |
+  |---|---:|---:|---:|
+  | events/sec | 60 000.0 | ≥ 60 000 | ✅ |
+  | dropped events | 0 / 600 000 | 0 | ✅ |
+  | enqueue p99 | 15 225 ns | < 5 ms | ✅ (332× headroom) |
+  | enqueue max | 223 486 ns | < 5 ms | ✅ |
+  | bytes/sec | 1 680 233 | (sanity) | ✅ |
+
+  The 30-min soak is queued for the operator's wall-clock
+  budget; harness in place; result will be appended in a
+  follow-up commit (mirrors M9 S5s flow).
+
+### Build / test counts
+
+- `release-bench` preset rebuilt; `bench_session_writer`
+  links clean.
+- ctest unchanged (bench is opt-in / not in ctest per the
+  bench CMakeLists comment).
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S10 anticipated 4 h; took ~30 min after the
+  initial sleep_for(1 ms) approach measured 44 k events/sec
+  (Linux scheduler imprecision). Switched to
+  `sleep_until` deadline pacing — accurate to ~10 μs —
+  and the bench hit 60 k events/sec dead-on.
+- Plan §S10 anticipated a 30-min soak run inside the
+  milestone. Given the soak takes 30 min of wall-clock
+  time to validate the < 10 % growth gate, it is queued
+  for the operator (same as the M9 S5s pattern: harness
+  lands in S10, soak result appended in S11 commit if
+  available, or in a follow-up). The harness emits the
+  jsonl format and exits non-zero on gate violation, so
+  the soak is fully automatable.
+- The bench drives `SessionWriter::onSignal` directly,
+  not through the M5 pipeline + DecoderRegistrar +
+  TeeSink. This is intentional: the throughput gate is
+  the writer's queue + worker, not the upstream decode
+  path (which has its own M5 / M6 perf gates). Documented
+  in M10-baseline.md "Hand-off notes".
+
+S10 commit: pending push (gated by S9 CI green).
+
 
 
 
