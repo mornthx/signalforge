@@ -1,20 +1,28 @@
 #include "main_window.hpp"
 
-#include "app/connection_manager.hpp"
 #include "buffer/signal_buffer_registry.hpp"
 #include "chart/chart.hpp"
 #include "chart/chart_manager.hpp"
 #include "chart/signal_selector.hpp"
 #include "chart/time_axis_manager.hpp"
+#include "connection/connection.hpp"
+#include "connection/connection_dialog.hpp"
+#include "connection/connection_list_widget.hpp"
+#include "connection/connection_manager.hpp"
+#include "connection/connection_status_widget.hpp"
 #include "decode/decoder_registrar.hpp"
 #include "observability/logging.hpp"
 #include "pipeline/pipeline_manager.hpp"
 
 #include <QAction>
 #include <QComboBox>
+#include <QDir>
+#include <QDockWidget>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QQuickWidget>
 #include <QSplitter>
 #include <QStatusBar>
@@ -31,24 +39,32 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("SignalForge"));
     resize(1280, 800);
 
-    auto* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
-    auto* openConn = fileMenu->addAction(QStringLiteral("&Connection Manager..."));
-    openConn->setShortcut(QKeySequence(QStringLiteral("Ctrl+M")));
-    connect(openConn, &QAction::triggered, this, &MainWindow::openConnectionManager);
-
-    // M6 production sink. Constructed eagerly so the M8 chart UI
-    // can bind to it on startup; ConnectionManager (M9 territory)
-    // already used the same registry instance via lazy init in the
-    // previous design, so the eager-construct is observably equivalent.
+    pipelineManager_ = std::make_unique<signalforge::pipeline::PipelineManager>(this);
     signalBufferRegistry_ = std::make_unique<signalforge::buffer::SignalBufferRegistry>();
+    {
+        std::shared_ptr<signalforge::decoder::SignalValueSink> sink(signalBufferRegistry_.get(),
+                                                                    [](signalforge::decoder::SignalValueSink*) {});
+        decoderRegistrar_ = std::make_unique<signalforge::decoder::DecoderRegistrar>(
+            pipelineManager_.get(), std::unordered_map<QString, QString>{}, std::move(sink), this);
+    }
+    connectionManager_ = std::make_unique<signalforge::connection::ConnectionManager>(*decoderRegistrar_, this);
+
+    // Auto-load the persisted connection list. Missing file is
+    // benign (first launch); ERROR-level parse failures degrade
+    // to an empty manager (logged by ConnectionManager).
+    const QString cfgPath = signalforge::connection::ConnectionManager::defaultConfigPath();
+    QDir().mkpath(QFileInfo(cfgPath).absolutePath());
+    (void)connectionManager_->loadConfigFile(cfgPath);
+
     chartManager_ = std::make_unique<signalforge::chart::ChartManager>(*signalBufferRegistry_, this);
+
     buildChartUi();
+    buildConnectionUi();
 }
 
 MainWindow::~MainWindow() = default;
 
 void MainWindow::buildChartUi() {
-    // Central layout: QSplitter with SignalSelector left, charts right.
     centralSplitter_ = new QSplitter(Qt::Horizontal, this);
 
     signalSelector_ = new signalforge::chart::SignalSelector(*signalBufferRegistry_, *chartManager_);
@@ -60,11 +76,10 @@ void MainWindow::buildChartUi() {
     chartLayout_->setSpacing(2);
     centralSplitter_->addWidget(chartContainer_);
 
-    centralSplitter_->setStretchFactor(0, 1);  // selector
-    centralSplitter_->setStretchFactor(1, 4);  // charts (4× wider)
+    centralSplitter_->setStretchFactor(0, 1);
+    centralSplitter_->setStretchFactor(1, 4);
     setCentralWidget(centralSplitter_);
 
-    // Toolbar.
     auto* toolbar = addToolBar(tr("Chart"));
     toolbar->setMovable(false);
 
@@ -82,14 +97,13 @@ void MainWindow::buildChartUi() {
     timePresetCombo_->addItem(tr("1 min"));
     timePresetCombo_->addItem(tr("10 min"));
     timePresetCombo_->addItem(tr("1 hour"));
-    timePresetCombo_->setCurrentIndex(1);  // default: 10 sec (matches TimeAxisManager default)
+    timePresetCombo_->setCurrentIndex(1);
     connect(timePresetCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onTimePresetChanged);
     toolbar->addWidget(timePresetCombo_);
 
     auto* addChartAction = toolbar->addAction(tr("+ Chart"));
     connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
 
-    // Status bar.
     fpsLabel_ = new QLabel(tr("FPS: -"));
     droppedLabel_ = new QLabel(tr("Dropped: 0"));
     throttledLabel_ = new QLabel;
@@ -97,14 +111,114 @@ void MainWindow::buildChartUi() {
     statusBar()->addPermanentWidget(droppedLabel_);
     statusBar()->addPermanentWidget(throttledLabel_);
 
-    // Status-bar refresh timer (1 Hz; cheap).
     auto* statusTimer = new QTimer(this);
     statusTimer->setInterval(1000);
     connect(statusTimer, &QTimer::timeout, this, &MainWindow::refreshStatusBar);
     statusTimer->start();
 
-    // Start with one chart so the user has something on screen.
     onAddChart();
+}
+
+void MainWindow::buildConnectionUi() {
+    // Connections menu.
+    auto* menu = menuBar()->addMenu(tr("&Connections"));
+
+    auto* addAction = menu->addAction(tr("&Add…"));
+    addAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+M")));
+    connect(addAction, &QAction::triggered, this, &MainWindow::onAddConnectionRequested);
+
+    auto* connectAllAction = menu->addAction(tr("Connect &all"));
+    connect(connectAllAction, &QAction::triggered, this, &MainWindow::onConnectAllAction);
+
+    auto* disconnectAllAction = menu->addAction(tr("&Disconnect all"));
+    connect(disconnectAllAction, &QAction::triggered, this, &MainWindow::onDisconnectAllAction);
+
+    // Connection list dock (left side).
+    connectionList_ = new signalforge::connection::ConnectionListWidget(connectionManager_.get(), this);
+    connectionDock_ = new QDockWidget(tr("Connections"), this);
+    connectionDock_->setWidget(connectionList_);
+    connectionDock_->setObjectName(QStringLiteral("connectionsDock"));
+    addDockWidget(Qt::LeftDockWidgetArea, connectionDock_);
+
+    connect(connectionList_, &signalforge::connection::ConnectionListWidget::addRequested, this,
+            &MainWindow::onAddConnectionRequested);
+    connect(connectionList_, &signalforge::connection::ConnectionListWidget::editRequested, this,
+            &MainWindow::onEditConnectionRequested);
+
+    // Connection status widget in the status bar.
+    connectionStatus_ = new signalforge::connection::ConnectionStatusWidget(connectionManager_.get(), this);
+    statusBar()->addPermanentWidget(connectionStatus_);
+    connect(connectionStatus_, &signalforge::connection::ConnectionStatusWidget::clicked, connectionDock_,
+            &QDockWidget::raise);
+
+    // After loading connections, refresh the SignalSelector tree
+    // so any newly-arriving decoder signals appear in the chart's
+    // selector. Per spec §4.2 we also re-run this on every
+    // connection state change.
+    connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::connectionStateChanged, this,
+            [this](const QString&, signalforge::connection::Connection::State) {
+                if (signalSelector_ != nullptr) {
+                    signalSelector_->refresh();
+                }
+            });
+}
+
+QStringList MainWindow::enumerateAvailableSchemaIds() const {
+    // Walk examples/schemas/*.yaml relative to the binary's
+    // working directory. Schema IDs are yaml file stems for V1;
+    // future versions may parse `schemaId` from the yaml itself.
+    QStringList ids;
+    QDir dir(QStringLiteral("examples/schemas"));
+    if (!dir.exists()) {
+        return ids;
+    }
+    for (const QString& name : dir.entryList({QStringLiteral("*.yaml")}, QDir::Files)) {
+        ids << QFileInfo(name).completeBaseName();
+    }
+    return ids;
+}
+
+void MainWindow::onAddConnectionRequested() {
+    signalforge::connection::ConnectionDialog dlg(enumerateAvailableSchemaIds(), this);
+    if (dlg.exec() != QDialog::Accepted || !dlg.isValid()) {
+        return;
+    }
+    const QString id = connectionManager_->addConnection(dlg.config());
+    if (id.isEmpty()) {
+        QMessageBox::warning(this, tr("Add connection"), tr("Failed to add connection (id collision?)"));
+    }
+}
+
+void MainWindow::onEditConnectionRequested(const QString& id) {
+    auto* conn = connectionManager_->connection(id);
+    if (!conn) {
+        return;
+    }
+    if (conn->state() != signalforge::connection::Connection::State::Idle) {
+        QMessageBox::information(this, tr("Edit connection"),
+                                 tr("Disconnect the connection before editing its configuration."));
+        return;
+    }
+    signalforge::connection::ConnectionDialog dlg(enumerateAvailableSchemaIds(), this);
+    dlg.setConfig(conn->config());
+    if (dlg.exec() != QDialog::Accepted || !dlg.isValid()) {
+        return;
+    }
+    if (!connectionManager_->editConnection(id, dlg.config())) {
+        QMessageBox::warning(this, tr("Edit connection"), tr("Failed to apply edits."));
+    }
+}
+
+void MainWindow::onConnectAllAction() {
+    if (connectionManager_) {
+        connectionManager_->connectAll();
+    }
+}
+
+void MainWindow::onDisconnectAllAction() {
+    if (connectionManager_) {
+        connectionManager_->disconnectAll();
+    }
 }
 
 void MainWindow::onAddChart() {
@@ -120,14 +234,12 @@ void MainWindow::rebuildChartWidgets() {
     if (chartLayout_ == nullptr || chartManager_ == nullptr) {
         return;
     }
-    // Remove existing chart widgets.
     while (auto* item = chartLayout_->takeAt(0)) {
         if (auto* w = item->widget()) {
             w->deleteLater();
         }
         delete item;
     }
-    // Re-add a QQuickWidget per chart.
     for (const auto& id : chartManager_->chartIds()) {
         auto* chart = chartManager_->chart(id);
         if (chart == nullptr) {
@@ -136,9 +248,6 @@ void MainWindow::rebuildChartWidgets() {
         auto* hostWidget = new QQuickWidget(chartContainer_);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
         chart->setParentItem(hostWidget->rootObject());
-        // Connect right-click context menu request → simple no-op
-        // toast for V1 (full menu in V1.5+ — pause/resume/snap-to-recent
-        // already accessible via the toolbar live toggle).
         chartLayout_->addWidget(hostWidget, 1);
     }
 }
@@ -182,7 +291,6 @@ void MainWindow::onTimePresetChanged(int index) {
     default:
         break;
     }
-    // setPreset() returns to live mode; sync the toggle.
     if (liveToggle_ != nullptr && !liveToggle_->isChecked()) {
         liveToggle_->setChecked(true);
     }
@@ -206,10 +314,6 @@ void MainWindow::refreshStatusBar() {
         ++chartCount;
     }
     if (fpsLabel_ != nullptr) {
-        // 1 Hz refresh; report the recent-frame rate as
-        // (totalRedraws / chartCount / elapsedSinceStart_seconds)
-        // — for V1 we just report a rolling estimate from peak
-        // observed.
         if (chartCount > 0) {
             fpsLabel_->setText(tr("FPS: ~%1 / chart").arg(30));
         } else {
@@ -223,18 +327,12 @@ void MainWindow::refreshStatusBar() {
         throttledLabel_->setText(totalDropped > 0 ? tr("⚠ throttled") : QString{});
     }
     if (signalSelector_ != nullptr) {
-        // Pull-based observation of registry mutation per
-        // M8-concerns.md C2. Cheap (just a tree rebuild) at 1 Hz.
         signalSelector_->refresh();
     }
 }
 
 void MainWindow::showEvent(QShowEvent* event) {
     QMainWindow::showEvent(event);
-    // Window activation per spec §4.6 + [Proto] Anomaly §2:
-    // Mutter throttles unfocused windows; force activation so
-    // chart redraw stays at 30 Hz from the start. WARN if the
-    // compositor refuses focus 500 ms later.
     if (auto* handle = windowHandle(); handle != nullptr) {
         handle->raise();
         handle->requestActivate();
@@ -245,27 +343,6 @@ void MainWindow::showEvent(QShowEvent* event) {
             }
         });
     }
-}
-
-void MainWindow::openConnectionManager() {
-    if (!pipelineManager_) {
-        pipelineManager_ = std::make_unique<signalforge::pipeline::PipelineManager>(this);
-    }
-    if (!decoderRegistrar_) {
-        // Non-owning aliased shared_ptr to the registry — the registry
-        // outlives the registrar, so the no-op deleter is safe.
-        std::shared_ptr<signalforge::decoder::SignalValueSink> sink(signalBufferRegistry_.get(),
-                                                                    [](signalforge::decoder::SignalValueSink*) {});
-        decoderRegistrar_ = std::make_unique<signalforge::decoder::DecoderRegistrar>(
-            pipelineManager_.get(), std::unordered_map<QString, QString>{}, std::move(sink), this);
-    }
-    if (!connectionManager_) {
-        connectionManager_ = std::make_unique<ConnectionManager>(pipelineManager_.get(), this);
-        connectionManager_->setModal(false);
-    }
-    connectionManager_->show();
-    connectionManager_->raise();
-    connectionManager_->activateWindow();
 }
 
 }  // namespace signalforge::app

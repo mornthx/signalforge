@@ -412,3 +412,57 @@ emit through it now).
 ### Deviations from plan
 
 None.
+
+---
+
+## S9 — MainWindow integration + remove M3 preview (completed)
+
+- Start: 2026-05-07T14:15Z
+- Close: 2026-05-07T14:40Z
+
+### Deliverables
+
+- **Removed**: `src/app/connection_manager.{hpp,cpp}` (M3
+  preview QDialog) and `tests/integration/test_connection_manager.cpp`.
+  Per M9-concerns.md C2 these are not in M3's freeze list (M3
+  declared no freezes); the new
+  `signalforge::connection::ConnectionManager` is at a
+  different path with a different namespace, so no symbol
+  collision.
+- `src/app/main_window.{hpp,cpp}` rewritten:
+  - Constructs PipelineManager, SignalBufferRegistry,
+    DecoderRegistrar, and the new ConnectionManager up-front.
+  - Auto-loads the persisted connection list from
+    `defaultConfigPath()` (creating the directory if needed).
+  - Adds a "Connections" menu (Add… / Connect all /
+    Disconnect all) with Ctrl+M for Add.
+  - Adds a `ConnectionListWidget` in a `QDockWidget` on the
+    left dock area (connection list panel).
+  - Adds a `ConnectionStatusWidget` in the M8 status bar
+    alongside the FPS / Dropped / throttled labels. Click on
+    the status widget raises the dock.
+  - Wires `connectionList_` `addRequested` /
+    `editRequested(id)` to handlers that pop a
+    `ConnectionDialog` (populated from a filesystem walk of
+    `examples/schemas/*.yaml` for the schema combo).
+  - On every `connectionStateChanged`, calls
+    `signalSelector_->refresh()` so newly-arriving decoder
+    signals appear in the chart's selector
+    (M8-concerns.md C2 pattern).
+- `src/app/CMakeLists.txt`: dropped the old
+  connection_manager sources from signalforge_app_ui; added
+  signalforge_connection to its PUBLIC link list.
+- `tests/integration/CMakeLists.txt`: removed the old
+  test_connection_manager target and its compile definitions.
+
+### Build / test counts
+
+- Debug: 502/502 ctest pass (was 508 - 6 deleted M3-preview
+  tests = 502).
+- Release: 502/502 ctest pass.
+- debug-asan: build clean.
+- `clang-format --dry-run -Werror` clean.
+
+### Deviations from plan
+
+None — proceeded exactly per concerns.md C2.

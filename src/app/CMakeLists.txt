@@ -1,6 +1,4 @@
 add_library(signalforge_app_ui STATIC
-    connection_manager.cpp
-    connection_manager.hpp
     main_window.cpp
     main_window.hpp
 )
@@ -17,6 +15,7 @@ target_link_libraries(signalforge_app_ui
         signalforge_decoder
         signalforge_buffer
         signalforge_chart
+        signalforge_connection
     PRIVATE
         signalforge_observability
         signalforge_platform
