@@ -169,10 +169,60 @@ bool SessionFileWriter::openFile(const QString& filePath, const SessionMetadata&
 }
 
 bool SessionFileWriter::enqueue(SessionEvent event) {
+    // C3 4-point policy per ADR-007 / M10-concerns.md:
+    //   1. Droppable + queue full → drop NEW; return false.
+    //   2. Non-droppable + queue full → drop OLDEST droppable;
+    //      enqueue NEW; return true.
+    //   3. Queue full of non-droppable → block on enqueue with
+    //      10 ms timeout.
+    //   4. 10 ms timeout exceeded → log ERROR, emit error
+    //      signal, return false (caller transitions to Error).
     QMutexLocker lock(&queueMutex_);
-    if (queue_.size() >= kQueueCapacity) {
+
+    const bool isDroppable = std::holds_alternative<WriteSignalEvent>(event);
+
+    if (queue_.size() < kQueueCapacity) {
+        queue_.enqueue(std::move(event));
+        queueNotFull_.wakeAll();
+        return true;
+    }
+
+    if (isDroppable) {
+        // Policy 1: drop the new droppable event (FIFO retention
+        // of recent writes). Caller increments its own counter
+        // from `false` return; we increment ours for the metric.
         droppedEvents_.fetch_add(1, std::memory_order_relaxed);
         return false;
+    }
+
+    // New event is non-droppable (CatalogExtensionEvent /
+    // StopEvent). Search for the oldest droppable in queue and
+    // evict it.
+    for (qsizetype i = 0; i < queue_.size(); ++i) {
+        if (std::holds_alternative<WriteSignalEvent>(queue_[i])) {
+            queue_.removeAt(i);
+            droppedEvents_.fetch_add(1, std::memory_order_relaxed);
+            queue_.enqueue(std::move(event));
+            queueNotFull_.wakeAll();
+            return true;
+        }
+    }
+
+    // Policy 3 / 4: queue is full of non-droppable events
+    // (vanishingly rare — would require thousands of mid-stream
+    // signal registrations queued ahead). Block briefly hoping
+    // the worker drains.
+    QDeadlineTimer deadline(static_cast<qint64>(kNonDroppableBlockTimeout.count()));
+    while (queue_.size() >= kQueueCapacity) {
+        if (deadline.hasExpired()) {
+            SF_LOG_ERROR("SessionFileWriter::enqueue: queue full of non-droppable events; transitioning to Error");
+            droppedEvents_.fetch_add(1, std::memory_order_relaxed);
+            // Caller wires the error signal to SessionWriter::errorOccurred,
+            // which flips state_ to Error.
+            emit error(QStringLiteral("SessionFileWriter: queue full of non-droppable events"));
+            return false;
+        }
+        queueNotFull_.wait(&queueMutex_, deadline.remainingTime());
     }
     queue_.enqueue(std::move(event));
     queueNotFull_.wakeAll();

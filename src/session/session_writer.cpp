@@ -64,7 +64,16 @@ bool SessionWriter::start(const QString& filePath, const QString& description, c
 
     // Wire up worker → main thread signal forwarding before the
     // worker starts processing.
-    connect(fileWriter_.get(), &SessionFileWriter::error, this, &SessionWriter::errorOccurred, Qt::QueuedConnection);
+    // Worker error → flip state to Error AND emit the public
+    // errorOccurred signal. Both run on the main thread via
+    // Qt::QueuedConnection.
+    connect(
+        fileWriter_.get(), &SessionFileWriter::error, this,
+        [this](const QString& message) {
+            state_ = RecordingState::Error;
+            emit errorOccurred(message);
+        },
+        Qt::QueuedConnection);
     connect(fileWriter_.get(), &SessionFileWriter::flushed, this, &SessionWriter::flushed, Qt::QueuedConnection);
 
     workerThread_->start();
