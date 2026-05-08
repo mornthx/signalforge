@@ -77,3 +77,12 @@ target_link_libraries(bench_chart
         signalforge_chart
         signalforge_decoder
 )
+
+add_executable(bench_session_writer bench_session_writer.cpp)
+target_link_libraries(bench_session_writer
+    PRIVATE
+        Qt6::Core
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
