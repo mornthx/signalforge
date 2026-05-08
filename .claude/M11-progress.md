@@ -844,5 +844,32 @@ S10 CI: pending watch.
   test is either covered by a dedicated unit test or in this
   integration file.
 
-S11 commit: pending push.
+S11 commit: `0f82f7f` "tests: M11 replay full-stack integration
+suite (M11 S11)". Pushed after S10 CI green.
+S11 CI: pending watch.
+
+---
+
+## S12 — M11 completion report (this commit)
+
+- Start: 2026-05-08T09:55Z
+
+### Deliverables
+
+- `docs/m11-hardware-verification.md`: 6-test manual protocol
+  mirroring M9/M10 protocols.
+- `.claude/M11-done.md`: spec §2.1 deliverables checklist,
+  freezes (3 sha256s), acceptance self-check vs spec §8,
+  test-count matrix, HALT-trigger disposition, hand-off to
+  M12 + M13 + V1.5+/V2 deferred items.
+
+### Build / test counts
+
+- No code change in S12 (only `.claude/M11-done.md` +
+  `docs/m11-hardware-verification.md`). CLAUDE.md §Required #2
+  docs-only exception applies.
+- Latest verified test counts (from S11 + S10): Debug **585/585**
+  + Release **585/585**; debug-asan build clean.
+
+S12 commit: pending push.
 
