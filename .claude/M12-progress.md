@@ -145,4 +145,131 @@ re-run with stable 10-second fixtures for the actual report.
   comparable per-iteration measurement point; they emit
   scenario-level totals instead.
 
-S1 commit: pending push.
+S1 commit: `07438d0` "tools: M12 profile harness + tiered runner
++ regression checker (M12 S1)". Pushed after S0 CI green.
+S1 CI: pending watch.
+
+---
+
+## S2 — Profile execution + report + top-3 selection (completed)
+
+- Start: 2026-05-08T15:25Z
+
+### Deliverables
+
+- `tests/benchmark/results/M12-profile-report.md` (~340 lines):
+  the canonical S2 deliverable. Sections:
+  - §1 Run environment (host, tools, tier 2 callgrind +
+    tier 3 QElapsedTimer; perf_event_paranoid=4 blocks tier 1)
+  - §2 Scenario A (live-style) — wall-clock + hot-function
+    table (148 M Ir total; top 15 entries) + per-module
+    breakdown
+  - §3 Scenario B (replay) — wall-clock confirms M11 1× timing
+    gap (13-14 % error vs spec target < 5 %)
+  - §4 Scenario C (concurrent record + chart) — tee fan-out
+    cost characterised
+  - §5 **Selected optimisations**:
+    1. **C4 Stage B — M11 SessionPlayer dispatch loop**
+       (sleep_until + batched dispatch). Primary metric:
+       1× error 12.02 % → ≤ 10.82 %. Bonus: 10× completion.
+    2. **M6 SignalBuffer push wrapper**. Primary metric: M6
+       Double push throughput +10 %. Profile shows
+       `push + onPushCompleted + valueMemoryBytes + pushValue`
+       combined to ~14 % of Scenario A runtime.
+  - §6 Optimisations considered but not selected (5 with
+    rationale per candidate)
+  - §7 Decision-tree application: **2 viable** → S3 + S4,
+    no S5 (per C4 decision tree)
+  - §8 Hand-off to S3 + S4
+- `tests/benchmark/results/M12-profile-data/`:
+  - `scenario-A-tier3.json`, `scenario-B-tier3.json`,
+    `scenario-C-tier3.json` — wall-clock JSON
+  - `callgrind.A.out` — tier 2 hot-function data for Scenario A
+- `tests/benchmark/m12_regression_suite.sh` (~50 LOC):
+  per-commit regression-cycle script. Runs `bench_replay`
+  three sub-modes + pipes to `check_regression.py`. Exits
+  non-zero (3) on regression > 5 % in `--strict` mode.
+- `tests/benchmark/results/M12-regression-suite.md` (~85
+  lines): documents the regression-cycle discipline + the
+  per-commit table from concerns C3.
+
+### Profile-data summary
+
+**Scenario A** (live, 60 sig × 1 kHz × 5 s, tier 3):
+3.32 M events/sec; dispatch_pct 93 % — confirms harness
+exercises the M6 hot path representative of live workloads.
+
+**Callgrind hot functions** (tier 2, 1 s, 99 % threshold,
+148.4 M Ir total):
+
+| Rank | % | Function |
+|---:|---:|---|
+| 1 | 5.75 % | `qHashBits` (registry hashtable) |
+| 2 | 5.72 % | `LinearTypedBuffer<double>::onPushCompleted` |
+| 7 | 4.22 % | `SignalBuffer::push` |
+| 9 | 2.16 % | `LinearTypedBuffer<double>::valueMemoryBytes` |
+| 10 | 2.02 % | `SignalBufferRegistry::onSignal` |
+| 15 | 1.63 % | `DoubleTypedBuffer::pushValue` |
+
+Combined M6 push path: **~14 %** — exactly matches the
+candidate-list "12-16 % of overhead" entry.
+
+**Scenario B** (replay, 5 s file at 1×, tier 3):
+5709 ms wall vs 5000 ms expected = 14.18 % timing error
+(within run-to-run variance of the M11-baseline 12.02 %
+documented value).
+
+**Scenario C** (concurrent, 5 s, tier 3):
+2.0 M events/sec through tee fan-out. SessionWriter overhead
+~39 % vs registry-only Scenario A.
+
+### Decision-tree result
+
+C4 decision tree (M12-concerns.md §C4) at S2 close:
+
+| Viable count | Action | Result |
+|---|---|---|
+| 0 | HALT | n/a |
+| 1 | HALT | n/a |
+| **2** | Proceed to S3 + S4. Document S5 "not selected" rationale | **✓ chosen** |
+| 3+ | Proceed S3 + S4 + S5 | n/a |
+
+**M12 ships with 2 optimisations.** Per spec §5.1 ("CC is NOT
+required to deliver exactly 3"), this is acceptable. Five
+candidates documented in §6 of the profile report as
+"considered but not selected" with explicit rationale.
+
+### Build / test counts
+
+- No code change in S2 (docs + scripts only). CLAUDE.md §Required
+  #2 docs-only exception applies.
+- Regression suite smoke-tested: detects run-to-run variance
+  correctly; current 1 s test shows expected `realtime.error_pct
+  +13.31 %` and `step.p99_us +44.44 %` — these are run-to-run
+  variance vs M11's 10 s baseline, not real regressions. S3 / S4
+  will use 10 s `--realtime 10` runs for proper gating.
+
+### Deviations from plan
+
+- Plan §S2 anticipated ~250 LOC docs; actual ~480 LOC (profile
+  report 340 + regression-suite md 85 + shell script 50). The
+  profile report ended up larger because the callgrind
+  hot-function table + decision-tree path + 5 "not selected"
+  entries warranted full documentation per spec §4.2.
+- The synthetic Scenario A bypasses the real M5 schema decoder
+  + M3/M4 pipeline, so the M5 decoder hot-path candidate is
+  documented as "not selected — synthetic harness can't see it"
+  (§6.2 of the profile report). Extending the harness to a real
+  driver + schema would be bench scope-creep; the synthetic
+  path was the right S1 scope.
+- **C4 decision-tree path "2 viable"**: this is the milestone's
+  load-bearing call. Profile + spec §9 ("C4 Stage B is the most
+  likely candidate") both converge on optimisation 1, and the
+  candidate-list entry #4 + callgrind data both converge on
+  optimisation 2. The third slot was open (potentially M6
+  registry hashtable, or M5 decoder, or Backward seek O(N)),
+  but each had a strong "not now" reason. Per spec §5.1, 2 is
+  acceptable when profile shows insufficient justification for
+  a third — the profile report documents this.
+
+S2 commit: pending push.
