@@ -407,4 +407,101 @@ Build clean.
   baselines have variance >> 5 % inherent to the measurement.
   Documented in M12-baseline.md §Regression Protection.
 
-S3 commit: pending push.
+S3 commit: `1605376` "replay: SessionPlayer deadline-based
+pacing — C4 Stage B (M12 S3)". Pushed; CI green
+(run 25566769265 ✓ 11m0s).
+
+---
+
+## S4 — M6 SignalBuffer push wrapper (attempted — H4 fired, reverted)
+
+- Start: 2026-05-09T00:55Z
+- Close: 2026-05-09T01:15Z
+
+### Pre-opt baseline (single run; bench_signal_buffer)
+
+```json
+{"scenario":"writer","type":"bool","samples":2000000,"samples_per_sec":39905057.1}
+{"scenario":"writer","type":"int64","samples":2000000,"samples_per_sec":12114152.1}
+{"scenario":"writer","type":"double","samples":2000000,"samples_per_sec":12056746.2}
+{"scenario":"writer","type":"string","samples":500000,"samples_per_sec":18857722.1}
+```
+
+Primary metric per profile-report §5.2: **M6 Double push
+throughput** = 12.06 M samples/sec.
+Pass criterion: ≥ 10 % improvement → ≥ 13.26 M samples/sec.
+
+### Attempted optimisation
+
+`src/buffer/signal_buffer.cpp` — amortise the per-push metric
+update (defer `impl_->totalEvicted()` + `impl_->memoryBytes()`
+calls + their atomic stores from "every push" to "every 256-th
+push" via a low-bit mask on `totalPushed_`). Profile §2 had
+flagged `LinearTypedBuffer<double>::valueMemoryBytes` (2.16 %)
++ `SignalBuffer::push` (4.22 %) + `LinearTypedBuffer<double>::onPushCompleted`
+(5.72 %) as candidates totalling ~12 %.
+
+### Post-opt result (3 runs)
+
+| Type | Pre (samples/sec) | Post mean (samples/sec) | Δ % |
+|---|---:|---:|---:|
+| Bool | 39 905 057 | 47 918 847 | **+19.0 %** ✅ |
+| Int64 | 12 114 152 | 13 081 069 | **+8.6 %** ⚠ |
+| **Double (primary)** | **12 056 746** | **12 916 406** | **+7.1 %** ❌ |
+| String | 18 857 722 | unchanged | n/a |
+
+### H4 trigger fired
+
+Per plan §3 H4 + spec §5.2 #10 ("No optimization < 10 %
+improvement relative to its measured baseline"): the chosen
+**primary metric** (Double) cleared **+7.1 %**, below the 10 %
+bar.
+
+Bool (+19 %) and Int64 (+8.6 %) did improve, but the optimisation
+was **selected on the Double metric** in M12-profile-report.md
+§5.2; switching the primary metric retroactively to Bool would
+be the gaming-the-metric anti-pattern (CLAUDE.md
+§Anti-patterns: "fixing tests by loosening assertions").
+
+### Resolution: revert + document
+
+Per spec §5.1 ("If any optimization fails to improve ≥ 10 %, CC
+may: Drop the optimization (revert + remove from list) OR HALT
+and propose alternative"), the cleanest path is:
+
+1. **Revert** the `SignalBuffer::push` change (done — file
+   restored to pre-S4 state).
+2. **Document** the attempt as a profile §6 "considered but not
+   selected" entry, with the actual measured numbers (i.e.,
+   it's no longer just "candidate-list" — it has post-attempt
+   data).
+3. **Acknowledge** the C4 decision-tree implication: M12 now
+   ships with **1 implemented optimisation** (S3 alone). The
+   spec §5.1 acceptance allows 2-3, with the floor at 2; this
+   ships at 1, surfaced in M12-done.md for reviewer judgment.
+
+### Why no alternative attempt
+
+Profile §6.6 flagged the `SignalBufferRegistry` per-event QString
+hashtable lookup (~9 % combined `qHashBits` + `equalStrings` +
+`_M_find_before_node`). A meaningful improvement (e.g., switch
+to `QHash`, or pointer-cache by signalId) would touch the
+M6-frozen `signal_buffer_registry.hpp` private member type
+(`std::unordered_map<QString, std::unique_ptr<SignalBuffer>>`).
+Per spec §3.5 N + §7-2, that requires ADR-008 + human Phase-4
+approval **before** any code change. Given the V1 deadline +
+spec §5.1 acceptance of 2 (and explicit allowance for "drop +
+revert" path), the principled call is: ship M12 with S3, document
+the H4 outcome honestly, and let reviewer decide if ADR-008 +
+S5 redo is worth the milestone re-open vs accepting M12 as-is.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean (post-revert).
+- ctest: Debug **585/585** + Release **585/585** unchanged
+  (no test code change in S4 attempt).
+- Regression suite: green (S3's gains preserved; S4 revert
+  doesn't disturb other metrics).
+- `clang-format -i` clean on revert.
+
+S4 commit: pending push (the revert + this progress entry).
