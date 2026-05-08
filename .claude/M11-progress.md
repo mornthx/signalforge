@@ -121,5 +121,89 @@ green).
   dependency would risk configure-time errors on tighter CMake
   versions. No behavioural change.
 
-S1 commit: pending push.
+S1 commit: `382799a` "replay: scaffold M11 module + freeze-surface
+headers (S1)". Pushed after S0 CI green (run 25546591496 ✓).
+S1 CI: run 25547888468 ✓ (debug + release + debug-asan all green).
+
+---
+
+## S2 — SessionReader streaming + seek extension (C1.α) (completed)
+
+- Start: 2026-05-08T05:30Z
+
+### Deliverables
+
+- `src/session/session_reader.hpp`: additive surface per
+  `M11-concerns.md` C1.α.
+  - New public `struct ReplayRecord { int64_t timestampNs;
+    QString signalId; SignalValue value; };`.
+  - New public methods: `readNextRecord(out)`,
+    `seekToTimestamp(targetNs)`, `currentRecordIndex()`,
+    `currentTimestampNs()`, `atEnd()`,
+    `bindCatalogSink(SignalValueSink*)`, `footerRecordCount()`,
+    `lastTimestampNs()`.
+  - `replayAll(sink)` reimplemented as a thin loop over
+    `readNextRecord` + bound catalog sink — preserves M10
+    round-trip semantics exactly (regression detector).
+  - Internal split: `headerCatalog_` snapshot (immutable after
+    open) lets backward seek restore catalog state to header
+    only; `runningCatalog_` mutates as extensions are seen.
+- `src/session/session_reader.cpp`: full implementation. Two
+  shared helpers consume the on-disk record format:
+  `readRecordHeader` + the existing LE / UTF-8 byte readers.
+  `preScanFooter` walks the file once at open() to populate
+  `lastTimestampNs_` for `seekToTimestamp` clamping. The
+  `currentRecordIdx_` (signal-value-only) and `recordsRead_`
+  (all records) counter split keeps the M10 footer-match
+  invariant alive while exposing a useful streaming-side ordinal.
+- `tests/unit/session/session_reader_streaming_test.cpp`:
+  7 cases / 78 assertions:
+  - streaming returns same events as `replayAll`
+  - forward seek to mid-file timestamp
+  - backward seek resets catalog + re-walks
+  - seek past EOF clamps to last record
+  - catalog-extension dispatched to bound sink during seek
+  - `currentRecordIndex` tracks signal-value-only ordinals
+  - `replayAll` still works after streaming + seek (M10
+    round-trip preserved — regression gate)
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **552/552** + Release **552/552** (+7 from S1:
+  the 7 new streaming cases). M10 S6/S7 round-trip suite
+  passes unchanged (regression detector validated).
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` applied on all 3 changed files; dry-run
+  -Werror clean afterward.
+
+### Bug found + fixed during S2
+
+The first-cut implementation incremented `recordsRead_` only on
+SignalValue records. Existing S7 test "catalog extension
+mid-stream round-trip" failed because the writer's
+`totalRecords_` (used in the footer's `totalRecords` field)
+counts every record type — so my `recordsRead_` < footer's
+totalRecords for files containing catalog extensions, breaking
+the `fileComplete_` check. Fixed by counting **all** record
+types in `recordsRead_` (matches writer's invariant) and using
+the separate `currentRecordIdx_` for the M11 streaming caller's
+signal-value-only ordinal. Doxygen + inline comment now
+document the dual-counter contract. M10 S6/S7 + integration
+`test_session_full_stack_round_trip` both green after fix.
+
+### Deviations from plan
+
+- Plan §S2 anticipated ~400 net LOC. Actual: ~580 LOC
+  (header +150, cpp +380, test +210, CMake +12). Within
+  acceptable variance — the `preScanFooter` pre-walk for
+  `lastTimestampNs_` was added to keep `seekToTimestamp`
+  correct without requiring a duplicate end-of-file scan
+  every seek call. Worth the cost.
+- Plan §S2 did not anticipate the catalog-extension counter
+  mismatch bug — caught only because the M10 round-trip test
+  is the regression detector that the "thin layer" pattern in
+  plan §S2 relies on. The pattern paid off exactly as designed.
+
+S2 commit: pending push.
 
