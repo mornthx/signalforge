@@ -449,5 +449,68 @@ throttle validation (M11 S5)". Pushed after S4 CI green
   600 k records. M11 documents the limitation; V1.5+ may add
   bookmark-based fast-rewind.
 
-S6 commit: pending push.
+S6 commit: `d0425f1` "replay: SessionPlayer seek + stepBackward
+(M11 S6)". Pushed after S5 CI green (run 25551109127 ✓).
+S6 CI: pending watch.
+
+---
+
+## S7 — PlaybackController state machine + Qt signals (completed)
+
+- Start: 2026-05-08T07:35Z
+
+### Deliverables
+
+- `src/replay/playback_controller.cpp`: full state machine + signal
+  fan-out from the owned SessionPlayer.
+  - `loadSession(path)`: auto-closes any prior session, constructs
+    a new SessionPlayer, wires its `positionUpdated`,
+    `endReached`, and `error` signals to controller signals,
+    opens the file. Transitions Idle → Loaded; emits
+    `sessionLoaded`, `stateChanged`. Returns false on file open
+    failure (state stays Idle, emits `errorOccurred`).
+  - `closeSession()`: idempotent. Tears down player, clears state,
+    emits `stateChanged(Idle)` + `sessionClosed`.
+  - `play()` / `pause()`: state-validity gated. play() valid in
+    Loaded or Paused → Playing. pause() valid only in Playing →
+    Paused. Both emit `stateChanged`. Invalid transitions log
+    WARN and return false.
+  - `stepForward()` / `stepBackward()`: state-validity gated.
+    First step from Loaded transitions to Paused. EOF during
+    step transitions to Ended. Backward step works from
+    Loaded / Paused / Ended.
+  - `seek(int64_t)`: valid in any non-Idle / non-Error state.
+    Delegates to SessionPlayer; if seek brings us back from
+    Ended to mid-file, transitions to Paused.
+  - `setSpeed(double)`: delegates to player; emits
+    `speedChanged` with the (possibly clamped) value.
+  - `endReached` from player → state = Ended (when in Playing).
+  - `error` from player → state = Error, captures message,
+    emits `errorOccurred`.
+- `tests/unit/replay/playback_controller_test.cpp`: 6 cases /
+  39 assertions:
+  - full happy-path lifecycle Idle → Loaded → Playing → Ended → Idle
+  - play in Idle is rejected
+  - pause in Loaded is rejected
+  - loadSession while loaded auto-closes prior
+  - stepForward from Loaded transitions to Paused
+  - closeSession from any state returns to Idle
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **576/576** + Release **576/576** (+6 from S6).
+  All M10 + S2-S6 regression detectors quiet.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S7 anticipated 5 cases; ships 6 (added the
+  `closeSession from Playing` case to verify the cross-state
+  cleanup path). Additive; no spec deviation.
+- Plan §S7 anticipated ~250 LOC; actual ~190 LOC code + ~155
+  LOC tests = ~345 LOC. Within target.
+
+S7 commit: pending push.
 
