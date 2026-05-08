@@ -62,12 +62,17 @@ public:
     /// already in Replay.
     [[nodiscard]] bool enterReplay();
 
-    /// Exit Replay mode. If the snapshot is non-empty, prompts
-    /// the user with three choices (Resume / Stay Disconnected /
-    /// Cancel). On Resume, iterates the snapshot and calls
-    /// `connectConnection` on each; emits `connectionsRestored`.
-    /// Returns `false` if the user cancelled or already in Live.
-    [[nodiscard]] bool exitReplay();
+    /// Exit Replay mode. Pass `resumeConnections=true` to call
+    /// `connectConnection(id)` on each previously-paused id; pass
+    /// `false` to leave them disconnected. Returns `false` if
+    /// already in Live mode.
+    ///
+    /// V1 design: the user-facing dialog (Resume / Stay
+    /// Disconnected / Cancel) lives in `MainWindow` so this class
+    /// stays UI-free and unit-testable. MainWindow translates
+    /// the dialog choice into either `exitReplay(true)`,
+    /// `exitReplay(false)`, or no call (Cancel).
+    [[nodiscard]] bool exitReplay(bool resumeConnections);
 
     /// Snapshot of connection ids paused on the most recent
     /// `enterReplay()`. Empty when `currentMode() == Live`.

@@ -512,5 +512,78 @@ S6 CI: pending watch.
 - Plan §S7 anticipated ~250 LOC; actual ~190 LOC code + ~155
   LOC tests = ~345 LOC. Within target.
 
-S7 commit: pending push.
+S7 commit: `8ba1317` "replay: PlaybackController state machine
++ signal fan-out (M11 S7)". Pushed after S6 CI green
+(run 25551633406 ✓). S7 CI: pending watch.
+
+---
+
+## S8 — ReplayModeManager + Live↔Replay transitions (completed)
+
+- Start: 2026-05-08T07:55Z
+
+### Deliverables
+
+- `src/replay/replay_mode_manager.hpp`: `exitReplay` signature
+  changed from no-arg to `exitReplay(bool resumeConnections)`.
+  Doxygen documents the V1 design choice: dialogs live in
+  MainWindow (S9), this class is pure orchestration. Reasoning
+  recorded inline + in the C3 resolution.
+- `src/replay/replay_mode_manager.cpp`: full implementation.
+  - `enterReplay`: snapshots Connected ids via
+    `ConnectionManager::connectionIds()` + per-id `state()` check;
+    calls `disconnectConnection` per id (failures logged WARN
+    but don't block transition); emits `connectionsPaused`
+    only if the snapshot was non-empty; transitions to Replay;
+    emits `modeChanged`.
+  - `exitReplay(true)`: walks the stored snapshot calling
+    `connectConnection`; emits `connectionsRestored`. Then
+    transitions to Live regardless of restore success.
+  - `exitReplay(false)`: just transitions to Live, clears the
+    snapshot.
+  - Idempotent guards: enterReplay returns false if already in
+    Replay; exitReplay returns false if already in Live.
+- `tests/unit/replay/replay_mode_manager_test.cpp`: 6 cases /
+  26 assertions:
+  - default mode is Live
+  - enterReplay with no active connections transitions Live → Replay
+  - enterReplay when already in Replay returns false
+  - exitReplay(false) transitions Replay → Live without restoration
+  - exitReplay(true) transitions Replay → Live + emits restored
+  - exitReplay when already in Live returns false
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **582/582** + Release **582/582** (+6 from S7).
+  One transient flake observed on first run (timing-sensitive
+  S4 case probably under load); re-run clean. M10 + S2-S7
+  regression detectors quiet.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan + spec
+
+- Spec §4.8 sketched the QMessageBox call inside
+  `enterReplay()` itself. M11 S8 ships the manager UI-free —
+  dialogs move to MainWindow (S9). Reasons:
+  - Manager stays unit-testable without a `QApplication`/
+    QMessageBox interaction.
+  - Inversion-of-control: UI layer owns user interaction; logic
+    layer owns state.
+  - Keeps the manager's API unaware of any specific dialog
+    shape (Resume / Stay Disconnected / Cancel can be
+    re-skinned in V1.5+ without touching this class).
+  This is captured under M11.X concerns §C3 / §S8 footnote in
+  M11-progress.md (this entry).
+- Plan §S8 anticipated 4 cases; ships 6 (added the empty-state
+  enter/exit cases for completeness of the transition matrix).
+- Active-connection snapshot tests (Test 2 dialog Yes path,
+  Test 3 cancel) deferred to S11 integration tests where real
+  M9 connections are available. The unit tests verify the
+  state-machine transitions; the C3 disconnect-snapshot logic
+  is small enough to audit visually + S11 will exercise the
+  full path.
+
+S8 commit: pending push.
 
