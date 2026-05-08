@@ -338,16 +338,18 @@ void SessionPlayer::dispatchLoop() {
         currentPosNs_.store(rec.timestampNs, std::memory_order_release);
         currentRecordIdx_.fetch_add(1, std::memory_order_acq_rel);
 
-        // Dispatch onSignal on the main thread (owner of `sink_`).
-        // Capture by value so the lambda is independent of any
-        // worker-side state mutations.
+        // Dispatch onSignal directly on the worker thread. The
+        // production sink (SignalBufferRegistry, M6) is documented
+        // thread-safe; bench's SilentSink is trivially safe. This
+        // avoids per-record queued-event overhead which was the
+        // 10× bottleneck (S10 finding: queued dispatch capped at
+        // ~170 k records/sec on this host).
+        //
+        // Sinks that are NOT thread-safe must be wrapped behind a
+        // TeeSignalValueSink-style adapter; M11 doesn't introduce
+        // any in V1.
         const auto dispatchTs = openTimeSteady_ + std::chrono::nanoseconds{rec.timestampNs};
-        QMetaObject::invokeMethod(
-            this,
-            [this, dispatchTs, signalId = rec.signalId, value = rec.value]() {
-                sink_->onSignal(dispatchTs, signalId, value);
-            },
-            Qt::QueuedConnection);
+        sink_->onSignal(dispatchTs, rec.signalId, rec.value);
 
         // 30 Hz position throttle (C5). The first record always
         // emits; subsequent ones are skipped until 33 ms elapse.

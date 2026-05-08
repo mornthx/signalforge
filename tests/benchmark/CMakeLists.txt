@@ -86,3 +86,13 @@ target_link_libraries(bench_session_writer
         signalforge_buffer
         signalforge_decoder
 )
+
+add_executable(bench_replay bench_replay.cpp)
+target_link_libraries(bench_replay
+    PRIVATE
+        Qt6::Core
+        signalforge_replay
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
