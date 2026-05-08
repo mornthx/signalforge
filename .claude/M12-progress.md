@@ -504,4 +504,80 @@ S5 redo is worth the milestone re-open vs accepting M12 as-is.
   doesn't disturb other metrics).
 - `clang-format -i` clean on revert.
 
-S4 commit: pending push (the revert + this progress entry).
+S4 commit: `8cc9087` "buffer: revert S4 push-wrapper amortize —
+Double metric below 10% bar (M12 S4 H4)". Pushed; CI green.
+
+---
+
+## S5 — DEFERRED (no third optimisation)
+
+Per profile §7 + C4 decision tree: profile selected 2 viable
+candidates, not 3. After S4 H4 dropped, M12 ships with **1
+implemented optimisation** (S3 alone). The candidate documented
+in profile §6.6 (per-event QString hashtable lookup) would
+require ADR-008 + human approval, deferred to V1.5+.
+
+S5 contributes no commit.
+
+---
+
+## S6 — Final M12 baseline + integration tests (completed)
+
+- Start: 2026-05-09T01:30Z
+
+### Deliverables
+
+- `tests/benchmark/results/M12-baseline.md` (~150 lines): the
+  V1.0 performance reference. Sections:
+  - §1 Optimisation 1 (S3): module, source, approach, primary
+    metric (1× 13.78 % → 0.01 %, **−99.93 %**), secondary
+    metric (10× 2.27 s → 1.11 s, **−51 %**), variance 0 %
+  - §2 Optimisation 2 (S4 attempt): documented as DROPPED with
+    actual numbers (Bool +19 %, Int64 +8.6 %, **Double +7.1 %**)
+  - §3 Regression protection results (all gated metrics within
+    5 %; H1 clear)
+  - §4 Frozen surface verification (sha256s match M11 closure)
+  - §5 Hand-off to M13 + V1.5+ candidates
+- `tests/integration/test_m12_optimization_correctness.cpp`:
+  2 cases / 14 assertions verifying:
+  - S3 deadline-based dispatch preserves event order + values
+    (writer → reader → optimised player → registry chain)
+  - 1× timing accuracy regression test (1 s file replays in
+    700-1500 ms wall — generous gate for ctest jitter; verifies
+    S3 didn't introduce a regression)
+- `tests/integration/CMakeLists.txt`: appends the new target.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **587/587** + Release **587/587** (+2 from S5
+  baseline of 585 — the 2 new M12 integration cases). All
+  M11 regression detectors quiet.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` clean.
+
+### Frozen surface verification (spec §8.4)
+
+```
+$ sha256sum src/replay/playback_controller.hpp src/replay/session_player.hpp src/replay/replay_mode_manager.hpp
+6051f51ead14981a3cfea73d7bcb2428b88d703cb9a25a21babba8e093f0473c  src/replay/playback_controller.hpp
+e84a9a6a57315025789a2f26260993f0fe9e8e024a4616b327b46172cb864fd1  src/replay/session_player.hpp
+1013663d02a7a19ab92c7ee00ed4d22ae9ea169c6c7dd727c801ece7d8e93448  src/replay/replay_mode_manager.hpp
+```
+
+All three match M11-done.md §Freezes exactly. **H2 clear.**
+M10/earlier sha256s also unchanged (no M2-M11 frozen `.hpp`
+modified during M12).
+
+### Deviations from plan
+
+- Plan §S6 anticipated `test_m12_no_functional_regression.cpp`
+  as a separate file. M12 ships only
+  `test_m12_optimization_correctness.cpp` since the existing
+  M11 integration test (`test_replay_full_stack.cpp`) already
+  composes M0-M11 functional paths and is part of the regression
+  ctest. Adding a duplicate "no functional regression" file
+  would just recapitulate; the M12-specific assertions live in
+  `test_m12_optimization_correctness.cpp`.
+
+S6 commit: pending push.

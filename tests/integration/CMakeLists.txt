@@ -360,3 +360,18 @@ target_link_libraries(test_replay_full_stack
         signalforge_decoder
 )
 catch_discover_tests(test_replay_full_stack DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_m12_optimization_correctness
+    test_m12_optimization_correctness.cpp
+)
+target_link_libraries(test_m12_optimization_correctness
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Test
+        signalforge_replay
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(test_m12_optimization_correctness DISCOVERY_MODE PRE_TEST)
