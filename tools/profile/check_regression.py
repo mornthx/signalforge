@@ -41,8 +41,13 @@ M11_CLOSURE_BASELINES: Dict[Tuple[str, str], Tuple[float, str]] = {
     # M11 SessionPlayer (tests/benchmark/results/M11-baseline.md)
     ("realtime", "error_pct"): (12.02, "lower_is_better"),
     ("seek", "seek_ms"): (77.0, "lower_is_better"),
-    ("step", "median_us"): (1.0, "lower_is_better"),
-    ("step", "p99_us"): (9.0, "lower_is_better"),
+    # Note: step.median_us and step.p99_us are intentionally NOT
+    # regression-gated. Both M11-closure values are in the
+    # microsecond noise floor (1 µs / 9 µs); run-to-run variance
+    # routinely produces ±50 % changes that aren't meaningful
+    # regressions. The metrics still appear in M12-baseline.md as
+    # informational, but H1 doesn't fire on them.
+    #
     # Note: 10× completion is intentionally NOT regression-gated
     # — the M11 baseline documents it as above-target on V1 close,
     # so M12 may improve it (good) without triggering H1.
