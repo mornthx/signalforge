@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 class QThread;
 
@@ -121,6 +122,12 @@ private:
     std::unique_ptr<QThread> workerThread_;
     QString currentFilePath_;
 
+    // Steady-clock origin captured at openFile time. Each
+    // dispatched record's timestamp is `openTimeSteady_ +
+    // nanoseconds{rec.timestampNs}` so the sink sees monotonic
+    // chrono timestamps consistent with live mode.
+    std::chrono::steady_clock::time_point openTimeSteady_{};
+
     // Lock-free state shared with the worker thread.
     std::atomic<bool> playing_{false};
     std::atomic<double> speedFactor_{1.0};
@@ -129,6 +136,19 @@ private:
     std::atomic<std::int64_t> durationNs_{0};
     std::atomic<std::size_t> totalRecords_{0};
     std::atomic<bool> atEnd_{false};
+
+    /// Record read from the reader but not yet dispatched (because
+    /// pause() interrupted the inter-record sleep). Drained on
+    /// resume so no record is lost across pause/play. Worker-only
+    /// state — accessed without locking because pause() blocks
+    /// until the worker has exited the loop.
+    std::optional<signalforge::session::ReplayRecord> pendingRecord_;
+
+    /// Worker-thread entry point — runs the timed-dispatch loop.
+    /// Connected to the worker QThread's `started()` signal in
+    /// `play()`. Exits when `playing_` flips to false, the file
+    /// runs out, or the thread is interrupted.
+    void dispatchLoop();
 };
 
 }  // namespace signalforge::replay

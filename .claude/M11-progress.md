@@ -260,5 +260,81 @@ S2 CI: run 25549181411 ✓ (debug + release + debug-asan all green).
   matches the plan ("QThread setup … no timing dispatch yet").
   S4 will connect the started() signal to a dispatch-loop slot.
 
-S3 commit: pending push.
+S3 commit: `397c70e` "replay: SessionPlayer lifecycle + worker
+thread plumbing (M11 S3)". Pushed after S2 CI green
+(run 25549181411 ✓). S3 CI: run 25549945101 (in_progress at S4
+commit time).
+
+---
+
+## S4 — SessionPlayer timing dispatch at 1× (completed)
+
+- Start: 2026-05-08T06:25Z
+
+### Deliverables
+
+- `src/replay/session_player.hpp`: `pendingRecord_` member +
+  `dispatchLoop` private declaration.
+- `src/replay/session_player.cpp`:
+  - `dispatchLoop` runs on the worker thread (connected to
+    `QThread::started` via Qt::DirectConnection on each `play()`).
+    Reads records via `SessionReader::readNextRecord`, computes
+    inter-record delta, sleeps in 5 ms chunks (so `pause()` is
+    responsive within 5 ms — addresses C4 stage A
+    interruption-aware sleep), and dispatches `onSignal` to the
+    main thread via `QMetaObject::invokeMethod`/`Qt::QueuedConnection`.
+  - Pause-mid-sleep edge case: if the worker has read a record
+    but not yet dispatched it when `pause()` fires, the record is
+    saved in `pendingRecord_` and drained on next `play()`. This
+    resolves the "lost record across pause/resume" bug caught by
+    the S4 resume test (was 2/3 records dispatched; now 3/3).
+  - 30 Hz `positionUpdated` throttle (C5) implemented with a
+    `lastEmitTime` cooldown of 33 ms in the worker loop.
+  - `play()` re-arms the worker thread on each call (disconnect +
+    fresh connect of `started()`); `pause()` quits + waits the
+    thread.
+- `tests/unit/replay/session_player_timing_test.cpp`: 3 cases /
+  30 assertions:
+  - 1× delivery preserves order across all 5 records (sub-ms
+    file).
+  - pause stops delivery during a 200 ms inter-record sleep —
+    only the first record is delivered.
+  - resume from pause continues from the same position; final
+    sink count = 3/3.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **561/561** + Release **561/561** (+3 from S3:
+  the 3 timing cases). All M10 + S2/S3 tests still green.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Bug found + fixed during S4
+
+The first cut had `readNextRecord()` called BEFORE the inter-record
+sleep. When `pause()` interrupted mid-sleep, the worker exited
+having already advanced the reader's file pointer past the
+to-be-dispatched record. Resume then read the *next* record,
+silently skipping the one in flight. Caught by the S4 resume test
+which expected 3/3 delivery and got 2/3.
+
+Fix: save the in-flight record in `std::optional<ReplayRecord>
+pendingRecord_` when `pause()` interrupts mid-sleep; drain it on
+next `play()` before reading from the reader. The `pendingRecord_`
+is only ever touched from the worker thread (pause() blocks until
+worker exits), so no extra synchronisation is needed.
+
+### Deviations from plan
+
+- Plan §S4 anticipated `sleep_for(scaledDelta)` with no
+  interruption-aware behaviour. Adopted chunked 5 ms sleeps
+  preemptively (C4 was scheduled to address this in S5; bringing
+  it into S4 keeps the pause test passable today and the design
+  cleaner). No spec deviation.
+- 30 Hz throttle (C5) also brought into S4 since the dispatch
+  loop is the natural home. Plan had it scheduled at S5 — now
+  done. S5 will focus on speed scaling + step.
+
+S4 commit: pending push.
 

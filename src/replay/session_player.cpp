@@ -60,10 +60,15 @@ bool SessionPlayer::openFile(const QString& filePath) {
     speedFactor_.store(1.0, std::memory_order_relaxed);
     currentFilePath_ = filePath;
 
-    // Worker thread is created here but not started until play() in
-    // S4. closeFile() handles the case where it never started.
+    // Worker thread is created here but not started until play()
+    // (S4). closeFile() handles the case where it never started.
     workerThread_ = std::make_unique<QThread>();
     workerThread_->setObjectName(QStringLiteral("session-player-worker"));
+
+    // Capture an open-time steady-clock origin so the sink sees
+    // monotonic chrono timestamps consistent with live mode (per
+    // M10 SessionReader::replayAll's contract).
+    openTimeSteady_ = std::chrono::steady_clock::now();
 
     reader_ = std::move(reader);
     return true;
@@ -83,6 +88,7 @@ void SessionPlayer::closeFile() {
         reader_->close();
         reader_.reset();
     }
+    pendingRecord_.reset();
     currentFilePath_.clear();
     currentPosNs_.store(0, std::memory_order_relaxed);
     currentRecordIdx_.store(0, std::memory_order_relaxed);
@@ -97,14 +103,49 @@ bool SessionPlayer::isOpen() const noexcept {
 }
 
 void SessionPlayer::play() {
-    // S4: connect worker thread started() to the dispatch loop and
-    // call workerThread_->start(). For S3, this is a no-op.
-    SF_LOG_INFO("SessionPlayer::play not yet implemented (S4)");
+    if (!reader_ || !workerThread_) {
+        SF_LOG_WARN("SessionPlayer::play called without an open file");
+        return;
+    }
+    if (playing_.load()) {
+        return;
+    }
+    if (atEnd_.load()) {
+        // End-of-file reached previously; caller must `seek()`
+        // first to rewind. No automatic rewind on play().
+        SF_LOG_INFO("SessionPlayer::play called at end-of-file; seek before resuming");
+        return;
+    }
+
+    playing_.store(true, std::memory_order_release);
+
+    // Re-arm the thread on every play(): each pause() exits the
+    // dispatchLoop and quits the thread, so play() needs a fresh
+    // started() connection. This is heavier than a condvar but
+    // simpler and adequate for V1's pause / resume cadence (user
+    // clicks; not high-frequency).
+    disconnect(workerThread_.get(), &QThread::started, this, nullptr);
+    connect(workerThread_.get(), &QThread::started, this, [this]() { dispatchLoop(); }, Qt::DirectConnection);
+    if (!workerThread_->isRunning()) {
+        workerThread_->start();
+    }
 }
 
 void SessionPlayer::pause() {
-    // S5: flip atomic playing_ → false.
-    SF_LOG_INFO("SessionPlayer::pause not yet implemented (S5)");
+    if (!playing_.load()) {
+        return;
+    }
+    playing_.store(false, std::memory_order_release);
+    // Wait for dispatchLoop to observe the flag and return, then
+    // quit the worker's event loop and join. Safe to call from
+    // the main thread because workerThread_->wait() blocks here
+    // until the thread terminates (microseconds at worst — the
+    // loop only sleeps in nanosecond chunks per iteration in
+    // S4's 1× cadence).
+    if (workerThread_ && workerThread_->isRunning()) {
+        workerThread_->quit();
+        workerThread_->wait();
+    }
 }
 
 bool SessionPlayer::stepForward() {
@@ -154,6 +195,96 @@ std::size_t SessionPlayer::totalRecords() const noexcept {
 
 bool SessionPlayer::atEnd() const noexcept {
     return atEnd_.load();
+}
+
+void SessionPlayer::dispatchLoop() {
+    if (!reader_) {
+        return;
+    }
+
+    std::int64_t prevTs = currentPosNs_.load();
+    std::chrono::steady_clock::time_point lastEmitTime{};
+
+    while (playing_.load(std::memory_order_acquire)) {
+        if (workerThread_ && workerThread_->isInterruptionRequested()) {
+            break;
+        }
+
+        signalforge::session::ReplayRecord rec;
+        if (pendingRecord_) {
+            // Drained from a prior pause that interrupted between
+            // read and dispatch. Re-use the same record so no event
+            // is lost across pause/resume.
+            rec = *pendingRecord_;
+            pendingRecord_.reset();
+        } else {
+            if (!reader_->readNextRecord(rec)) {
+                atEnd_.store(true, std::memory_order_release);
+                playing_.store(false, std::memory_order_release);
+                QMetaObject::invokeMethod(this, [this]() { emit endReached(); }, Qt::QueuedConnection);
+                return;
+            }
+        }
+
+        // Compute scaled delay since previous dispatch. At 1×
+        // speed (S4 default) this is real-time; S5 will add
+        // non-1× scaling. Sleep is chunked so `pause()` can break
+        // a long inter-record wait within ~5 ms.
+        const std::int64_t deltaNs = rec.timestampNs - prevTs;
+        if (deltaNs > 0) {
+            const double speed = speedFactor_.load(std::memory_order_acquire);
+            const std::int64_t scaledNs = static_cast<std::int64_t>(static_cast<double>(deltaNs) / speed);
+            constexpr auto kChunk = std::chrono::milliseconds{5};
+            auto remaining = std::chrono::nanoseconds{scaledNs};
+            while (remaining.count() > 0 && playing_.load(std::memory_order_acquire)) {
+                const auto chunk =
+                    (remaining > std::chrono::nanoseconds{kChunk}) ? std::chrono::nanoseconds{kChunk} : remaining;
+                std::this_thread::sleep_for(chunk);
+                remaining -= chunk;
+            }
+            if (!playing_.load(std::memory_order_acquire)) {
+                // Pause interrupted mid-sleep. Save the record so
+                // resume picks it up without re-reading (which
+                // would skip past it on the file pointer).
+                pendingRecord_ = rec;
+                break;
+            }
+        }
+
+        // Update counters before dispatch so pause / state-query
+        // observers see the correct position promptly.
+        currentPosNs_.store(rec.timestampNs, std::memory_order_release);
+        currentRecordIdx_.fetch_add(1, std::memory_order_acq_rel);
+
+        // Dispatch onSignal on the main thread (owner of `sink_`).
+        // Capture by value so the lambda is independent of any
+        // worker-side state mutations.
+        const auto dispatchTs = openTimeSteady_ + std::chrono::nanoseconds{rec.timestampNs};
+        QMetaObject::invokeMethod(
+            this,
+            [this, dispatchTs, signalId = rec.signalId, value = rec.value]() {
+                sink_->onSignal(dispatchTs, signalId, value);
+            },
+            Qt::QueuedConnection);
+
+        // 30 Hz position throttle (C5). The first record always
+        // emits; subsequent ones are skipped until 33 ms elapse.
+        const auto now = std::chrono::steady_clock::now();
+        if (lastEmitTime.time_since_epoch().count() == 0 || (now - lastEmitTime) >= std::chrono::milliseconds(33)) {
+            const std::int64_t emitTs = rec.timestampNs;
+            const std::size_t emitIdx = currentRecordIdx_.load(std::memory_order_acquire);
+            QMetaObject::invokeMethod(
+                this, [this, emitTs, emitIdx]() { emit positionUpdated(emitTs, emitIdx); }, Qt::QueuedConnection);
+            lastEmitTime = now;
+        }
+
+        prevTs = rec.timestampNs;
+    }
+
+    // Drop here when paused. The thread loop exits but the QThread
+    // event loop keeps running; play() can re-enter dispatchLoop
+    // by re-emitting started() — but in practice we re-arm via
+    // a fresh connect() on each play() call.
 }
 
 }  // namespace signalforge::replay
