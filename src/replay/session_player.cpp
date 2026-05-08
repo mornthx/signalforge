@@ -186,14 +186,59 @@ bool SessionPlayer::stepForward() {
 }
 
 bool SessionPlayer::stepBackward() {
-    // S6: seek + stepForward.
-    return false;
+    if (!reader_) {
+        return false;
+    }
+    if (playing_.load()) {
+        SF_LOG_WARN("SessionPlayer::stepBackward called while playing; pause first");
+        return false;
+    }
+    const std::size_t curIdx = currentRecordIdx_.load();
+    if (curIdx == 0) {
+        // Already at the start; nothing to back up to.
+        return false;
+    }
+
+    // V1 strategy: rewind to start, replay forward to (curIdx - 1).
+    // O(N) on the record count — acceptable per M11 spec §9 Note 2.
+    const std::size_t targetIdx = curIdx - 1;
+    if (!seek(0)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < targetIdx; ++i) {
+        if (!stepForward()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool SessionPlayer::seek(std::int64_t timestampNs) {
-    // S6: SessionReader::seekToTimestamp.
-    (void)timestampNs;
-    return false;
+    if (!reader_) {
+        SF_LOG_WARN("SessionPlayer::seek called without an open file");
+        return false;
+    }
+    const bool wasPlaying = playing_.load();
+    if (wasPlaying) {
+        pause();  // blocks until worker exits
+    }
+    // Discard any record the worker had read but not dispatched
+    // before pausing — the seek invalidates it.
+    pendingRecord_.reset();
+
+    if (!reader_->seekToTimestamp(timestampNs)) {
+        return false;
+    }
+
+    // Sync player counters from reader's post-seek state.
+    currentPosNs_.store(reader_->currentTimestampNs(), std::memory_order_release);
+    currentRecordIdx_.store(reader_->currentRecordIndex(), std::memory_order_release);
+    atEnd_.store(reader_->atEnd(), std::memory_order_release);
+
+    if (wasPlaying && !atEnd_.load()) {
+        play();
+    }
+    return true;
 }
 
 void SessionPlayer::setSpeed(double factor) {

@@ -59,3 +59,19 @@ target_link_libraries(session_player_speed_step_test
         signalforge_connection
 )
 catch_discover_tests(session_player_speed_step_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(session_player_seek_test
+    session_player_seek_test.cpp
+)
+target_link_libraries(session_player_seek_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Test
+        signalforge_replay
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+        signalforge_connection
+)
+catch_discover_tests(session_player_seek_test DISCOVERY_MODE PRE_TEST)

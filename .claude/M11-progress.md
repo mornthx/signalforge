@@ -399,5 +399,55 @@ unit-confused. Fixed to `100000`. Caught immediately by ctest.
 - Plan §S5 anticipated ~250 LOC; actual ~120 LOC for code +
   150 LOC for tests = ~270 LOC. Within target.
 
-S5 commit: pending push.
+S5 commit: `4857b3a` "replay: SessionPlayer speed + step + 30Hz
+throttle validation (M11 S5)". Pushed after S4 CI green
+(run 25550584604 ✓). S5 CI: pending watch.
+
+---
+
+## S6 — Seek + stepBackward (completed)
+
+- Start: 2026-05-08T07:15Z
+
+### Deliverables
+
+- `src/replay/session_player.cpp`:
+  - `seek(int64_t)`: pauses if playing, discards `pendingRecord_`,
+    delegates to `SessionReader::seekToTimestamp` (S2 helper),
+    syncs player counters from reader's post-seek state, resumes
+    if was playing and not at end. Clamping (out-of-range
+    timestamps) is the reader's responsibility — verified end-to-end.
+  - `stepBackward()`: V1 strategy is rewind-to-start + forward-step
+    to (currentIdx - 1). O(N) on record count, acceptable per
+    M11 spec §9 Note 2. Returns false when already at the start
+    of the file (no-op for the edge case).
+- `tests/unit/replay/session_player_seek_test.cpp`: 5 cases /
+  40 assertions:
+  - seek to mid-file timestamp lands at first record ≥ target
+  - seek before start clamps to 0
+  - seek past end clamps to last record
+  - stepBackward replays records 1..(N-1) into sink
+  - stepBackward at start returns false
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **570/570** + Release **570/570** (+5 from S5).
+  M10 + S2-S5 regression detectors quiet.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S6 anticipated ~250 LOC; actual ~75 LOC code + ~165
+  LOC tests = ~240 LOC. Within target. The seek logic is small
+  because the heavy lifting was done in S2's
+  `SessionReader::seekToTimestamp`.
+- Step backward dispatches all earlier records back to the sink.
+  Per spec §9 Note 2 this is "slow" — for a 600 k-record file
+  with backward step from the end it would re-dispatch all
+  600 k records. M11 documents the limitation; V1.5+ may add
+  bookmark-based fast-rewind.
+
+S6 commit: pending push.
 
