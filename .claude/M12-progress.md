@@ -580,4 +580,39 @@ modified during M12).
   would just recapitulate; the M12-specific assertions live in
   `test_m12_optimization_correctness.cpp`.
 
-S6 commit: pending push.
+S6 commit: `627f0e6` "tests: M12 final baseline + S3 correctness
+integration test (M12 S6)". Pushed; CI green.
+
+---
+
+## S7 — M12 done.md (this commit)
+
+- Start: 2026-05-09T01:55Z
+
+### Deliverables
+
+- `.claude/M12-done.md` (~245 lines): completion report mirroring
+  M11-done.md shape:
+  - Spec §2.1 deliverables checklist (12 items: 11 ✅, 1 ⚠ for
+    H4-induced "1 of 2-3" optimisations)
+  - PR + merge state placeholders
+  - **Freezes preserved** section (no new freezes; M2-M11 sha256
+    verification table)
+  - Acceptance self-check vs spec §8 (8.1-8.6)
+  - HALT-trigger disposition table (H4 fired, resolved per spec
+    §5.1 "drop + revert" path)
+  - Concerns C1-C6 summary referencing M12-concerns.md
+  - Commit manifest (S0-S7)
+  - V1.5+ / V2 deferred items (8 entries)
+  - Hand-off to M13 (Packaging)
+  - Impact analysis (replay 1× timing 12 % → 0.01 %; 10× 2.27s →
+    1.11s; +2 ctest cases; freeze surface unchanged)
+
+### Build / test counts
+
+- No code change in S7 (only `.claude/M12-done.md`). CLAUDE.md
+  §Required #2 docs-only exception applies.
+- Latest verified: Debug **587/587** + Release **587/587**;
+  debug-asan build clean.
+
+S7 commit: pending push.
