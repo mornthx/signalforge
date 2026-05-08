@@ -33,7 +33,16 @@ class SessionWriter;
 class TeeSignalValueSink;
 }  // namespace signalforge::session
 
+namespace signalforge::replay {
+class PlaybackController;
+class ReplayModeManager;
+enum class PlaybackState;
+enum class AppMode;
+}  // namespace signalforge::replay
+
 class QAction;
+class QSlider;
+class QToolBar;
 
 namespace signalforge::app {
 
@@ -64,11 +73,23 @@ private slots:
     void onRecordToggle();
     void onRecordingFlushed(std::size_t bytes);
     void onRecordingError(const QString& message);
+    void onOpenSessionRequested();
+    void onReplayPlayPause();
+    void onReplayStepForward();
+    void onReplayStepBackward();
+    void onReplaySeekSliderChanged(int value);
+    void onReplaySpeedChanged(int index);
+    void onExitReplayRequested();
+    void onReplayPositionChanged(std::int64_t timestampNs, std::size_t recordIndex);
+    void onReplayStateChanged();
+    void onReplayError(const QString& message);
 
 private:
     void buildChartUi();
     void buildConnectionUi();
     void buildSessionUi();
+    void buildReplayUi();
+    void updateReplayActionStates();
     void rebuildChartWidgets();
     [[nodiscard]] QStringList enumerateAvailableSchemaIds() const;
 
@@ -101,6 +122,20 @@ private:
     QAction* recordAction_ = nullptr;
     QLabel* recordingStatusLabel_ = nullptr;
     QString currentRecordingPath_;
+
+    // M11 replay UX.
+    std::unique_ptr<signalforge::replay::PlaybackController> playbackController_;
+    std::unique_ptr<signalforge::replay::ReplayModeManager> replayModeManager_;
+    QAction* openSessionAction_ = nullptr;
+    QToolBar* replayToolbar_ = nullptr;
+    QAction* replayPlayPauseAction_ = nullptr;
+    QAction* replayStepBackAction_ = nullptr;
+    QAction* replayStepForwardAction_ = nullptr;
+    QSlider* replaySeekSlider_ = nullptr;
+    QComboBox* replaySpeedCombo_ = nullptr;
+    QAction* replayExitAction_ = nullptr;
+    QLabel* replayStatusLabel_ = nullptr;
+    bool replaySliderUserDriven_ = true;
 };
 
 }  // namespace signalforge::app

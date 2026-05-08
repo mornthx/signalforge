@@ -17,6 +17,7 @@ target_link_libraries(signalforge_app_ui
         signalforge_chart
         signalforge_connection
         signalforge_session
+        signalforge_replay
     PRIVATE
         signalforge_observability
         signalforge_platform

@@ -345,3 +345,18 @@ target_compile_definitions(test_sfreplay_inspect
 )
 add_dependencies(test_sfreplay_inspect sfreplay_inspect)
 catch_discover_tests(test_sfreplay_inspect DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_replay_full_stack
+    test_replay_full_stack.cpp
+)
+target_link_libraries(test_replay_full_stack
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Test
+        signalforge_replay
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(test_replay_full_stack DISCOVERY_MODE PRE_TEST)

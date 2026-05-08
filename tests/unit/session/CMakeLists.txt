@@ -63,6 +63,19 @@ target_link_libraries(session_reader_test
 )
 catch_discover_tests(session_reader_test DISCOVERY_MODE PRE_TEST)
 
+add_executable(session_reader_streaming_test
+    session_reader_streaming_test.cpp
+)
+target_link_libraries(session_reader_streaming_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_session
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(session_reader_streaming_test DISCOVERY_MODE PRE_TEST)
+
 add_executable(tee_sink_test
     tee_sink_test.cpp
 )

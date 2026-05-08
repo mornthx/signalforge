@@ -13,6 +13,8 @@
 #include "decode/decoder_registrar.hpp"
 #include "observability/logging.hpp"
 #include "pipeline/pipeline_manager.hpp"
+#include "replay/playback_controller.hpp"
+#include "replay/replay_mode_manager.hpp"
 #include "session/session_writer.hpp"
 #include "session/tee_signal_value_sink.hpp"
 
@@ -28,6 +30,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QQuickWidget>
+#include <QSlider>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTimer>
@@ -72,9 +75,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     chartManager_ = std::make_unique<signalforge::chart::ChartManager>(*signalBufferRegistry_, this);
 
+    // M11 replay plumbing. PlaybackController dispatches signals
+    // back into the same SignalBufferRegistry the live path uses,
+    // so charts work uniformly across modes. ReplayModeManager
+    // orchestrates Live ↔ Replay transitions on top.
+    playbackController_ = std::make_unique<signalforge::replay::PlaybackController>(*signalBufferRegistry_, this);
+    replayModeManager_ =
+        std::make_unique<signalforge::replay::ReplayModeManager>(*connectionManager_, *playbackController_, this);
+
     buildChartUi();
     buildConnectionUi();
     buildSessionUi();
+    buildReplayUi();
 }
 
 MainWindow::~MainWindow() = default;
@@ -457,6 +469,240 @@ void MainWindow::onRecordingError(const QString& message) {
         teeSink_->removeSink(sessionWriter_.get());
     }
     QMessageBox::critical(this, tr("Recording error"), message);
+}
+
+// ── M11 replay UI ─────────────────────────────────────────────
+
+void MainWindow::buildReplayUi() {
+    // File → Open Session… (Ctrl+O).
+    auto* fileMenu = menuBar()->addMenu(tr("&File"));
+    openSessionAction_ = fileMenu->addAction(tr("&Open Session…"));
+    openSessionAction_->setShortcut(QKeySequence(tr("Ctrl+O")));
+    connect(openSessionAction_, &QAction::triggered, this, &MainWindow::onOpenSessionRequested);
+
+    // Replay toolbar — initially hidden; visible only in Replay mode.
+    replayToolbar_ = addToolBar(tr("Replay"));
+    replayToolbar_->setMovable(false);
+    replayToolbar_->setVisible(false);
+
+    replayPlayPauseAction_ = replayToolbar_->addAction(tr("Play"));
+    connect(replayPlayPauseAction_, &QAction::triggered, this, &MainWindow::onReplayPlayPause);
+
+    replayStepBackAction_ = replayToolbar_->addAction(tr("◀ Step"));
+    connect(replayStepBackAction_, &QAction::triggered, this, &MainWindow::onReplayStepBackward);
+
+    replayStepForwardAction_ = replayToolbar_->addAction(tr("Step ▶"));
+    connect(replayStepForwardAction_, &QAction::triggered, this, &MainWindow::onReplayStepForward);
+
+    replaySeekSlider_ = new QSlider(Qt::Horizontal, replayToolbar_);
+    replaySeekSlider_->setMinimumWidth(200);
+    replaySeekSlider_->setRange(0, 0);
+    connect(replaySeekSlider_, &QSlider::valueChanged, this, &MainWindow::onReplaySeekSliderChanged);
+    replayToolbar_->addWidget(replaySeekSlider_);
+
+    replaySpeedCombo_ = new QComboBox(replayToolbar_);
+    replaySpeedCombo_->addItem(tr("0.5×"), 0.5);
+    replaySpeedCombo_->addItem(tr("1×"), 1.0);
+    replaySpeedCombo_->addItem(tr("2×"), 2.0);
+    replaySpeedCombo_->addItem(tr("5×"), 5.0);
+    replaySpeedCombo_->addItem(tr("10×"), 10.0);
+    replaySpeedCombo_->setCurrentIndex(1);
+    connect(replaySpeedCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &MainWindow::onReplaySpeedChanged);
+    replayToolbar_->addWidget(replaySpeedCombo_);
+
+    replayExitAction_ = replayToolbar_->addAction(tr("Exit Replay"));
+    connect(replayExitAction_, &QAction::triggered, this, &MainWindow::onExitReplayRequested);
+
+    // Status-bar replay info.
+    replayStatusLabel_ = new QLabel;
+    replayStatusLabel_->setText(tr(""));
+    statusBar()->addPermanentWidget(replayStatusLabel_);
+
+    // Wire PlaybackController + ReplayModeManager signals.
+    connect(playbackController_.get(), &signalforge::replay::PlaybackController::positionChanged, this,
+            &MainWindow::onReplayPositionChanged);
+    connect(playbackController_.get(), &signalforge::replay::PlaybackController::stateChanged, this,
+            &MainWindow::onReplayStateChanged);
+    connect(playbackController_.get(), &signalforge::replay::PlaybackController::errorOccurred, this,
+            &MainWindow::onReplayError);
+
+    updateReplayActionStates();
+}
+
+void MainWindow::onOpenSessionRequested() {
+    // C6: refuse to enter Replay while a recording is active.
+    if (sessionWriter_ != nullptr && sessionWriter_->isRecording()) {
+        QMessageBox::information(this, tr("Recording in progress"),
+                                 tr("Stop the current recording before opening a session for replay."));
+        return;
+    }
+
+    const QString path = QFileDialog::getOpenFileName(this, tr("Open session"), QString(), tr("SFREPLAY (*.sfreplay)"));
+    if (path.isEmpty()) {
+        return;
+    }
+
+    // Confirmation dialog if any M9 connection is currently
+    // Connected (per spec §3.4 / M11.4).
+    int activeCount = 0;
+    if (connectionManager_ != nullptr) {
+        for (const auto& id : connectionManager_->connectionIds()) {
+            const auto* conn = connectionManager_->connection(id);
+            if (conn && conn->state() == signalforge::connection::Connection::State::Connected) {
+                ++activeCount;
+            }
+        }
+    }
+    if (activeCount > 0) {
+        const auto reply = QMessageBox::warning(
+            this, tr("Pause connections to enter Replay?"),
+            tr("Entering Replay mode will pause %1 active connection(s). Continue?").arg(activeCount),
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    if (!replayModeManager_->enterReplay()) {
+        QMessageBox::critical(this, tr("Replay error"), tr("Failed to enter Replay mode."));
+        return;
+    }
+    if (!playbackController_->loadSession(path)) {
+        // Roll back the mode transition if load failed.
+        (void)replayModeManager_->exitReplay(false);
+        QMessageBox::critical(this, tr("Replay error"),
+                              tr("Failed to load session: %1").arg(playbackController_->lastError()));
+        return;
+    }
+
+    replayToolbar_->setVisible(true);
+    replaySeekSlider_->setRange(0, static_cast<int>(playbackController_->totalRecords()));
+    if (replayStatusLabel_ != nullptr) {
+        replayStatusLabel_->setText(tr("Replay: %1").arg(QFileInfo(path).fileName()));
+    }
+    updateReplayActionStates();
+    SF_LOG_INFO("MainWindow: replay started -> {}", path.toStdString());
+}
+
+void MainWindow::onReplayPlayPause() {
+    if (playbackController_ == nullptr) {
+        return;
+    }
+    if (playbackController_->state() == signalforge::replay::PlaybackState::Playing) {
+        (void)playbackController_->pause();
+    } else {
+        (void)playbackController_->play();
+    }
+}
+
+void MainWindow::onReplayStepForward() {
+    if (playbackController_ != nullptr) {
+        (void)playbackController_->stepForward();
+    }
+}
+
+void MainWindow::onReplayStepBackward() {
+    if (playbackController_ != nullptr) {
+        (void)playbackController_->stepBackward();
+    }
+}
+
+void MainWindow::onReplaySeekSliderChanged(int value) {
+    if (playbackController_ == nullptr || !replaySliderUserDriven_) {
+        return;
+    }
+    const std::size_t total = playbackController_->totalRecords();
+    if (total == 0) {
+        return;
+    }
+    const std::int64_t duration = playbackController_->durationNs();
+    const auto target = static_cast<std::int64_t>((static_cast<double>(value) / static_cast<double>(total)) *
+                                                  static_cast<double>(duration));
+    (void)playbackController_->seek(target);
+}
+
+void MainWindow::onReplaySpeedChanged(int index) {
+    if (playbackController_ == nullptr || replaySpeedCombo_ == nullptr) {
+        return;
+    }
+    const double speed = replaySpeedCombo_->itemData(index).toDouble();
+    (void)playbackController_->setSpeed(speed);
+}
+
+void MainWindow::onExitReplayRequested() {
+    if (replayModeManager_ == nullptr || replayModeManager_->currentMode() != signalforge::replay::AppMode::Replay) {
+        return;
+    }
+    bool resume = false;
+    if (!replayModeManager_->pausedConnectionIds().isEmpty()) {
+        const auto reply =
+            QMessageBox::question(this, tr("Exit Replay"), tr("Resume the previously-paused connections?"),
+                                  QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+        if (reply == QMessageBox::Cancel) {
+            return;
+        }
+        resume = (reply == QMessageBox::Yes);
+    }
+
+    playbackController_->closeSession();
+    (void)replayModeManager_->exitReplay(resume);
+
+    replayToolbar_->setVisible(false);
+    if (replayStatusLabel_ != nullptr) {
+        replayStatusLabel_->clear();
+    }
+    updateReplayActionStates();
+}
+
+void MainWindow::onReplayPositionChanged(std::int64_t timestampNs, std::size_t recordIndex) {
+    if (replaySeekSlider_ != nullptr) {
+        // Bypass user-driven seek dispatch when we update the
+        // slider from the playback controller's position.
+        replaySliderUserDriven_ = false;
+        replaySeekSlider_->setValue(static_cast<int>(recordIndex));
+        replaySliderUserDriven_ = true;
+    }
+    if (replayStatusLabel_ != nullptr && playbackController_ != nullptr) {
+        const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
+        replayStatusLabel_->setText(tr("Replay: %1 | %2 / %3 ns | %4 / %5 records")
+                                        .arg(filename)
+                                        .arg(timestampNs)
+                                        .arg(playbackController_->durationNs())
+                                        .arg(recordIndex)
+                                        .arg(playbackController_->totalRecords()));
+    }
+}
+
+void MainWindow::onReplayStateChanged() {
+    updateReplayActionStates();
+}
+
+void MainWindow::onReplayError(const QString& message) {
+    QMessageBox::critical(this, tr("Replay error"), message);
+}
+
+void MainWindow::updateReplayActionStates() {
+    if (playbackController_ == nullptr || replayPlayPauseAction_ == nullptr) {
+        return;
+    }
+    const auto st = playbackController_->state();
+    using S = signalforge::replay::PlaybackState;
+    replayPlayPauseAction_->setText(st == S::Playing ? tr("Pause") : tr("Play"));
+    replayPlayPauseAction_->setEnabled(st == S::Loaded || st == S::Paused || st == S::Playing);
+    replayStepForwardAction_->setEnabled(st == S::Loaded || st == S::Paused);
+    replayStepBackAction_->setEnabled(st == S::Loaded || st == S::Paused || st == S::Ended);
+    replaySeekSlider_->setEnabled(st != S::Idle && st != S::Error);
+
+    // C6 cross-mode gating.
+    const bool inReplay =
+        replayModeManager_ != nullptr && replayModeManager_->currentMode() == signalforge::replay::AppMode::Replay;
+    if (recordAction_ != nullptr) {
+        recordAction_->setEnabled(!inReplay);
+    }
+    if (openSessionAction_ != nullptr && sessionWriter_ != nullptr) {
+        openSessionAction_->setEnabled(!sessionWriter_->isRecording());
+    }
 }
 
 }  // namespace signalforge::app
