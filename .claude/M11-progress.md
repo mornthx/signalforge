@@ -336,5 +336,68 @@ worker exits), so no extra synchronisation is needed.
   loop is the natural home. Plan had it scheduled at S5 — now
   done. S5 will focus on speed scaling + step.
 
-S4 commit: pending push.
+S4 commit: `8baa394` "replay: SessionPlayer 1x timing dispatch +
+chunked-sleep pause (M11 S4)". Pushed after S3 CI green
+(run 25549945101 ✓). S4 CI: run 25550584604 (in_progress at S5
+commit time).
+
+---
+
+## S5 — Speed + stepForward + 30 Hz validation (completed)
+
+- Start: 2026-05-08T06:50Z
+
+### Deliverables
+
+- `src/replay/session_player.cpp`:
+  - `setSpeed(double)`: clamps to [0.5, 10.0] per spec §3.3,
+    logs WARN on clamp, atomic store. Worker reads on its next
+    iteration so the new speed takes effect on the next record's
+    delay calculation (no in-flight cancellation needed).
+  - `stepForward()`: synchronous one-record dispatch on the main
+    thread. Refuses to run while `playing_` is true; returns
+    false at EOF. Drains a `pendingRecord_` first if a prior
+    pause left one in flight. Emits `positionUpdated` directly
+    (no throttle for steps; they are rare).
+  - 30 Hz throttle (C5) was already implemented in S4; S5
+    validates it under sustained dispatch.
+- `tests/unit/replay/session_player_speed_step_test.cpp`: 4
+  cases / 29 assertions:
+  - setSpeed clamps 0.1 → 0.5, 100.0 → 10.0; in-range value
+    accepted unchanged.
+  - 10× speed completes a 90 ms file in < 50 ms wall clock
+    (well under the spec §5.1 "10× completion within 1 ± 10%"
+    of the 1× reference) — exercises C4 stage A.
+  - stepForward delivers exactly one record per call; returns
+    false at EOF after the third record.
+  - positionUpdated emit count ≤ 8 across 50 records dispatched
+    over ~100 ms at 1× — confirms the 30 Hz throttle holds
+    (without throttling we'd see 50 emits).
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **565/565** + Release **565/565** (+4 from S4:
+  the 4 speed/step cases). M10 + S2-S4 regression detectors
+  still green.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Test fixture bug found + fixed
+
+The first cut of `M11 S5: stepForward delivers one record at a
+time` asserted `currentPositionNs() == 100`. The fixture uses
+`microseconds(100)` which is **100 000 ns** — assertion was
+unit-confused. Fixed to `100000`. Caught immediately by ctest.
+
+### Deviations from plan
+
+- Plan §S5 anticipated that 30 Hz throttle would land in S5;
+  it was brought forward into S4 because the dispatch loop
+  needed it for the timing tests anyway. S5 validates it
+  separately. No spec deviation.
+- Plan §S5 anticipated ~250 LOC; actual ~120 LOC for code +
+  150 LOC for tests = ~270 LOC. Within target.
+
+S5 commit: pending push.
 

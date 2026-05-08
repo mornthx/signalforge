@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <QThread>
 #include <Qt>
+#include <algorithm>
 
 namespace signalforge::replay {
 
@@ -149,8 +150,39 @@ void SessionPlayer::pause() {
 }
 
 bool SessionPlayer::stepForward() {
-    // S5: synchronous one-record dispatch.
-    return false;
+    if (!reader_) {
+        SF_LOG_WARN("SessionPlayer::stepForward called without an open file");
+        return false;
+    }
+    if (playing_.load()) {
+        SF_LOG_WARN("SessionPlayer::stepForward called while playing; pause first");
+        return false;
+    }
+    if (atEnd_.load() && !pendingRecord_) {
+        return false;
+    }
+
+    signalforge::session::ReplayRecord rec;
+    if (pendingRecord_) {
+        // Drain a pause-saved record first.
+        rec = *pendingRecord_;
+        pendingRecord_.reset();
+    } else {
+        if (!reader_->readNextRecord(rec)) {
+            atEnd_.store(true, std::memory_order_release);
+            return false;
+        }
+    }
+
+    // Step is synchronous on the main thread, so the sink can be
+    // called directly without queued dispatch.
+    const auto t = openTimeSteady_ + std::chrono::nanoseconds{rec.timestampNs};
+    sink_->onSignal(t, rec.signalId, rec.value);
+
+    currentPosNs_.store(rec.timestampNs, std::memory_order_release);
+    const std::size_t newIdx = currentRecordIdx_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    emit positionUpdated(rec.timestampNs, newIdx);
+    return true;
 }
 
 bool SessionPlayer::stepBackward() {
@@ -165,8 +197,13 @@ bool SessionPlayer::seek(std::int64_t timestampNs) {
 }
 
 void SessionPlayer::setSpeed(double factor) {
-    // S5: clamped atomic store.
-    (void)factor;
+    constexpr double kMinSpeed = 0.5;
+    constexpr double kMaxSpeed = 10.0;
+    if (factor < kMinSpeed || factor > kMaxSpeed) {
+        SF_LOG_WARN("SessionPlayer::setSpeed: {} out of range [{}, {}]; clamping", factor, kMinSpeed, kMaxSpeed);
+        factor = std::clamp(factor, kMinSpeed, kMaxSpeed);
+    }
+    speedFactor_.store(factor, std::memory_order_release);
 }
 
 bool SessionPlayer::isPlaying() const noexcept {
