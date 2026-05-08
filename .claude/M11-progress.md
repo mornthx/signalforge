@@ -205,5 +205,60 @@ document the dual-counter contract. M10 S6/S7 + integration
   is the regression detector that the "thin layer" pattern in
   plan §S2 relies on. The pattern paid off exactly as designed.
 
-S2 commit: pending push.
+S2 commit: `3e80cba` "session: SessionReader streaming + seek
+API (M11 S2)". Pushed after S1 CI green (run 25547888468 ✓).
+S2 CI: run 25549181411 ✓ (debug + release + debug-asan all green).
+
+---
+
+## S3 — SessionPlayer skeleton + lifecycle (completed)
+
+- Start: 2026-05-08T06:00Z
+
+### Deliverables
+
+- `src/replay/session_player.cpp`: openFile / closeFile lifecycle.
+  - `openFile` instantiates a `SessionReader`, calls `open`,
+    binds catalog sink, announces initial catalog to the sink,
+    populates `durationNs_` (from S2's `lastTimestampNs_`) and
+    `totalRecords_` (from S2's `footerRecordCount_`), creates the
+    worker `QThread` (named `session-player-worker`) but does
+    NOT start it. Auto-closes a previously-open file before
+    opening a new one.
+  - `closeFile` requests interruption, quits + waits the worker
+    if running, releases the reader, resets all atomic counters.
+    Idempotent.
+  - Destructor calls `closeFile` defensively.
+  - All control entry points (`play`, `pause`, `setSpeed`,
+    `stepForward`, `stepBackward`, `seek`) remain stubs that
+    log INFO + return safe defaults — S4-S6 fill them in.
+- `tests/unit/replay/session_player_lifecycle_test.cpp`: 6 cases
+  / 34 assertions:
+  - default-constructed Idle state
+  - openFile success populates counters + emits exactly one
+    catalog registration
+  - openFile rejects nonexistent file
+  - closeFile idempotent + counters reset
+  - opening a second file auto-closes the first
+  - destructor cleans up while file is still open
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **558/558** + Release **558/558** (+6 from S2:
+  the 6 new lifecycle cases). All M10 round-trip + S2 streaming
+  tests still green (regression detector quiet).
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S3 anticipated ~350 LOC; actual ~290 LOC. The dispatch
+  loop carved out for S4 is the largest chunk; S3 lifecycle is
+  pure plumbing. No spec deviation.
+- Worker thread is created at openFile but not started —
+  matches the plan ("QThread setup … no timing dispatch yet").
+  S4 will connect the started() signal to a dispatch-loop slot.
+
+S3 commit: pending push.
 
