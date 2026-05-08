@@ -585,5 +585,88 @@ S7 commit: `8ba1317` "replay: PlaybackController state machine
   is small enough to audit visually + S11 will exercise the
   full path.
 
-S8 commit: pending push.
+S8 commit: `15809f8` "replay: ReplayModeManager Live<->Replay
+transitions (M11 S8)". Pushed after S7 CI green
+(run 25551860862 ✓). S8 CI: pending watch.
+
+---
+
+## S9 — MainWindow integration (completed)
+
+- Start: 2026-05-08T08:20Z
+
+### Deliverables
+
+- `src/app/main_window.hpp`: forward decls for the M11 replay
+  types; new private slots (`onOpenSessionRequested`,
+  `onReplayPlayPause`, `onReplayStepForward`,
+  `onReplayStepBackward`, `onReplaySeekSliderChanged`,
+  `onReplaySpeedChanged`, `onExitReplayRequested`,
+  `onReplayPositionChanged`, `onReplayStateChanged`,
+  `onReplayError`); new private helpers (`buildReplayUi`,
+  `updateReplayActionStates`); new fields (PlaybackController +
+  ReplayModeManager + UI element pointers).
+- `src/app/main_window.cpp`:
+  - Constructor: instantiates `PlaybackController` (taking the
+    same `SignalBufferRegistry` charts read from — so charts
+    are mode-agnostic) and `ReplayModeManager` after
+    `ConnectionManager`.
+  - `buildReplayUi()`: File menu's "Open Session…" (Ctrl+O);
+    a `QToolBar` (initially hidden) with Play/Pause, Step ◀/▶,
+    a `QSlider` scrubber, speed combo (5 entries from spec
+    §3.3), Exit Replay action; status-bar replay label;
+    PlaybackController signal connections (positionChanged,
+    stateChanged, errorOccurred).
+  - `onOpenSessionRequested`: C6 gating refuses while
+    recording; QFileDialog → confirmation dialog if active
+    M9 connections → `enterReplay` → `loadSession` → toolbar
+    visible. On `loadSession` failure, rolls back the mode
+    transition.
+  - `onExitReplayRequested`: 3-option dialog (Yes / No /
+    Cancel) for the Resume / Stay Disconnected / Cancel
+    branches per spec §3.4 — dialog lives here, not in the
+    manager (per the C3 / S8 inversion-of-control).
+  - `onReplayPlayPause`, `onReplayStepForward`,
+    `onReplayStepBackward`: simple delegates.
+  - `onReplaySeekSliderChanged`: only acts when slider was
+    user-driven (uses a `replaySliderUserDriven_` guard so
+    feedback updates don't recurse). Maps slider position to
+    `PlaybackController::seek` via `(value/total)*duration`.
+  - `onReplaySpeedChanged`: pulls the `double` data from the
+    combo's `itemData` and forwards to `setSpeed`.
+  - `updateReplayActionStates`: recomputes per-action enabled
+    state + the play/pause button label on every state
+    change, plus the C6 cross-mode gating (record action
+    disabled while in Replay; open-session disabled while
+    recording).
+- `src/app/CMakeLists.txt`: appends `signalforge_replay` to
+  `signalforge_app_ui` PUBLIC link list.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **582/582** + Release **582/582** (no new tests
+  in S9 — UI integration tests are integration-shape and
+  ship in S11). The existing `test_app_smoke` exercises
+  `MainWindow` construction, which now includes all M11
+  wiring; it passed first run.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+- `clang-format -i` re-applied; dry-run -Werror clean.
+
+### Deviations from plan
+
+- Plan §S9 anticipated ~400 LOC; actual ~280 LOC code change
+  (header +30, cpp +250). Within target.
+- `replaySliderUserDriven_` guard added beyond the plan to
+  prevent slider value feedback loop when the worker thread's
+  positionUpdated signal updates the slider — the slider
+  would otherwise re-emit valueChanged and trigger an
+  unintended seek. Standard Qt UX guard pattern.
+- Spec §4.7 mentioned a "current position label (timestamp +
+  record number)" separate from the status bar; M11 collapses
+  this into the status-bar label for V1 (single replay status
+  string is simpler and matches the M10 recording pattern).
+  V1.5+ may re-decompose if needed.
+
+S9 commit: pending push.
 
