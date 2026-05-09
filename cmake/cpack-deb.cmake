@@ -9,14 +9,12 @@
 #
 # Output: build/release/signalforge_1.0.0_amd64.deb
 
-# CMAKE_INSTALL_PREFIX overrides /opt/signalforge for the relative
-# DESTINATIONs in install.cmake. Absolute paths (/usr/share/...) are
-# honoured by CPack DEB regardless.
-if(NOT CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND NOT DEFINED ENV{DESTDIR})
-    # Respect what the user set explicitly.
-else()
-    set(CMAKE_INSTALL_PREFIX "/opt/signalforge" CACHE PATH "" FORCE)
-endif()
+# CPack DEB uses CPACK_PACKAGING_INSTALL_PREFIX (NOT
+# CMAKE_INSTALL_PREFIX) to set the package's installed-file root.
+# Spec §3.4: install path is /opt/signalforge/ for relative
+# install() DESTINATIONs. Absolute paths (/usr/share/applications,
+# /usr/share/icons/...) are honoured regardless.
+set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/signalforge")
 
 set(CPACK_GENERATOR "DEB")
 set(CPACK_PACKAGE_NAME "signalforge")
