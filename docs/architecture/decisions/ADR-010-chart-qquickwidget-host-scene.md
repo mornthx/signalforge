@@ -53,10 +53,25 @@ Item {
 <!-- resources/qml.qrc -->
 <RCC>
   <qresource prefix="/qml">
-    <file>qml/ChartHost.qml</file>
+    <!-- alias collapses the source-relative `qml/ChartHost.qml`
+         to plain `ChartHost.qml`; combined with prefix="/qml"
+         the resource lives at qrc:/qml/ChartHost.qml (the URL
+         the C++ side passes to setSource). Without the alias
+         it would register at qrc:/qml/qml/ChartHost.qml. -->
+    <file alias="ChartHost.qml">qml/ChartHost.qml</file>
   </qresource>
 </RCC>
 ```
+
+The `alias` is **load-bearing** — the source file lives at
+`resources/qml/ChartHost.qml` (one directory of nesting) and
+without `alias` the qrc compiler concatenates the prefix `/qml`
+with the source-relative path `qml/ChartHost.qml`, registering at
+`qrc:/qml/qml/ChartHost.qml`. This was caught in S8 GUI launch
+verification: the chart still rendered blank because
+`setSource(qrc:/qml/ChartHost.qml)` mismatched the registered
+path, the load failed silently, and the defensive `Ready`-status
+guard logged the error and skipped reparenting.
 
 ```cpp
 // src/app/main_window.cpp rebuildChartWidgets()
