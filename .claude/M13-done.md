@@ -23,11 +23,11 @@
 
 ## PR and merge state
 
-- **PR number**: (filled at PR creation in this Phase 5 wrap)
-- **PR URL**: (filled)
-- **Head commit at PR creation**: (filled)
-- **CI status at PR creation**: (filled)
-- **Mergeable**: status reported by GitHub when CI completes.
+- **PR number**: #24
+- **PR URL**: https://github.com/mornthx/signalforge/pull/24
+- **Head commit at PR creation**: `16f102b` (tests: M13 deb-package SKIP_RETURN_CODE so CI-without-package-target doesn't fail)
+- **CI status at PR creation**: ✅ all green — push run `25593227359` (debug 7m36s, release 7m8s, debug-asan 11m13s) and PR run `25593474003` (debug 7m5s, release 6m59s, debug-asan 10m41s).
+- **Mergeable**: ✅ awaiting Phase 2 merge authorization + operator confirmation of release prerequisites.
 - **Merge SHA**: (filled after Phase 3 merge in next session — this is the SHA `v1.0.0` will tag)
 
 ---
