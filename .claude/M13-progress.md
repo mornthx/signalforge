@@ -130,4 +130,71 @@ ADR-008)". Pushed; CI in flight.
   spec §9 note ("V1.0 documents the requirement; user
   installs Qt 6.10 themselves").
 
-S1 commit: pending push.
+S1 commit: `8c6c255` "build: M13 CMake CPack DEB config + install
+rules (M13 S1)". Pushed; CI in flight.
+
+---
+
+## S2 — Post-install scripts + desktop entry + icon (completed)
+
+- Start: 2026-05-09T11:25Z
+
+### Deliverables
+
+- `cmake/deb-scripts/postinst` (~50 LOC): bash post-install
+  per spec §4.2:
+  - Creates symlinks `/usr/local/bin/{signalforge,
+    sfreplay_inspect}` → `/opt/signalforge/bin/...` (the
+    spec §3.4 symlink layer; deferred from CMake `install()`
+    to postinst per S1 §Deviations).
+  - `update-mime-database /usr/share/mime/` (best-effort).
+  - `gtk-update-icon-cache -f -t /usr/share/icons/hicolor/`
+    (best-effort).
+  - `update-desktop-database /usr/share/applications/`
+    (best-effort).
+  - User-facing welcome message with launch hints + dialout
+    group note for serial-port access.
+  - `set -e`; `bash -n` syntax-clean; `chmod +x` set.
+- `cmake/deb-scripts/prerm` (~20 LOC): pre-removal per spec
+  §4.3:
+  - Removes the postinst-created symlinks idempotently.
+  - User-config preservation message.
+  - `bash -n` syntax-clean; `chmod +x` set.
+- `installer/signalforge.desktop`: per spec §4.4 + standard
+  XDG keys (`Categories=Development;Engineering;Science`,
+  `MimeType=application/x-sfreplay`, `StartupWMClass`,
+  `Keywords` for menu search).
+- `installer/signalforge.png`: 256×256 placeholder icon
+  (3.8 KB) generated via Python PIL — solid blue-grey
+  background, 3 stylized signal-waveform strokes, "SF"
+  label. V1.5+ may swap for designer art.
+
+### Build / test counts
+
+- Configure step parses cleanly with the new
+  `CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA` paths.
+- `cmake --build build/release --target package` — fails
+  with expected errors: missing `docs/install.md`,
+  `docs/release-notes/v1.0.0.md`, etc. **These land in S3.**
+  S2's scope (scripts + icon + desktop entry) is verified
+  via syntax checks + file presence.
+- ctest unchanged.
+- `clang-format` not applicable (no C++ changes).
+
+### Deviations from plan
+
+- Plan §S2 anticipated ~80 LOC; actual ~85 LOC (scripts
+  ~70 + desktop entry ~15). Within target. Icon is binary
+  (3.8 KB), not counted in LOC.
+- Spec §4.2's example postinst doesn't mention symlinks —
+  M13 adds them per spec §3.4 ("Symlinks: /usr/local/bin/
+  signalforge, /usr/local/bin/sfreplay_inspect"). The S1
+  decision to defer symlink creation from CMake `install()`
+  to postinst keeps the .deb's file list clean (no broken
+  symlinks at unpack time).
+- Postinst includes a user-facing dialout-group note for
+  serial-port access — beyond spec §4.2's example but
+  mirrors the user-experience improvements documented in
+  install.md (S3).
+
+S2 commit: pending push.

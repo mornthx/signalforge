@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SignalForge
+GenericName=Signal Visualization
+Comment=Real-time signal visualization and recording for embedded-device bring-up
+Exec=/usr/local/bin/signalforge %f
+Icon=signalforge
+Terminal=false
+Categories=Development;Engineering;Science;
+MimeType=application/x-sfreplay;
+Keywords=signal;visualization;serial;tcp;udp;recording;replay;
+StartupNotify=true
+StartupWMClass=SignalForge

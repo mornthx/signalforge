@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# cmake/deb-scripts/prerm
+#
+# M13 S2: SignalForge .deb pre-removal script.
+# Runs before dpkg unstages files (on `dpkg -r` or `apt remove`).
+#
+# Responsibilities (per spec §4.3 + §2.1-4):
+#   1. Remove the /usr/local/bin/{signalforge,sfreplay_inspect}
+#      symlinks created by postinst
+#   2. Print a notice that user config under ~/.config/signalforge/
+#      is preserved (only `apt purge` would remove it)
+
+set -e
+
+# Remove symlinks (idempotent — `rm -f` no-ops if missing).
+for cmd in signalforge sfreplay_inspect; do
+    rm -f "/usr/local/bin/${cmd}"
+done
+
+cat <<'EOF'
+
+SignalForge will be removed.
+
+User config in ~/.config/signalforge/ is PRESERVED for re-install.
+To purge user config explicitly, after removal run:
+  rm -rf ~/.config/signalforge/
+
+EOF
+
+exit 0
