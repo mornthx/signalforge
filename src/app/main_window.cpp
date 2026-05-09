@@ -29,6 +29,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QQuickItem>
 #include <QQuickWidget>
 #include <QSlider>
 #include <QSplitter>
@@ -149,6 +150,15 @@ void MainWindow::buildChartUi() {
 
     centralSplitter_->setStretchFactor(0, 1);
     centralSplitter_->setStretchFactor(1, 4);
+    // Initial split sizes (256 + 1024 = 1280, matching the window's
+    // resize() above). QSplitter's stretch factor only governs *extra*
+    // space distribution on subsequent resizes; initial pane sizes
+    // come from sizeHint(). The chart pane's sizeHint() is dominated
+    // by the QQuickWidget which reports an invalid hint until the
+    // QML scene loads — without explicit setSizes() the chart pane
+    // collapses to ~12 px under offscreen QPA (caught by M14 S1
+    // smoke; see ADR-011 §"Implementation note: splitter sizing").
+    centralSplitter_->setSizes({256, 1024});
     setCentralWidget(centralSplitter_);
 
     auto* toolbar = addToolBar(tr("Chart"));
@@ -274,9 +284,74 @@ QImage MainWindow::grabChartImage() const {
     }
     const auto widgets = chartContainer_->findChildren<QQuickWidget*>();
     if (widgets.isEmpty()) {
+        SF_LOG_WARN("MainWindow::grabChartImage: no QQuickWidget children of chartContainer_");
         return {};
     }
-    return widgets.first()->grabFramebuffer();
+    auto* qqw = widgets.first();
+    SF_LOG_INFO("MainWindow::grabChartImage: QQuickWidget size={}x{} root={}", qqw->width(), qqw->height(),
+                qqw->rootObject() == nullptr ? "null" : "ok");
+    if (chartManager_ != nullptr) {
+        for (const auto& cid : chartManager_->chartIds()) {
+            auto* c = chartManager_->chart(cid);
+            if (c == nullptr) {
+                continue;
+            }
+            const auto sigs = c->visibleSignals();
+            const auto st = c->stats();
+            SF_LOG_INFO("MainWindow::grabChartImage: chart='{}' size={}x{} pos=({},{}) "
+                        "visible={} enabled={} opacity={} signals={} redraws={} dropped={}",
+                        cid.toStdString(), c->width(), c->height(), c->x(), c->y(), c->isVisible(), c->isEnabled(),
+                        c->opacity(), sigs.size(), st.totalRedraws, st.droppedFrames);
+            // Defensive: ensure visible + opacity 1 in case parent QML scene
+            // didn't propagate. Diagnostic only — won't change anything if
+            // already correct.
+            if (!c->isVisible() || c->opacity() < 0.99) {
+                c->setVisible(true);
+                c->setOpacity(1.0);
+                SF_LOG_INFO("MainWindow::grabChartImage: forced visible+opacity for chart '{}'", cid.toStdString());
+            }
+        }
+        if (signalBufferRegistry_ != nullptr) {
+            SF_LOG_INFO("MainWindow::grabChartImage: SignalBufferRegistry has {} signal id(s)",
+                        signalBufferRegistry_->signalIds().size());
+        }
+    }
+    // First, prefer grabFramebuffer() — it captures the QQuickWidget's
+    // RHI scene-graph output. Force a synchronous update + event
+    // processing pass so the most recent chart redraw lands in the
+    // framebuffer before we grab.
+    qqw->update();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+    QImage img = qqw->grabFramebuffer();
+    bool useFramebuffer = !img.isNull() && img.width() > 0 && img.height() > 0;
+    if (useFramebuffer) {
+        // Sanity-check: framebuffer must contain non-clear pixels OR we
+        // should not trust it (some platform plugins return a successful
+        // but stale/white image even when scene graph rendered).
+        // We always log the framebuffer count separately so the harness
+        // sees both paths.
+        std::uint64_t fbNonWhite = 0;
+        for (int y = 0; y < img.height(); ++y) {
+            for (int x = 0; x < img.width(); ++x) {
+                const QRgb px = img.pixel(x, y);
+                if (qRed(px) != 255 || qGreen(px) != 255 || qBlue(px) != 255) {
+                    ++fbNonWhite;
+                }
+            }
+        }
+        SF_LOG_INFO("MainWindow::grabChartImage: framebuffer path: non_white={} size={}x{}", fbNonWhite, img.width(),
+                    img.height());
+        if (fbNonWhite == 0) {
+            // Framebuffer returned all-white; fall through to QWidget::grab().
+            useFramebuffer = false;
+        }
+    }
+    if (!useFramebuffer) {
+        SF_LOG_INFO("MainWindow::grabChartImage: falling back to QWidget::grab()");
+        const QPixmap pm = qqw->grab();
+        img = pm.toImage();
+    }
+    return img;
 }
 
 // ---- existing private helpers ------------------------------------------
@@ -369,6 +444,13 @@ void MainWindow::rebuildChartWidgets() {
         // for qrc:/ URLs, so rootObject() is ready immediately.
         auto* hostWidget = new QQuickWidget(chartContainer_);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+        // QQuickWidget's default size policy is Preferred/Preferred and
+        // its sizeHint() can be invalid until a scene is loaded; under
+        // a QVBoxLayout that means the layout gives it 0 width even
+        // with a stretch factor. Force Expanding/Expanding so the
+        // layout fills the chart pane horizontally + vertically.
+        hostWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        hostWidget->setMinimumSize(1, 1);
         hostWidget->setSource(QUrl(QStringLiteral("qrc:/qml/ChartHost.qml")));
         if (hostWidget->status() != QQuickWidget::Ready) {
             SF_LOG_ERROR("MainWindow: ChartHost.qml failed to load (status={})",
@@ -383,6 +465,15 @@ void MainWindow::rebuildChartWidgets() {
             continue;
         }
         chart->setParentItem(root);
+        // ADR-011: bind Chart's geometry to the host scene root.
+        // QQuickWidget::SizeRootObjectToView keeps `root` matched to the
+        // widget; ChartHost.qml's anchors.fill keeps the QML scene matched
+        // to root. The C++ chart child does NOT inherit either — it lands
+        // at the QQuickItem default 0×0 unless we bind explicitly here.
+        const auto syncSize = [chart, root]() { chart->setSize(QSizeF(root->width(), root->height())); };
+        syncSize();
+        connect(root, &QQuickItem::widthChanged, chart, syncSize);
+        connect(root, &QQuickItem::heightChanged, chart, syncSize);
         chartLayout_->addWidget(hostWidget, 1);
     }
 }

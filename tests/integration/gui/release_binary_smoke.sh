@@ -86,12 +86,16 @@ cd "$REPO_ROOT"
 # fighting the operator's real ~/.local/state/signalforge/logs.
 export XDG_STATE_HOME="$LOG_DIR"
 
-# Force offscreen QPA so the test is identical between local + CI;
-# it does not depend on xvfb-run wrapping.
-export QT_QPA_PLATFORM=offscreen
-# QML scene-graph software backend so the QQuickWidget framebuffer is
-# rendered without a GPU.
+# Render path: xvfb-run (virtual X display) + QML software RHI. We
+# initially tried Q_QPA_PLATFORM=offscreen for purity, but
+# QQuickWidget::grabFramebuffer() returns an empty image under
+# offscreen because the RHI swap-chain is never actually presented.
+# xvfb-run supplies a real X display backed by a memory framebuffer,
+# so QQuickWidget renders + grabs as it would on a real desktop.
+# Both ubuntu CI runners and our local host already have xvfb-run
+# (CI installs it; local Ubuntu 24.04 has it from xvfb).
 export QSG_RHI_BACKEND=software
+unset QT_QPA_PLATFORM  # let xvfb-run pick xcb
 
 LOG_FILE="$LOG_DIR/signalforge/logs/signalforge.log"
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -116,15 +120,16 @@ $UDP_SENDER --host 127.0.0.1 --port 9998 --frames 250 --rate-hz 50 \
     >"$RUNDIR/udp_sender.stdout" 2>"$RUNDIR/udp_sender.stderr" &
 UDP_PID=$!
 
-# Launch signalforge under timeout so we never hang forever.
+# Launch signalforge under xvfb-run + timeout so we never hang.
 set +e
-timeout --signal=TERM --kill-after=5 "${TIMEOUT_S}s" \
-    "$BINARY" \
-        --auto-load-test-fixture "$FIXTURE" \
-        --auto-select-signal temperature \
-        --dump-chart-png-after-ms 3000 \
-        --dump-chart-png-path "$PNG_OUT" \
-        --exit-after-dump \
+xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+    timeout --signal=TERM --kill-after=5 "${TIMEOUT_S}s" \
+        "$BINARY" \
+            --auto-load-test-fixture "$FIXTURE" \
+            --auto-select-signal "udp:m14-smoke-udp/temperature" \
+            --dump-chart-png-after-ms 3000 \
+            --dump-chart-png-path "$PNG_OUT" \
+            --exit-after-dump \
     >"$RUNDIR/signalforge.stdout" 2>"$RUNDIR/signalforge.stderr"
 APP_RC=$?
 set -e

@@ -16,8 +16,8 @@ Source: `.claude/M14-understanding.md` + `.claude/M14-plan.md`
 | ID | Title | Status | Commits | Notes |
 |---|---|---|---|---|
 | S0 | Concerns C1-C6 + PR #24 closure | done | `8515137` | M14-concerns.md, M14-progress.md scaffold, PR #24 closed-with-supersede |
-| S1 | CI release-binary smoke test (Tier A + Tier B) + framework | **CC-side done; WILL_FAIL until S2** | (this commit) | Harness demonstrably catches run-4 0×0 bug. Regression-protect verification deferred to S2 close (needs run-4 fixed to establish a passing baseline) |
-| S2 | Run-4 chart sizing fix | not started | — | Two plausible impls (itemChange vs qmlRegisterType); HALT #9 if can't pick |
+| S1 | CI release-binary smoke test (Tier A + Tier B) + framework | done | `536ff91` | Harness catches run-4 0×0 + the new F4 paint-visibility bug. Regression-protect verification still deferred (now to S4-close: needs F4 fixed to establish a passing baseline) |
+| S2 | Run-4 chart sizing fix | **CC-side done; smoke still WILL_FAIL** | (this commit) | ADR-011 + splitter setSizes + QQuickWidget Expanding + chart geometry binding. Chart QQuickItem now 661×720 (was 0×0). Smoke test exposes a separate F4: chart paints no visible content even with correct geometry — deferred to S4 |
 | S3 | GUI audit (operator-paired) | not started | — | Per C2: daily ping-pong by spec §3.2 section |
 | S4 | Critical bug fixes | not started | — | Per-bug commit (M14.3 P); ADR-011+ for architectural changes |
 | S5 | V1.0 scope re-evaluation (Scenario A/B/C) | not started | — | Collaborative; CC drafts, human finalizes |
@@ -75,28 +75,59 @@ commits as they land.
 
 (awaiting first operator pass; S3 begins after S1 + S2 close)
 
-### Incidental findings during S1 harness development (2026-05-09)
+### Incidental findings during S1+S2 harness development (2026-05-09)
 
-These were observed while building the S1 smoke harness against the
-current `milestone/M14` HEAD. Logged here so they are not lost; severity
-+ S4 fix priority will be assigned during the S3 audit pass.
+These were observed while building the S1 smoke harness and the
+S2 chart-sizing fix. Logged here so they are not lost; severity +
+S4 fix priority will be assigned during the S3 audit pass.
 
-- **F1 (Critical)** — Chart QQuickWidget framebuffer is 0×0. The chart
-  panel renders entirely as the QQuickWidget clear color because the
-  Chart QQuickItem has zero width/height. This is the run-4 bug; **S2
-  fixes it**. Smoke `M14_SMOKE_TIER_A: non_white_pixels=0
-  total_pixels=0 width=0 height=0` confirms.
-- **F2 (Serious?)** — Segfault during shutdown after `--exit-after-dump`
-  drives `QApplication::quit()`. The dump line is logged successfully
-  and `SignalForge exiting, rc=0` is logged before the crash. Stderr
-  shows offscreen-platform-specific `QPainter::begin: Paint device
-  returned engine == 0, type: 3` plus warnings about
-  `propagateSizeHints` / `raise()`. Root cause TBD; severity to be
-  decided in S3 (does not block CI smoke; the harness's checks all run
-  off the log file before the crash).
-- **F3 (Serious?)** — `UdpDriver destroyed in non-Idle state; callers
-  should close() first` warning on shutdown. Connection lifecycle is
-  not closing the driver before destruction. May be related to F2.
+- **F1 (Critical) — RESOLVED in S2** (`<S2 commit>`). Chart
+  QQuickWidget framebuffer was 0×0 because the splitter pane,
+  the QQuickWidget size policy, and the Chart QQuickItem
+  geometry binding all collapsed to 0 width. Fixed by
+  ADR-011: splitter `setSizes({256, 1024})` + QQuickWidget
+  `setSizePolicy(Expanding,Expanding)` + chart syncSize lambda
+  bound to host root's `widthChanged`/`heightChanged` signals.
+  Smoke now reports `width=661 height=720` consistently.
+- **F2 (Serious?)** — Segfault during shutdown after
+  `--exit-after-dump` drives `QApplication::quit()`. The dump
+  line is logged successfully and `SignalForge exiting, rc=0` is
+  logged before the crash. Stderr shows offscreen-platform-
+  specific `QPainter::begin: Paint device returned engine == 0,
+  type: 3` plus warnings about `propagateSizeHints` / `raise()`.
+  Root cause TBD; severity to be decided in S3 (does not block
+  CI smoke; the harness's checks all run off the log file
+  before the crash).
+- **F3 (Serious?)** — `UdpDriver destroyed in non-Idle state;
+  callers should close() first` warning on shutdown. Connection
+  lifecycle is not closing the driver before destruction. May
+  be related to F2.
+- **F4 (Critical, NEW)** — Chart paints no visible content even
+  when correctly sized. Surfaced by S2: with the chart at
+  661×720, with the temperature signal added, with 200 UDP
+  frames decoded into the SignalBufferRegistry, with the chart's
+  redraw timer firing 120+ times, the QQuickWidget framebuffer
+  comes back entirely white. Diagnostic confirmed:
+  - `signals=1` on the chart
+  - `SignalBufferRegistry has 9 signal id(s)` including
+    `udp:m14-smoke-udp/temperature`
+  - Chart `pos=(0,0) visible=true enabled=true opacity=1`
+  - QQuickWidget background-clear-color test (240,240,240)
+    DID register in the framebuffer → grab path works
+  Possible root causes (deferred to S3 audit / S4 fix):
+  - Chart's QSGNode tree isn't being submitted to QQuickWindow
+    scene-graph (despite `setFlag(ItemHasContents, true)`)
+  - Chart's coordinate space is collapsed (e.g., bounding-rect
+    clipped to 0 even when width/height are non-zero)
+  - Default chart line colors are being drawn on a layer that
+    doesn't reach the framebuffer in the QQuickWidget host
+    composition path
+  - Buffer registry samples are ingested but the chart's
+    visible-signals query under the schema's id format
+    returns empty
+  S4 will diagnose + fix this with ADR-012 if architectural.
+  The S1 smoke test correctly catches it (currently passes ctest
+  via `WILL_FAIL TRUE`; cleared at S4 close).
 
 ## S1 deliverable evidence
 
@@ -127,13 +158,18 @@ already fails on baseline, so the per-ADR-revert experiment has no
 "green baseline" to revert from. After S2 lands, the verification
 runs as part of S2 close before the WILL_FAIL property is removed.
 
-## Frozen-surface modifications (S1 audit)
+## Frozen-surface modifications (S1 + S2 audit)
 
 S1 added one public method group to `src/app/main_window.hpp`
 (`autoLoadTestFixture`, `autoSelectSignal`, `grabChartImage`).
 `main_window.hpp` is **not** in the M2-M12 frozen list per
-`docs/v1.0-spec-list.md` §1 (it's the V1 integration point; intentionally
-unfrozen). No frozen-`.hpp` modifications in S1; counter remains 0/2.
+`docs/v1.0-spec-list.md` §1 (it's the V1 integration point;
+intentionally unfrozen).
+
+S2 (ADR-011) modifies `main_window.cpp` only — `chart.hpp`
+(M8-frozen) is intentionally untouched per ADR-011's "rejected
+alternative B" (overriding `Chart::itemChange` would have
+modified the M8 freeze). Counter remains **0 / 2**.
 
 ## HALT log
 
