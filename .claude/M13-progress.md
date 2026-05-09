@@ -555,7 +555,148 @@ H1 trigger (frozen `.hpp` modification): **clear**.
   acceptance evidence (VmRSS rock-stable for 42 min) is
   unambiguous.
 
-S6 commit: pending push.
+S6 commit: `472f098` "chore: M13 S6 done.md + final-soak.md
++ 30-min soak results (M13 S6)" + `16f102b` (CI SKIP fix).
+Pushed; CI green.
+
+PR #24 created at `https://github.com/mornthx/signalforge/pull/24`;
+all 6 checks green.
+
+---
+
+## S6 follow-up — DEB dependency manifest correction (Gate 4)
+
+- Start: 2026-05-09T13:50Z
+- Trigger: Operator's clean-Ubuntu DEB install verification
+  (Gate 4 of spec §3.5 V) failed with two missing-deps issues:
+  1. `libyaml-cpp-dev (>= 0.7)` — wrong (build-time package
+     name; runtime would be `libyaml-cpp0.8`)
+  2. `qt6-base-dev` etc. — wrong (build-time `-dev` packages;
+     runtime would be `libqt6core6t64`, `libqt6quick6`, etc.)
+
+User-authorized fix per HALT message: "dependency-manifest
+fix, not architectural. No ADR-008 needed."
+
+### Investigation (per user's HALT step list)
+
+**Step 1 — `ldd` on shipped binaries**:
+
+`signalforge` GUI binary depends on Qt6 (`libQt6Core.so.6`,
+`libQt6Gui.so.6`, `libQt6Widgets.so.6`, `libQt6Quick.so.6`,
+`libQt6QuickWidgets.so.6`, `libQt6Qml.so.6` +
+`libQt6QmlModels.so.6` etc., `libQt6Network.so.6`,
+`libQt6SerialPort.so.6`, `libQt6OpenGL.so.6`,
+`libQt6DBus.so.6`) + system libs (libc, libstdc++, libgcc_s,
+libdbus-1, libfontconfig, libfreetype, libglib-2.0, libxcb,
+libxkbcommon, libGL, libEGL, libGLX, libz).
+
+`sfreplay_inspect` CLI: only `libQt6Core.so.6`.
+
+**Surprise finding**: `libyaml-cpp` is NOT in the `ldd`
+output — yaml-cpp is **statically linked** via FetchContent
+(`build/release/_deps/yaml-cpp-build/libyaml-cpp.a`). The
+original spec's `libyaml-cpp-dev (>= 0.7)` runtime declaration
+was redundant; **no yaml-cpp runtime dep is needed at all**.
+
+**Step 2 — `dpkg -S` on the system .so files**:
+
+Mapped each .so to its Ubuntu 24.04 noble package. Notable:
+the t64 suffixes for libraries rebuilt during the 64-bit
+time_t transition. Final mapping:
+
+| .so | Package |
+|---|---|
+| libstdc++.so.6 | libstdc++6 |
+| libgcc_s.so.1 | libgcc-s1 |
+| libc.so.6 + dl + m + pthread | libc6 |
+| libdbus-1.so.3 | libdbus-1-3 |
+| libfontconfig.so.1 | libfontconfig1 |
+| libfreetype.so.6 | libfreetype6 |
+| libglib-2.0.so.0 | **libglib2.0-0t64** |
+| libxcb.so.1 | libxcb1 |
+| libxkbcommon.so.0 | libxkbcommon0 |
+| libGL.so.1 | libgl1 |
+| libEGL.so.1 | libegl1 |
+| libGLX.so.0 | libglx0 |
+| libz.so.1 | zlib1g |
+
+Qt6 runtime packages (Ubuntu 24.04 stock Qt 6.4.2):
+
+| Library | Package |
+|---|---|
+| libQt6Core.so.6 | libqt6core6t64 |
+| libQt6Gui.so.6 | libqt6gui6t64 |
+| libQt6Widgets.so.6 | libqt6widgets6t64 |
+| libQt6Network.so.6 | libqt6network6t64 |
+| libQt6OpenGL.so.6 | libqt6opengl6t64 |
+| libQt6DBus.so.6 | libqt6dbus6t64 |
+| libQt6Qml.so.6 | libqt6qml6 (no t64) |
+| libQt6Quick.so.6 | libqt6quick6 |
+| libQt6QuickWidgets.so.6 | libqt6quickwidgets6 |
+| libQt6SerialPort.so.6 | libqt6serialport6 |
+
+**Step 3 — `apt-cache policy` validation**: every declared
+package candidates resolved on Ubuntu 24.04 noble. Qt6
+packages all at 6.4.2.
+
+### Fix applied
+
+`cmake/cpack-deb.cmake` `CPACK_DEBIAN_PACKAGE_DEPENDS` now
+declares 23 runtime packages (10 Qt6 + 13 system libs); no
+yaml-cpp dep.
+
+`docs/install.md §1.1`: rewritten "Qt 6.10 dual-track" note
+explaining the .deb declares Qt 6.4 stock packages (dpkg
+gate satisfied) but the binary actually links against Qt
+6.10 (must be installed separately).
+
+`docs/release-notes/v1.0.0.md` System requirements section:
+clarified Qt 6.4-vs-6.10 dual-track + statically-linked
+yaml-cpp.
+
+`tests/integration/test_m13_deb_package.cpp`: updated the
+`Depends:` assertion to check the new package names
+(libqt6quickwidgets6, libqt6core6t64, libqt6serialport6,
+libglib2.0-0t64) instead of the obsolete libyaml-cpp0.8.
+
+### Verification
+
+`apt-get install --simulate ./signalforge_1.0.0_amd64.deb`:
+**all 23 deps resolve** via Ubuntu 24.04 noble repos (apt
+also pulls in transitive Qt deps automatically). No
+"missing dependency" errors. M13 integration tests:
+**33/33 assertions pass** in `test_m13_deb_package` (was
+30 pre-fix). Both presets clean: Debug 602/602 + Release
+602/602.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **602/602** + Release **602/602** unchanged.
+- `cmake --build build/release --target package` succeeds;
+  produces `signalforge_1.0.0_amd64.deb` (2.78 MB).
+- `apt-get install --simulate` on Ubuntu 24.04 noble:
+  resolves all deps cleanly.
+
+### Deviations from plan
+
+- This S6 follow-up was unanticipated by plan §S6. The user-
+  authorized HALT path explicitly allowed dependency manifest
+  fixes (cpack-deb.cmake) + doc updates (install.md /
+  release-notes); no production code was modified. M2-M12
+  freeze surface remains intact.
+
+### Re: M11 soak re-run question
+
+User asked whether the externally-observed M11 soak result
+should be re-run by CC. Per the bench's runtime cosmetic
+(snapshot lines never reach the file regardless of fflush
+calls), a fresh run wouldn't produce different in-file data;
+the externally-observed `/proc/<pid>/status` VmRSS rock-stable
+at 35 008 KB across 42 minutes is the actual evidence. CC did
+not re-run M11 soak as part of this S6 follow-up.
+
+S6 follow-up commit: pending push.
 
 ---
 

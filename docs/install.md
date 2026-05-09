@@ -19,14 +19,39 @@ covered:
 
 - Ubuntu 24.04 LTS (or compatible Debian-based distribution)
 - amd64 architecture (`uname -m` returns `x86_64`)
-- **Qt 6.10**. The system Qt on Ubuntu 24.04 is 6.4 — too old.
-  You must install Qt 6.10 first. Two options:
+- **Qt 6.10** (newer than Ubuntu 24.04 stock Qt 6.4).
+
+#### About the Qt 6.10 requirement
+
+V1.0 was built and tested against Qt 6.10. The `.deb`'s
+`Depends:` field declares the Ubuntu 24.04 stock Qt 6.4
+runtime packages (e.g., `libqt6core6t64`, `libqt6quickwidgets6`)
+so that `dpkg` is satisfied at install time. **However, the
+SignalForge binary actually links against the Qt 6.10 ABI
+and will not run against Qt 6.4 alone.** You must install
+Qt 6.10 separately. Three options:
+
   - **Option A (recommended)**: Qt's official installer
     from <https://www.qt.io/download-qt-installer>.
-    Place at `~/Qt/6.10.x/gcc_64`; ensure
-    `libQt6Core.so.6` etc. are findable via
-    `LD_LIBRARY_PATH` or `/etc/ld.so.conf.d/`.
+    Default install path is `~/Qt/6.10.x/gcc_64`. After
+    install, ensure `libQt6Core.so.6` etc. resolve at
+    runtime via either:
+    - `export LD_LIBRARY_PATH=$HOME/Qt/6.10.2/gcc_64/lib:$LD_LIBRARY_PATH`
+      (in `~/.profile` or your shell rc)
+    - or system-wide:
+      ```bash
+      echo "$HOME/Qt/6.10.2/gcc_64/lib" | sudo tee /etc/ld.so.conf.d/qt6.10.conf
+      sudo ldconfig
+      ```
   - **Option B**: build Qt 6.10 from source (advanced).
+  - **Option C**: a community PPA that ships Qt 6.10
+    runtime packages (search apt sources matching your
+    Ubuntu point release; not officially endorsed).
+
+Stock Ubuntu 24.04's Qt 6.4 will be installed as a side
+effect of `dpkg -i` (it satisfies the declared deps), but
+SignalForge will only run against your separately-installed
+Qt 6.10. Both Qt 6.4 and Qt 6.10 can coexist.
 
 ### 1.2 Install
 

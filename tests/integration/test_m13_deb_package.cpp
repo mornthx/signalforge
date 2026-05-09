@@ -66,10 +66,17 @@ TEST_CASE("M13 S5: dpkg-deb --info reports correct control fields", "[m13][s5][d
     REQUIRE(info.contains(QStringLiteral("Architecture: amd64")));
     REQUIRE(info.contains(QStringLiteral("Section: science")));
     REQUIRE(info.contains(QStringLiteral("Priority: optional")));
-    // Dependency manifest matches cpack-deb.cmake.
+    // Dependency manifest matches cpack-deb.cmake. yaml-cpp is
+    // statically linked (no runtime dep). Qt 6 runtime packages
+    // declared at Ubuntu 24.04 noble stock-repo level (Qt 6.4)
+    // even though the binary actually links against Qt 6.10
+    // (per docs/install.md §1.1 dual-track).
     REQUIRE(info.contains(QStringLiteral("libc6")));
     REQUIRE(info.contains(QStringLiteral("libstdc++6")));
-    REQUIRE(info.contains(QStringLiteral("libyaml-cpp0.8")));
+    REQUIRE(info.contains(QStringLiteral("libqt6quickwidgets6")));
+    REQUIRE(info.contains(QStringLiteral("libqt6core6t64")));
+    REQUIRE(info.contains(QStringLiteral("libqt6serialport6")));
+    REQUIRE(info.contains(QStringLiteral("libglib2.0-0t64")));
 }
 
 TEST_CASE("M13 S5: dpkg-deb --contents includes /opt/signalforge/bin/* binaries", "[m13][s5][deb]") {

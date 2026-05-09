@@ -34,14 +34,34 @@ set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
 set(CPACK_DEBIAN_FILE_NAME "signalforge_${PROJECT_VERSION}_amd64.deb")
 
-# Dependency manifest. Per spec §2.1-1, V1.0 targets Qt 6.10 (newer
-# than Ubuntu 24.04 default Qt 6.4) — install.md documents the
-# requirement that the user installs Qt 6.10 from an external repo.
-# We list the package names users will see on Ubuntu, with version
-# constraints loose enough for the current (and near-future) Ubuntu
-# releases.
+# Dependency manifest — Ubuntu 24.04 noble runtime package names.
+#
+# yaml-cpp is **statically linked** via FetchContent
+# (`build/release/_deps/yaml-cpp-build/libyaml-cpp.a`); no runtime
+# dep needed. (The original spec §4.1 example listed
+# `libyaml-cpp-dev (>= 0.7)` which is build-time and the wrong
+# package; M13 corrects this.)
+#
+# Qt 6 runtime packages are declared at the **stock Ubuntu 24.04
+# Qt 6.4** package level — these dependencies satisfy `dpkg`'s
+# install gate. Per spec §3.1 + §1.1 of `docs/install.md`, the
+# **actual runtime** requires Qt 6.10 (newer than Ubuntu 24.04
+# stock); user installs that manually (Qt installer tarball,
+# external PPA, etc.). This dual-track is documented in
+# `install.md §1.1 Prerequisites`.
+#
+# `t64` suffix is the Ubuntu 24.04 noble convention for libraries
+# rebuilt for the 64-bit `time_t` transition. Some Qt 6 packages
+# have it (`libqt6core6t64`, `libqt6gui6t64`, ...) and some don't
+# (`libqt6qml6`, `libqt6quick6`, `libqt6quickwidgets6`,
+# `libqt6serialport6`).
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libc6 (>= 2.38), libstdc++6 (>= 13), libyaml-cpp0.8 (>= 0.7)"
+    "libqt6quickwidgets6, libqt6quick6, libqt6widgets6t64, \
+libqt6core6t64, libqt6qml6, libqt6serialport6, \
+libqt6network6t64, libqt6gui6t64, libqt6opengl6t64, libqt6dbus6t64, \
+libc6 (>= 2.38), libstdc++6 (>= 13), libgcc-s1, \
+libdbus-1-3, libfontconfig1, libfreetype6, libglib2.0-0t64, \
+libxcb1, libxkbcommon0, libgl1, libegl1, libglx0, zlib1g"
 )
 
 # Strip binary symbols for smaller package size.
