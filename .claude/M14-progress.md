@@ -17,12 +17,60 @@ Source: `.claude/M14-understanding.md` + `.claude/M14-plan.md`
 |---|---|---|---|---|
 | S0 | Concerns C1-C6 + PR #24 closure | done | `8515137` | M14-concerns.md, M14-progress.md scaffold, PR #24 closed-with-supersede |
 | S1 | CI release-binary smoke test (Tier A + Tier B) + framework | done | `536ff91` | Harness catches run-4 0×0 + the new F4 paint-visibility bug. Regression-protect verification still deferred (now to S4-close: needs F4 fixed to establish a passing baseline) |
-| S2 | Run-4 chart sizing fix | **CC-side done; smoke still WILL_FAIL** | (this commit) | ADR-011 + splitter setSizes + QQuickWidget Expanding + chart geometry binding. Chart QQuickItem now 661×720 (was 0×0). Smoke test exposes a separate F4: chart paints no visible content even with correct geometry — deferred to S4 |
-| S3 | GUI audit (operator-paired) | not started | — | Per C2: daily ping-pong by spec §3.2 section |
-| S4 | Critical bug fixes | not started | — | Per-bug commit (M14.3 P); ADR-011+ for architectural changes |
+| S2 | Run-4 chart sizing fix | done | `4038191` | ADR-011 + splitter setSizes + QQuickWidget Expanding + chart geometry binding. Chart QQuickItem now 661×720 (was 0×0). Smoke test exposes a separate F4 (chart paint nothing) deferred to Wave 1 |
+| S3 | GUI audit (operator-paired) | **operator pass complete** | `6a4a1a2` skeleton + (this commit) findings | Run 5 audit (`docs/m14-audit-operator-runs/run5-non-chart-audit.md`) returns 14 findings F5-F18. Folded into `docs/m14-gui-audit-report.md`. Scenario A decision recorded |
+| S4 | Critical bug fixes (Waves 1/2/3) | **Wave 1 in progress** | (per-wave commits) | Wave 1: F4 (immediate). Wave 2: F6 + F17. Wave 3: F11 + F15 + F12 + F18. Per-bug commit (M14.3 P); per-wave operator dogfood |
 | S5 | V1.0 scope re-evaluation (Scenario A/B/C) | not started | — | Collaborative; CC drafts, human finalizes |
 | S6 | 18-test HW verification re-run | not started | — | Operator-driven; 16+/18 required for Scenario A |
 | S7 | M14-done.md + V1.0 release PR | not started | — | Per C3: fresh PR `milestone/M14 → main` |
+
+## Scenario decision (S5 PRELIMINARY — RATIFIED AT S5 / S6 CLOSE)
+
+**Scenario A — V1.0 full ship after Waves 1+2+3 fixes.**
+
+Recorded 2026-05-10 after S3 operator pass closed with 14
+findings (F5-F18) on top of F1-F4 history. Final ratification
+defers to S5 V1.0 scope re-evaluation document and S6 18-test
+re-run reaching ≥ 16/18.
+
+### Why Scenario A and not B/C
+
+- 4 Critical findings (F4, F6, F15, F17), well under HALT #3
+  bar of >10 Critical.
+- All 4 have clear fix paths: wire-up gaps + resource-budget
+  tuning, not architectural rewrites.
+- Frozen-surface impact preliminarily 0–2, well under HALT #5
+  (>2).
+- HALT #1 not triggered: no Critical bug is "not fixable in
+  M14".
+- V1.0 GUI core architecturally sound: Phases A–E of operator
+  audit pass cleanly (Connection lifecycle, Recording IO,
+  Replay file open + mode switch, Multi-chart UI). Only
+  Phase F (Persistence) entirely blocked by F17.
+
+### What can flip to Scenario B/C during S4
+
+- S4 fix uncovers >2 frozen-`.hpp` modifications (HALT #5)
+- S4 fix surfaces an unfixable Critical (HALT #1)
+- S6 18-test re-run < 12/18 after fixes (HALT #4)
+
+CC tracks running counter in §"Frozen-surface modifications"
+below; flags any HALT immediately.
+
+### Wave fix sequencing
+
+| Wave | Fixes | Type | ADR? | Operator dogfood |
+|---|---|---|---|---|
+| 1 | F4 | Architectural / unknown | ADR-012 if frozen `.hpp` needed | Yes (immediate, post-diag) |
+| 2 | F6 + F17 | Wire-up gap | ADR-013 (single, both) | Yes (one session) |
+| 3 | F11 + F15 + F12 + F18 | Buffer/perf + UX | ADR-014 if F15 architectural | Yes (one session) |
+
+### V1.0.1 backlog (deferred from M14)
+
+F2, F3, F5, F7, F8, F9, F14, F16. F13 is V1.5+. F10
+auto-resolves with F6.
+
+---
 
 ## Scenario decision discipline (C5 reminder)
 

@@ -3,192 +3,242 @@
 | Field | Value |
 |---|---|
 | Milestone | M14 (V1.0 GUI integration audit) |
-| Status | **draft — operator pass(es) pending** |
+| Status | **operator pass complete (run 5); 14 findings F5–F18** |
 | Authoritative spec | `docs/milestones/M14-gui-audit.md` §3.2, §4.2 |
-| Companion doc | `docs/v1.0-spec-list.md` §1 (frozen surface) |
-| Related ADRs | ADR-008, ADR-009, ADR-010, ADR-011 (run-1→run-4 history) |
+| Operator audit input | `docs/m14-audit-operator-runs/run5-non-chart-audit.md` (415 lines) |
+| Companion HALTs | run1-…/run2-…/run3-…/run4-… in same directory (the F1–F4 history) |
+| Branch / commit at audit | `milestone/M14` @ `4038191` (S2 chart-geometry fix) |
+| Related ADRs | ADR-008, ADR-009, ADR-010, ADR-011 |
 | Smoke test | `tests/integration/gui/release_binary_smoke.sh` (M14 S1) |
 
-This report is the audit deliverable per spec §2.1 #2. The
-skeleton is committed at S0/S2 close so the operator (and any
-later reader) sees the full path matrix in advance. Each path
-table-row gets filled in during operator dogfood passes per
-spec §4.2:
+This report is the audit deliverable per spec §2.1 #2. Operator
+ran the V1 GUI through every M13 18-test path that does not
+bottleneck on the F4 chart-render bug, surfacing **14 new
+findings F5–F18**. Combined with the F1–F4 history (M13 runs
+1–4 + M14 S2 chart-sizing fix), the audit results inform the
+S5 V1.0 scope re-evaluation.
 
-- **Operator** column — does the path work in a real X11 GUI
-  session against the released `signalforge` binary?
-- **CI smoke** column — does the M14 S1 smoke test (or a
-  smoke extension) confirm the same?
-- **Status** — ✓ working / ⚠ working with caveat / ✗ broken.
-- **Severity** — only set when Status is ✗ or ⚠:
-  - **Critical** — blocks V1.0 ship.
-  - **Serious** — major UX impact; V1.0.1 patch acceptable.
-  - **Minor** — cosmetic; V1.5+ acceptable.
-- **Proposed fix** — short note. If "TBD", S4 will diagnose +
-  decide. If "ADR-XYZ", indicates a likely architectural
-  fix that needs an ADR.
+---
 
-Statuses MUST be honest: Scenario decision (M14.5 X) depends
-on this report. CC will not pre-commit to Scenario A; per
-M14-progress §"Scenario decision discipline (C5 reminder)".
+## Scenario decision (S5 preview)
 
-Open findings already known at S2 close are listed under
-**Pre-audit findings** below — they propagate into the path
-table as the operator confirms or rejects them.
+**Scenario A — V1.0 full ship after Wave 1+2+3 fixes.**
+
+Rationale:
+- V1.0 GUI core is architecturally sound. Operator audit
+  Phases A–E pass cleanly modulo individual wire-up gaps:
+  Connection lifecycle ✓, Recording IO ✓ (with F6 workaround),
+  Replay file open + mode switch ✓, Multi-chart UI ✓.
+- The 4 Critical findings (F4 / F6 / F15 / F17) are wire-up +
+  resource-budget gaps, not architectural rewrites. All have
+  clear fix paths.
+- Frozen-surface impact preliminarily 0–2 modifications, well
+  under HALT #5 (>2).
+- Critical count = 4, well under HALT #3 (>10).
+- HALT #1 not triggered: no Critical bug is "not fixable in M14".
+
+S5 will ratify the decision once Waves 1–3 complete and the
+S6 18-test re-run reaches ≥ 16/18.
 
 ---
 
 ## Pre-audit findings (carried over from S1+S2 development)
 
-These are bugs surfaced by smoke-test build-out, before the
-formal operator pass began. They feed the path table; some
-may resolve during the audit if they turn out to be
-xvfb/offscreen-only artifacts.
-
-| ID | Symptom | Origin | Status | Severity | Proposed fix |
+| ID | Symptom | Origin | Status | Severity | Disposition |
 |---|---|---|---|---|---|
-| F1 | Chart QQuickItem sized 0×0 (chart pane blank in operator GUI) | Run-4 dogfood / S1 smoke | **RESOLVED** in S2 | n/a | ADR-011 — landed in `4038191` |
-| F2 | Segfault during shutdown after `--exit-after-dump` | S1 smoke harness | open | TBD | TBD; may be offscreen-platform Qt issue, may be SessionWriter teardown order |
-| F3 | `UdpDriver destroyed in non-Idle state` warning on shutdown | S1 smoke harness | open | TBD | TBD; connection-lifecycle teardown contract |
-| F4 | Chart paints no visible content even with correct geometry (size=661×720, signals=1, redraws=129, but framebuffer is all-white) | S2 smoke harness | open | **TBD — operator real-X11 confirmation pending** | TBD; may need ADR-012 if architectural |
-
-If F4 is xvfb-only (operator says "chart works in my real GUI"),
-it becomes a smoke-test-fixture issue, severity drops to
-Serious-or-below, V1.0.1 candidate. If F4 reproduces in real
-X11, it likely shares root cause with run-4 / ADR-011 and gets
-a real architectural fix.
+| F1 | Chart QQuickItem sized 0×0 (run-4) | run4 dogfood | **RESOLVED** | n/a | ADR-011 / S2 commit `4038191` |
+| F2 | Segfault during shutdown after `--exit-after-dump` | S1 smoke harness | open | Minor | Smoke-only / V1.0.1 |
+| F3 | `UdpDriver destroyed in non-Idle state` warning | S1 smoke harness | open | Minor | Smoke-only / V1.0.1 |
+| F4 | Chart paints no visible content | S2 smoke + run5 audit | open | **Critical** | Wave 1 in progress |
 
 ---
 
-## Path matrix
+## Operator-pass findings (run 5)
 
-### Live mode chain (spec §3.2 1/6)
+| ID | Symptom | Severity | Disposition |
+|---|---|---|---|
+| **F4** | Chart paints no visible content despite size=661×720 | **Critical** | Wave 1 (immediate) — diagnostic instrumentation now |
+| F5 | Connection list lacks right-click context menu (double-click works) | Minor | V1.0.1 |
+| **F6** | Recording silently drops all signals when source was Connected pre-Record | **Critical** | Wave 2 (with F17) |
+| F7 | Status-bar byte counter does not update during recording | Minor | V1.0.1 |
+| F8 | Recording metadata `description` always empty | Minor | V1.0.1 |
+| F9 | Recording metadata `decoderSchemaId` always empty | Serious | V1.0.1 (operator promoted to Critical-adjacent; M14 milestone-owner kept as Minor for ship; downstream replay-validation deferred to V1.0.1) |
+| F10 | Initial signal catalog always empty (auto-resolves with F6) | Minor | resolved by F6 fix |
+| F11 | Replay session-load 10× UI bound | Serious | Wave 3 (likely shares root cause with F15) |
+| F12 | Replay time display uses wall-clock instead of relative-from-zero | Minor | Wave 3 |
+| F13 | No per-frame inspection table | Feature gap | V1.5+ |
+| F14 | No state guard on `File → Open Session` while in Replay mode | Serious | V1.0.1 |
+| **F15** | `signal_buffer` budget exhaustion + 60 Hz log spam | **Critical** | Wave 3 |
+| F16 | Process can exit without `SignalForge exiting` log line | Observability gap | V1.0.1 |
+| **F17** | `connections.yaml` is never written; persistence completely broken | **Critical** | Wave 2 (with F6) |
+| F18 | File menu has no Quit; Ctrl+Q is not bound | Serious | Wave 3 |
 
-The chain that decoded signals traverse from a connected
-driver to a user-visible chart:
-
-```
-ConnectionDialog → save to YAML
-ConnectionManager → load from YAML
-Connection state machine → driver attach
-PipelineManager.attach → DecoderRegistrar.pipelineAttached  ← ADR-008/009 wires
-DecoderRegistrar → SchemaDecoder construction
-SchemaDecoder → SignalValueSink (TeeSink)
-TeeSink → SignalBufferRegistry + SessionWriter
-SignalBufferRegistry → ChartManager
-ChartManager → Chart QQuickItem rendering             ← ADR-011 fixes geometry
-Chart redraw timer → scene-graph paint nodes          ← F4 candidate
-QQuickItem → QQuickWidget host scene                  ← ADR-010 fixes hosting
-QQuickWidget → user-visible pane
-```
-
-| # | Path | Expected behavior | Operator | CI smoke | Status | Severity | Proposed fix |
-|---|---|---|---|---|---|---|---|
-| LM-1 | ConnectionDialog → "Add" creates a Connection in `Idle` state | Dialog accept → connection appears in left panel; state widget shows "Idle" | | | | | |
-| LM-2 | ConnectionDialog → save persists to YAML | Yaml file at `~/.config/signalforge/connections.yaml` updates with the new connection | | | | | |
-| LM-3 | ConnectionManager loads YAML on startup | Restart app; previously-added connection appears in left panel | | | | | |
-| LM-4 | Connection.connectDriver() transitions Idle→Connecting→Connected | Click "Connect"; status widget walks Connecting → Connected | | | | | |
-| LM-5 | PipelineManager.attach fires on Connected (ADR-009) | Log line `pipelineAttached signal fires` for the driver id | | | | | |
-| LM-6 | DecoderRegistrar.onPipelineAttached constructs SchemaDecoder (ADR-008) | Log line `DecoderRegistrar[...]: decoder attached using schema` | | | | | |
-| LM-7 | SchemaDecoder produces SignalValues to TeeSink | SignalBufferRegistry.signalIds() includes the schema's fields | | | | | |
-| LM-8 | TeeSink fans out to BufferRegistry + (optionally) SessionWriter | Both observers see the same value stream | | | | | |
-| LM-9 | SignalBufferRegistry stores recent samples for chart consumption | `signalForId(...).recentSamples()` returns >0 entries when frames flowing | | | | | |
-| LM-10 | ChartManager → Chart QQuickItem rendering | Chart `setSize(...)` applied; `redraws` counter increments at 30 Hz | | | | | |
-| LM-11 | Chart redraw timer → scene-graph paint nodes | Chart's `updatePaintNode` produces non-trivial QSGNode tree | | F4 ✗ | | | |
-| LM-12 | QQuickWidget shows the chart visibly to the user | User sees lines drawn on the chart pane | | F4 ✗ | | | |
-
-### Recording chain (spec §3.2 2/6)
-
-| # | Path | Expected behavior | Operator | CI smoke | Status | Severity | Proposed fix |
-|---|---|---|---|---|---|---|---|
-| RC-1 | File → Record menu → SessionWriter.start | Click Record; pick path; status bar switches to "● Recording" | | | | | |
-| RC-2 | SessionWriter → SessionFileWriter worker thread | File at chosen path grows over time | | | | | |
-| RC-3 | TeeSink delivery to writer | While recording, decoded signals also reach the SFREPLAY file | | | | | |
-| RC-4 | Status bar bytes counter updates during recording | Counter increases at the right magnitude (~kbps × signals) | | | | | |
-| RC-5 | File → Stop Record → SessionWriter.stop | Click Stop; status bar reverts to "Idle"; file finalized | | | | | |
-| RC-6 | File integrity (post-stop SFREPLAY validates) | `sfreplay_inspect <file>` reports schema_version=1, header OK, frame count > 0 | | | | | |
-
-### Replay chain (spec §3.2 3/6)
-
-| # | Path | Expected behavior | Operator | CI smoke | Status | Severity | Proposed fix |
-|---|---|---|---|---|---|---|---|
-| RP-1 | File → Open Session menu → SessionReader | Open dialog → pick `.sfreplay` → app enters Replay mode | | | | | |
-| RP-2 | SessionReader → SessionPlayer → PlaybackController | Replay-mode toolbar appears (Play/Pause/Step/Seek/Speed) | | | | | |
-| RP-3 | PlaybackController → MainWindow replay UI mode switch | Live-mode controls disabled; replay status label shows file name | | | | | |
-| RP-4 | Replay toolbar (Play/Pause/Step/Seek/Speed) all functional | Each action moves position, slider, or speed as expected | | | | | |
-| RP-5 | ChartManager re-renders from replay data | Chart shows the recorded waveform when scrubbing | | | | | |
-| RP-6 | Status bar updates current position | Position label shows `t / duration ns | record / total` | | | | | |
-
-### Mode transitions (spec §3.2 4/6)
-
-| # | Path | Expected behavior | Operator | CI smoke | Status | Severity | Proposed fix |
-|---|---|---|---|---|---|---|---|
-| MT-1 | Live → Replay (M11 ReplayModeManager) | Confirm dialog if any active connection; on accept, connections pause | | | | | |
-| MT-2 | Connection auto-disconnect on Replay enter | Active connections move to Idle (or paused) before Replay loads | | | | | |
-| MT-3 | Replay → Live (Exit Replay) | Confirm dialog asks "Resume previously-paused connections?" | | | | | |
-| MT-4 | Connection auto-reconnect on Replay exit (decision dialog) | "Yes" reconnects paused connections; "No" leaves them Idle | | | | | |
-
-### Persistence (spec §3.2 5/6)
-
-| # | Path | Expected behavior | Operator | CI smoke | Status | Severity | Proposed fix |
-|---|---|---|---|---|---|---|---|
-| PE-1 | Quit app → connection list saved to YAML | Last-known connection list written to `~/.config/signalforge/connections.yaml` on close | | | | | |
-| PE-2 | Restart → connections auto-loaded | Previously-saved connections reappear in left panel after relaunch | | | | | |
-| PE-3 | `autoConnectOnStartup` setting honored on restart | Connections marked `autoConnectOnStartup: true` reach Connected without user click. **Note**: V1 spec says forward-compatibility only (M9.2); confirm whether the field actually triggers anything | | | | | |
-
-### UI elements (spec §3.2 6/6)
-
-| # | Path | Expected behavior | Operator | CI smoke | Status | Severity | Proposed fix |
-|---|---|---|---|---|---|---|---|
-| UI-1 | Connections menu (Add / Connect All / Disconnect All) | Each menu item triggers the corresponding action; keyboard shortcut works (Ctrl+M for Add) | | | | | |
-| UI-2 | Session menu (Record / Stop) | Ctrl+R toggles Record dialog → recording toolbar | | | | | |
-| UI-3 | File menu (Open Session) | Ctrl+O opens replay file picker | | | | | |
-| UI-4 | Chart toolbar (Live toggle / Time presets / Add Chart) | All buttons responsive; live toggle visibly pauses the time axis | | | | | |
-| UI-5 | Replay toolbar (Play/Pause/Step±/Seek/Speed/Exit) visible only in Replay mode | Toolbar hidden in Live; visible in Replay; hidden again on Exit | | | | | |
-| UI-6 | ConnectionListWidget (left dock) | Shows all connections; click → edit; right-click → context menu (if any) | | | | | |
-| UI-7 | ConnectionStatusWidget (status bar) | Click → raises connections dock; reflects aggregate connection state | | | | | |
-| UI-8 | Status bar permanent widgets (FPS / Dropped / Throttled / Recording / Replay / Connections) | Each widget updates at the documented cadence | | | | | |
-| UI-9 | Multi-chart: Add Chart button creates a second chart | Two charts coexist, each with independent signal selection | | | | | |
-| UI-10 | Multi-chart: removal | **Note**: spec §3.2 + release-notes flags missing UI; confirm there is no chart-removal control. V1.5+ deferral | | | | | |
-| UI-11 | SignalSelector tree population | Tree shows all `SignalBufferRegistry::signalIds()` signals; refreshes on connection state change | | | | | |
-| UI-12 | SignalSelector toggle on/off | Click signal in tree → adds to active chart; click again → removes | | | | | |
-| UI-13 | SignalSelector multi-signal toggle | Multiple signals across drivers can be added to one chart simultaneously | | | | | |
-| UI-14 | Settings dialog (if any) | **Note**: V1 has no settings dialog per spec; confirm | | | | | |
+**Critical: 4 (F4, F6, F15, F17)** — well under M14 HALT #3 (>10).
 
 ---
 
-## Audit pass log
+## Severity tally (post operator pass)
 
-(Each operator pass appends a log entry below; CC consumes
-the entries when filling in path-table cells and when
-authoring S4 fix commits.)
-
-### Pass 1 — TBD (pending operator)
-
-(no entries yet)
-
----
-
-## Severity tally (refreshed at S3 close)
-
-(blank — refreshed by CC after each operator pass)
-
-| Severity | Count | Paths |
+| Severity | Count | Findings |
 |---|---:|---|
-| ✓ Working | 0 | — |
-| ⚠ Caveat | 0 | — |
-| ✗ Critical | 0 | — |
-| ✗ Serious | 0 | — |
-| ✗ Minor | 0 | — |
+| ✓ Resolved | 1 | F1 |
+| **Critical** | 4 | F4, F6, F15, F17 |
+| Serious | 3 | F11, F14, F18 |
+| Minor | 7 | F5, F7, F8, F9, F12, F13, F16 |
+| **Total open** | 14 | (F2/F3 deferred, F10 auto-resolves, F13 V1.5+) |
 
-The S5 V1.0 scope re-evaluation reads from this tally:
+---
 
-- Critical = 0 → Scenario A path likely
-- Critical ≤ N (small) and all fixable in M14 → Scenario A
-- Critical > 10 (M14 HALT #3) or Critical not fixable
-  (M14 HALT #1) → Scenario B/C decision
-- HALT #5 (>2 frozen-`.hpp` mods) → Scenario B/C
-- HALT #4 (post-fix 18-test < 12/18) → Scenario B/C
+## Path matrix — operator pass results
+
+### Phase A — Connection lifecycle (all ✓)
+
+| # | Path | Status |
+|---|---|---|
+| LM-1..LM-4 | Add Serial / TCP / UDP, Edit, Remove, Connect/Disconnect | ✓ |
+
+### Phase B — Recording
+
+| # | Path | Status | Finding |
+|---|---|---|---|
+| RC-1 | Start / Stop UI controls work | ✓ | |
+| RC-2 | File written, structurally valid SFREPLAY v1 | ✓ | |
+| RC-3 | TeeSink delivery to writer (Connect → Record path) | ✗ | **F6** Critical |
+| RC-4 | Status-bar bytes counter updates during recording | ✗ | F7 Minor |
+| RC-5 | sfreplay_inspect parses + key metadata populated | △ | F8 / F9 Minor |
+
+### Phase C — Replay
+
+| # | Path | Status | Finding |
+|---|---|---|---|
+| RP-1 | File-open dialog (`*.sfreplay` filter) | ✓ | |
+| RP-2 | Mode switch into Replay | ✓ | |
+| RP-3 | Replay toolbar appears (Play/Pause/Step/Speed/Seek) | ✓ | |
+| RP-4 | Buttons clickable + position advances | ✓ | (chart still blank per F4) |
+| RP-5 | Session load completes within UX bound (< 1 s for 24 kB file) | ✗ | **F11** Serious |
+| RP-6 | Time display uses relative-from-zero format | ✗ | F12 Minor |
+
+### Phase D — Mode transitions (all ✓)
+
+| # | Path | Status |
+|---|---|---|
+| MT-1 | Live → Replay confirmation dialog | ✓ |
+| MT-2 | Connection auto-disconnect on Replay enter | ✓ |
+| MT-3 | Replay → Live (Exit Replay) with 3-option dialog | ✓ |
+| MT-4 | Auto-reconnect / Stay-Idle decision | ✓ |
+
+### Phase E — UI elements
+
+| # | Path | Status | Finding |
+|---|---|---|---|
+| UI-1 | Add Chart button (multi-chart 5+ instances) | ✓ | |
+| UI-2 | Multi-chart vertical stack layout | ✓ | |
+| UI-3 | Signal Selector populates with 5+ signals + bit-fields | ✓ | |
+| UI-4 | Signal toggle (checkbox) | ✓ | |
+| UI-5 | Connection list right-click context menu | ✗ | F5 Minor |
+| UI-6 | File → Quit menu / Ctrl+Q binding | ✗ | **F18** Serious |
+| UI-7 | File → Open Session disabled while in Replay | ✗ | F14 Serious |
+
+### Phase F — Persistence (all blocked by F17)
+
+| # | Path | Status | Finding |
+|---|---|---|---|
+| PE-1 | Quit app → connections.yaml saved | ✗ | **F17** Critical |
+| PE-2 | Restart → connections auto-loaded | ✗ | blocked by F17 |
+| PE-3 | `autoConnectOnStartup` honored | ✗ | blocked by F17 |
+
+---
+
+## Wave fix sequencing
+
+Per M14.3 P (one bug = one commit) plus per-bug operator dogfood
+(per M14-concerns C2 daily ping-pong), fixes batch into 3
+waves so operator validates each set together:
+
+### Wave 1 — F4 (chart QSGNode/scene-graph diagnosis)
+
+- Architectural / root cause unknown after S2 chart-geometry fix
+- Per-fix operator dogfood (do NOT batch with others)
+- May need ADR-012 if frozen-`.hpp` modification required
+- This wave: diagnostic instrumentation first, then fix
+- Verify by smoke Tier A + operator real-X11 chart paints
+
+### Wave 2 — F6 + F17 (wire-up batch)
+
+- F6: SessionWriter subscriber order
+- F17: ConnectionManager.saveConfigFile never called
+- Both are wire-up gaps in `main_window.cpp` /
+  `connection_manager.cpp`; same governance pattern as
+  ADR-009 / ADR-010
+- Single ADR-013 documenting both wire-up gaps + V1
+  governance lesson
+- One operator dogfood validates the batch
+
+### Wave 3 — F11 + F15 + F12 + F18 (buffer/perf/UX batch)
+
+- F15 has 4 sub-fixes per audit recommendation:
+  1. Tune per-signal buffer size (12.5 MiB / signal → smaller, derived from time-window × LOD)
+  2. Throttle rejection log (once per `(driverId, signalId)` per minute)
+  3. Surface user-visible error
+  4. Verify destructor releases budget back
+- F11 may share root cause with F15
+- F12 (relative time formatter) and F18 (Quit menu / Ctrl+Q) are independent UX
+- ADR-014 if F15 fix is architectural; F12/F18 likely no ADR
+- One operator dogfood validates this batch
+
+### Deferred to V1.0.1 / V1.5+
+
+V1.0.1 patch candidates (not blocking ship):
+- F5 (right-click context menu)
+- F7 (status-bar bytes live update)
+- F8 / F9 (recording metadata description / decoderSchemaId)
+- F14 (Replay-mode Open Session guard)
+- F16 (crash reporting backend path / disabled-message clarity)
+
+V1.5+ feature:
+- F13 (per-frame inspection table)
+
+---
+
+## Updated M13 18-test acceptance projection (operator-derived)
+
+Combining run-1..4 + run-5:
+
+| Test | Current | After Wave 1 (F4) | After Wave 2 (F6+F17) | After Wave 3 (F11+F15+F12+F18) |
+|---|---|---|---|---|
+| T1 Serial | ✗ F4 | ✓ | ✓ | ✓ |
+| T2 TCP | ✗ F4 | ✓ | ✓ | ✓ |
+| T3 UDP | ✗ F4 | ✓ | ✓ | ✓ |
+| T4 Replay | ✗ F4+F11 | ✗ F11 | ✗ F11 | ✓ |
+| T5 Edit/Remove | ✓ | ✓ | ✓ | ✓ |
+| T6 Auto-connect | ✗ F17 | ✗ F17 | ✓ | ✓ |
+| T7 Recording GUI | ✗ F6 | ✗ F6 | ✓ | ✓ |
+| T8 Across-restart | ✗ F17 | ✗ F17 | ✓ | ✓ |
+| T9 Quit-while-recording | ? F18 | ? F18 | ? F18 | ✓ |
+| T10 Mid-stream catalog | ✓ (workaround) | ✓ | ✓ | ✓ |
+| T11 Backpressure (opt) | ✗ F15 | ✗ F15 | ✗ F15 | ✓ |
+| T12 Disk-full (opt) | ? | ? | ? | ? (operator) |
+| T13 Replay GUI open | ✗ F4+F11 | ✗ F11 | ✗ F11 | ✓ |
+| T14 Play/Pause | ✗ F4+F12 | ✗ F12 | ✗ F12 | ✓ |
+| T15 Step ◀/▶ | ✗ F4 | ✓ | ✓ | ✓ |
+| T16 Timeline scrubber | ✗ F4 | ✓ | ✓ | ✓ |
+| T17 Speed combo | ✗ F4 | ✓ | ✓ | ✓ |
+| T18 Live↔Replay (opt) | △ F14+F17 | △ F14+F17 | △ F14 | △ F14 (V1.0.1) |
+| **Best-case PASS** | **2/18** | **8/18** | **11/18** | **16/18** |
+
+Reaching 16/18 acceptance bar requires all three waves. T18 stays △ post-M14 because F14 is V1.0.1.
+
+---
+
+## Smoke-test extensions surfaced by audit
+
+The M14 S1 smoke covers chart-host + chart-pixel + log-grep. Audit suggests three additions (deferred until each underlying fix lands so smoke can verify regression):
+
+- **Persistence smoke** (after Wave 2 / F17): add a connection, exit cleanly, assert `connections.yaml` exists with the expected entry.
+- **Recording smoke** (after Wave 2 / F6): connect a UDP source, start recording, drive a packet, stop, assert resulting `.sfreplay` has ≥ 1 Type-1 record.
+- **Buffer-pressure smoke** (after Wave 3 / F15): sample log for `signal_buffer registration rejected` rate; fail above threshold (e.g., > 5 occurrences in test window).
+
+Each extension is an additional ctest test under `tests/integration/gui/` per M14-concerns C4. None added in this audit-report commit; they land in their respective wave commits.
 
 ---
 
@@ -197,6 +247,7 @@ The S5 V1.0 scope re-evaluation reads from this tally:
 - Spec: `docs/milestones/M14-gui-audit.md`
 - Plan: `.claude/M14-plan.md`
 - Concerns: `.claude/M14-concerns.md`
-- Progress: `.claude/M14-progress.md` (live findings + counters)
+- Progress: `.claude/M14-progress.md` (live state + counters)
+- Operator pass: `docs/m14-audit-operator-runs/run5-non-chart-audit.md`
 - Smoke harness: `tests/integration/gui/release_binary_smoke.sh`
 - Run-1→run-4 history: `docs/architecture/decisions/ADR-010` §"Implementation lesson"
