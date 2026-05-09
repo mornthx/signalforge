@@ -402,4 +402,15 @@ target_compile_definitions(test_m13_deb_package
     PRIVATE
         SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
 )
-catch_discover_tests(test_m13_deb_package DISCOVERY_MODE PRE_TEST)
+# M13 S5: this test requires the .deb to be pre-built via
+# `cmake --build <build> --target package`. CI does not run
+# the package target by default, so SKIP-mode invocations
+# would return Catch2 v3.5+ exit code 4 (interpreted by ctest
+# as failure). The catch_discover_tests call below sets
+# SKIP_RETURN_CODE=4 so SKIPs are reported as "Skipped" rather
+# than "Failed". Operators who built the .deb locally see
+# all 8 cases pass.
+catch_discover_tests(test_m13_deb_package
+    DISCOVERY_MODE PRE_TEST
+    PROPERTIES SKIP_RETURN_CODE 4
+)
