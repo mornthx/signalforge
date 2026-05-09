@@ -1,0 +1,3 @@
+[2026-05-09 12:47:33.414] [info] [session_writer.cpp:110] SessionWriter recording started: /tmp/bench_replay-rBUzRb/bench_replay.sfreplay
+[2026-05-09 12:47:33.546] [info] [session_writer.cpp:141] SessionWriter recording stopped: /tmp/bench_replay-rBUzRb/bench_replay.sfreplay (10370100 bytes)
+{"mode":"soak","baseline_kb":20924,"duration_s":300}

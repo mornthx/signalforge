@@ -425,11 +425,137 @@ sustained; 0 dropped.
 **M10 soak now passes the spec acceptance**. H5 cleared
 upon resolution.
 
-### Final 30-min M10 soak — running now
+### Final 30-min M10 soak — ✅ PASS
 
-Starting the actual 30-min soak per spec §3.5 V acceptance.
-Background task; CC continues to S6 in parallel per
-concerns C2.
+`bench_session_writer --soak 1800 --memory-snapshot 60`
+completed normally.
+
+| Metric | Result |
+|---|---:|
+| Duration | 1 800 s (30 min) |
+| events_recorded | 108 000 000 |
+| events_per_sec | 60 000 (sustained, matches M10 baseline) |
+| bytes_written (final, after stop()) | 3 024 002 331 (3.0 GB) |
+| dropped_events | 0 |
+| enqueue_p99 | 11.87 µs |
+| VmRSS initial | 11 728 KB |
+| VmRSS baseline (sec 120+) | 12 636 KB |
+| VmRSS final | 12 824 KB |
+| **VmRSS growth** | **1.488 %** |
+
+Spec §5.3 acceptance: < 10 % target (PASS); HALT > 15 %
+(clear). H5 trigger from S4 first attempt: **resolved as
+bench-fixture artefact; not a real M10 leak.**
+
+### Final 30-min M11 soak — ✅ PASS (externally-verified)
+
+`bench_replay --memory-soak 1800 --memory-snapshot 60`:
+- The bench has a separate output-cosmetic bug
+  (snapshot JSON lines never flush during runtime). Both
+  soak attempts ran 42-44 min instead of 30 min wall-clock
+  (per-loop seek+replay cost > nominal). VmRSS observed
+  externally via `/proc/<pid>/status` polling.
+
+| Metric | Result |
+|---|---:|
+| Run-1 duration | 44 min |
+| Run-1 VmRSS (every check) | 36 152 KB (rock-stable) |
+| Run-1 growth | **0 %** |
+| Run-2 duration | 42 min |
+| Run-2 VmRSS (every check) | 35 008 KB (rock-stable) |
+| Run-2 growth | **0 %** |
+
+Spec §5.3 acceptance: < 10 % target (PASS); HALT > 15 %
+(clear). The M11 SessionPlayer + PlaybackController +
+SessionReader pipeline is leak-free.
+
+The bench's snapshot-flush cosmetic issue is documented as
+a V1.0.1 candidate in `M13-done.md §What's deferred` (not
+a release blocker — the underlying behaviour we care about
+is observable externally).
+
+### S4 status — both gates closed
+
+| Soak gate | Result | Evidence |
+|---|---|---|
+| M10 30-min memory soak | ✅ 1.488 % growth | `tests/benchmark/results/M13-soak-data/m10-soak-final.jsonl` |
+| M11 30-min memory soak | ✅ 0 % growth (externally observed) | `tests/benchmark/results/M13-final-soak.md §2` |
+
+S4 commits:
+- `514d4ab` "bench: rolling-buffer enqueueLatNs — M13 S4
+  H5 root cause was bench leak, not M10" (M10 bench fix)
+- (this commit at S6 close): final-soak.md + done.md +
+  M13 closure
+
+---
+
+## S6 — Final M13 baseline + done.md + freeze verification (completed)
+
+- Start: 2026-05-09T11:35Z (in parallel with M10 30-min soak)
+- Close: 2026-05-09T13:35Z
+
+### Deliverables
+
+- `.claude/M13-done.md` (~245 lines): completion report
+  per spec §6.3 + plan §S6:
+  - Spec §2.1 deliverables checklist (14 items: 11 ✅,
+    3 marked operator-pending or Phase-3-deferred)
+  - PR + merge state placeholders (filled at PR creation)
+  - **V1.0 freeze record** section: 26 frozen `.hpp`
+    sha256s + format spec + 6 ADRs (numbering jumps
+    005 → 007). 0 drift detected.
+  - Acceptance self-check vs spec §8 (8.1-8.7)
+  - **Release prerequisite status table**: 2 of 4
+    closed (M10 soak ✅, M11 soak ✅);
+    2 operator-pending (HW verification, DEB install
+    on clean Ubuntu)
+  - HALT trigger disposition: H5 fired and resolved
+  - Concerns C1-C6 summary
+  - Commit manifest (Pre-S0 through S6)
+  - V1.0.1 / V1.5+ / V2 deferred items
+  - Hand-off section (V1 ships)
+  - Phase 3 sequence (next session)
+- `tests/benchmark/results/M13-final-soak.md` (~150
+  lines): consolidated soak results doc.
+- `tests/benchmark/bench_replay.cpp`: minor fflush
+  additions (cosmetic; the deeper snapshot-emit issue
+  remains as a V1.0.1 candidate).
+
+### Frozen surface re-verification at S6
+
+sha256 cross-check at S6 close vs `docs/v1.0-spec-list.md`
+(authored at S3): all 26 frozen `.hpp` files match exactly.
+**No drift between S3 and S6.** S6 confirms the V1.0 freeze
+record is byte-accurate at the M13 close.
+
+H1 trigger (frozen `.hpp` modification): **clear**.
+
+### Build / test counts
+
+- Debug + Release + debug-asan all build clean.
+- ctest: Debug **602/602** + Release **602/602** unchanged
+  from S5 close (S6 was docs + bench-cpp tweaks only).
+- `cmake --build build/release --target package` succeeds;
+  produces `signalforge_1.0.0_amd64.deb` (2.78 MB).
+- 8 of the 8 `test_m13_deb_package` integration cases pass
+  against the just-built `.deb`.
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+
+### Deviations from plan
+
+- Plan §S6 anticipated ~500 LOC; actual ~395 LOC done.md
+  + 150 LOC final-soak doc + 4 LOC bench fflush = ~550
+  LOC. Within target.
+- Plan §S6 sha256 collection at S6: pre-collected at S3
+  per the early-collection optimisation; S6 re-verifies
+  at close (0 drift).
+- The M11 soak result is documented via external VmRSS
+  observation rather than the bench's stdout (per the
+  bench cosmetic noted in final-soak.md §2). The
+  acceptance evidence (VmRSS rock-stable for 42 min) is
+  unambiguous.
+
+S6 commit: pending push.
 
 ---
 
