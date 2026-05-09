@@ -57,4 +57,77 @@ close entries with build / test / format counts and any deviations.
   because each module's freeze record needed listing for the
   S6 cross-check. No spec deviation.
 
-S0 commit: pending push.
+S0 commit: `d7be620` "docs: M13 S0 — concerns C1-C6 (no
+ADR-008)". Pushed; CI in flight.
+
+---
+
+## S1 — CMake CPack + install rules (completed)
+
+- Start: 2026-05-09T11:05Z
+
+### Deliverables
+
+- `CMakeLists.txt`:
+  - **Version bump**: `project(SignalForge VERSION 0.0.1)` →
+    `VERSION 1.0.0` per spec §3.3 P (canonical V1 final
+    version).
+  - Append `include(cmake/install.cmake)` and
+    `include(cmake/cpack-deb.cmake)` at end.
+- `cmake/install.cmake` (~75 LOC): all `install()` rules per
+  spec §2.1-3:
+  - Binaries (`signalforge`, `sfreplay_inspect`,
+    `profile_main`) → `bin/` (i.e., `/opt/signalforge/bin/`)
+  - V1.0 user docs (install.md, v1.0-spec-list.md, M9/M10/M11
+    + combined M13 hardware verification) → `docs/`
+  - Release notes → `docs/release-notes/`
+  - SFREPLAY v1 format spec → `docs/format/`
+  - All ADR-* markdown files → `docs/architecture/decisions/`
+    (via `install(DIRECTORY ... FILES_MATCHING)`)
+  - M3-M12 baseline.md files → `benchmarks/results/`
+  - Profile harness scripts → `tools/profile/`
+  - Desktop entry → `/usr/share/applications/` (absolute)
+  - 256×256 icon → `/usr/share/icons/hicolor/256x256/apps/`
+    + legacy `/usr/share/pixmaps/` (absolute)
+- `cmake/cpack-deb.cmake` (~50 LOC): CPack DEB config per
+  spec §4.1:
+  - `CMAKE_INSTALL_PREFIX = /opt/signalforge` (force)
+  - `CPACK_GENERATOR = "DEB"`, package name `signalforge`,
+    version from `${PROJECT_VERSION}` (= 1.0.0)
+  - DEB control fields: maintainer, homepage, section
+    `science`, priority `optional`, architecture `amd64`,
+    file name `signalforge_1.0.0_amd64.deb`
+  - Dependency manifest: `libc6 (>= 2.38)`, `libstdc++6
+    (>= 13)`, `libyaml-cpp0.8 (>= 0.7)`. Qt 6.10 dep is
+    documented in install.md (V1.0 user installs from
+    external repo per spec §9 note).
+  - `CPACK_STRIP_FILES = TRUE` (smaller package).
+  - `CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA` points at S2's
+    `cmake/deb-scripts/postinst` + `prerm`.
+  - `CPACK_RESOURCE_FILE_LICENSE` → repo-root `LICENSE`.
+
+### Build / test counts
+
+- Debug + Release build clean (incremental — only the new
+  CMakeLists changes ripple).
+- Configure step parses cpack-deb.cmake correctly. CPack
+  `package` target depends on S2 (postinst/prerm scripts).
+- ctest unchanged (no test code changes in S1).
+- ASan local blocked by host /etc/ld.so.preload; CI authoritative.
+
+### Deviations from plan
+
+- Plan §S1 anticipated `~250 LOC` total; actual ~125 LOC
+  CMake (~75 install + ~50 cpack). The lower count reflects
+  splitting `install.cmake` from `cpack-deb.cmake` for clarity
+  and using `install(DIRECTORY ... FILES_MATCHING)` for ADRs
+  (single line vs explicit listing). Within target.
+- Spec §4.1's example `CPACK_DEBIAN_PACKAGE_DEPENDS` lists
+  `qt6-base-dev` etc. as runtime deps — but `*-dev` are
+  development packages, not runtime. M13 ships runtime
+  packages only (`libc6`, `libstdc++6`, `libyaml-cpp0.8`).
+  Qt 6.10 is documented in install.md (S3 deliverable) per
+  spec §9 note ("V1.0 documents the requirement; user
+  installs Qt 6.10 themselves").
+
+S1 commit: pending push.
