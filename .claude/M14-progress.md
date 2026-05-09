@@ -229,6 +229,64 @@ S4 fix priority will be assigned during the S3 audit pass.
   Until S3 confirms, S1 smoke remains `WILL_FAIL TRUE` and
   CC does NOT attempt a fix.
 
+  ### Wave 1 diagnostic findings (post-instrumentation, 2026-05-10)
+
+  CC added a `SF_F4_DIAG=1` env-var-gated diagnostic block to
+  `Chart::updatePaintNode` (chart.cpp; chart.hpp NOT modified
+  per ADR-011 frozen-surface discipline):
+
+  - Logs paint-pass state: `w h signals parentItem
+    parentVisible hasContents oldNode childCount`
+  - Appends a bright orange `QSGSimpleRectNode` (60×60 @
+    (10,10)) to the QSG root each pass — the canonical "is
+    the scene graph alive" probe
+
+  Local smoke run with `SF_F4_DIAG=1`:
+
+  ```
+  Chart::updatePaintNode[diag]: w=661 h=720 signals=1
+    parentItem=ok parentVisible=true hasContents=true
+    oldNode=reuse childCount=3
+  M14_SMOKE_TIER_A: non_white_pixels=3600 total_pixels=475920
+    width=661 height=720
+  ```
+
+  3600 = 60×60 = the orange rect. **The diag rect renders.**
+
+  Implications:
+
+  - Scene-graph submission path is alive — rules out the
+    "F4 architectural / scene-graph broken" hypothesis.
+  - Framebuffer capture path is alive — rules out the earlier
+    "QQuickWidget framebuffer broken" hypothesis.
+  - QSG node tree on the chart's root has 3 children:
+    cursor + diag-rect + 1 signal node — so `addSignal` →
+    `signalNodes` population works.
+  - **F4 root cause is in the chart-specific paint of the
+    signal node**: vertex generation produces zero output
+    OR vertices land outside the framebuffer.
+
+  Most likely sub-hypothesis (per §F4 forensic notes
+  F4-A / F4-B / F4-C above):
+
+  - F4-A — timestamp domain mismatch in smoke fixture (samples
+    are at `host_now ≠ device-monotonic`, so `queryRange`
+    returns empty → `latestSamples[id]` is empty → geometry
+    allocates 0 vertices)
+  - F4-B / F4-C — schema decoder OR chart time-axis policy
+
+  Operator real-X11 dogfood now narrows the disambiguation:
+
+  - If real hardware (whose decoded `timestamp_ms` may equal
+    `host_now`) renders → F4-A confirmed; smoke fixture fix
+    is sufficient
+  - If real hardware also blank → F4-B or F4-C; production
+    fix needed
+
+  Until operator returns, S4 Wave 1 PAUSES. The diagnostic
+  instrumentation lands on `milestone/M14` so the operator's
+  test session can use `SF_F4_DIAG=1` to confirm.
+
 ## S1 deliverable evidence
 
 Harness output against `milestone/M14` HEAD `aae2f4b` (= run-4 unfixed):

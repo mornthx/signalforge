@@ -12,16 +12,22 @@
 
 #include "buffer/signal_buffer.hpp"
 #include "decode/decoder_interface.hpp"
+#include "observability/logging.hpp"
 
+#include <QByteArray>
+#include <QColor>
 #include <QMouseEvent>
 #include <QPoint>
+#include <QRectF>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometry>
 #include <QSGGeometryNode>
 #include <QSGNode>
+#include <QSGSimpleRectNode>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -123,6 +129,17 @@ struct Chart::Impl {
     QSGGeometryNode* cursorNode = nullptr;
     double lastCursorX = -1.0;
     bool cursorYAlternate = false;
+
+    /// M14 Wave 1 F4 diagnostic node. Activated when the env var
+    /// `SF_F4_DIAG` is set at process launch. Paints a bright orange
+    /// rectangle in the chart's top-left corner to verify the QML
+    /// scene-graph submission path itself is alive — independent of
+    /// the chart's per-signal geometry nodes. If the rect renders
+    /// but the chart line does not, F4 is in the chart-specific
+    /// paint path. If neither renders, F4 is in scene-graph
+    /// submission. Kept off-by-default so production paint is
+    /// unchanged.
+    QSGSimpleRectNode* diagRectNode = nullptr;
 
     /// Last `onTick` wall time (steady_clock). Used to compute
     /// per-frame interval for the dropped-frame metric.
@@ -350,6 +367,17 @@ void Chart::onTick() {
 QSGNode* Chart::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* /*data*/) {
     auto* root = oldNode != nullptr ? oldNode : new QSGNode;
 
+    // M14 Wave 1 F4 diagnostic. Triggered by env var `SF_F4_DIAG=1`
+    // at process launch. Off by default; production paint unchanged.
+    static const bool diagF4 = std::getenv("SF_F4_DIAG") != nullptr;
+    if (diagF4) {
+        SF_LOG_INFO("Chart::updatePaintNode[diag]: w={} h={} signals={} parentItem={} "
+                    "parentVisible={} hasContents={} oldNode={} childCount={}",
+                    width(), height(), config_.signalConfigs.size(), parentItem() != nullptr ? "ok" : "null",
+                    parentItem() != nullptr ? parentItem()->isVisible() : false, flags().testFlag(ItemHasContents),
+                    oldNode != nullptr ? "reuse" : "new", root->childCount());
+    }
+
     // Tear down nodes for removed / hidden / mode-changed signals.
     for (const auto& id : impl_->pendingRemovals) {
         auto it = impl_->signalNodes.find(id);
@@ -458,6 +486,30 @@ QSGNode* Chart::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* /*data*/)
         v[0].set(xPx, y0);
         v[1].set(xPx, static_cast<float>(h));
         impl_->cursorNode->markDirty(QSGNode::DirtyGeometry);
+    }
+
+    // M14 Wave 1 F4 diagnostic test rect. Paints a bright orange
+    // 60×60 px square at (10,10) every paint pass when SF_F4_DIAG=1.
+    // Independent of any signal data or schema decoder state — if
+    // this renders, the QML scene-graph submission path is alive
+    // and F4 is in the chart-specific paint or data path. If it
+    // does NOT render, F4 is in the scene-graph submission path
+    // (chart QSGNode tree never reaches the QQuickWindow render
+    // pass).
+    if (diagF4) {
+        if (impl_->diagRectNode == nullptr) {
+            impl_->diagRectNode = new QSGSimpleRectNode(QRectF(10.0, 10.0, 60.0, 60.0), QColor(255, 100, 0));
+            root->appendChildNode(impl_->diagRectNode);
+            SF_LOG_INFO("Chart::updatePaintNode[diag]: appended QSGSimpleRectNode (orange 60×60 @ "
+                        "(10,10)); root childCount now={}",
+                        root->childCount());
+        } else {
+            // Re-set the rect each tick so dirty bit propagates and
+            // RHI doesn't coalesce the test node away.
+            impl_->diagRectNode->setRect(QRectF(10.0, 10.0, 60.0, 60.0));
+            impl_->diagRectNode->setColor(QColor(255, 100, 0));
+        }
+        SF_LOG_INFO("Chart::updatePaintNode[diag]: end of pass; root childCount={}", root->childCount());
     }
 
     return root;
