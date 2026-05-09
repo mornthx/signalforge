@@ -339,3 +339,86 @@ For the operator + CC's Phase 3 reference:
       `gh release create v1.0.0` with `.deb` artefact
 
 After the Release is published, **V1.0 is live**.
+
+---
+
+## M13 not release-ready — escalating to M14 (2026-05-09)
+
+After 4 operator dogfood runs through 18-test HW verification,
+V1.0 GUI integration revealed systemic gaps that cannot be
+fixed by patch-by-patch ADRs. Each fix uncovered the next
+layer:
+
+| Run | Symptom | Fix | Status |
+|---|---|---|---|
+| 1 | No signals decoded (live mode) | ADR-008 + ADR-009 (S7) | ✅ shipped on `milestone/M13` |
+| 2 | Chart blank, QQuickWidget orphan | ADR-010 host scene (S8) | ✅ shipped on `milestone/M13` |
+| 3 | qrc stripped from release binary | ADR-010 alias + Q_INIT_RESOURCE (S8.1 + S8.2) | ✅ shipped on `milestone/M13` |
+| 4 | Chart sized 0×0 (rendered but invisible) | (deferred to M14) | ❌ open |
+
+The pattern is consistent: each run caught a different layer
+of the same C++ → QML hand-off chain that no per-module unit
+test exercised end-to-end. Patch-by-patch on `milestone/M13`
+risks runs 5/6/7+ catching more layers.
+
+### Decision
+
+M14 is a dedicated milestone for V1 GUI integration audit +
+CI smoke-test infrastructure:
+
+1. Build CI release-binary smoke test (catches static-archive
+   linker-drop + sizing + rendering bugs in CI, not in an
+   operator session). Headless `Q_QPA_PLATFORM=offscreen` +
+   UDP test fixture + chart pixel-difference assertion.
+2. Fix the run-4 chart sizing bug.
+3. Audit ALL V1 GUI integration paths (connections / recording
+   / replay / mode transitions / persistence / multi-chart /
+   signal selector / status bar).
+4. Fix all bugs found in the audit (one ADR per architectural
+   change).
+5. Operator re-runs 18-test full HW verification.
+6. M14-done.md + V1.0 release prerequisites all met.
+
+### M13 closure
+
+- `milestone/M13` PR #24 stays **OPEN**, not merged.
+- M14 spec writes against `milestone/M13` HEAD (`aa100c9`) as
+  base; M14 work happens on a new `milestone/M14` branch
+  branched from `milestone/M13`.
+- After M14 closes, `milestone/M13` and `milestone/M14` merge
+  together as the V1.0 release.
+- v1.0.0 tag delayed until M14 closure.
+
+### Revised timeline
+
+| Phase | Estimate |
+|---|---|
+| Today | M14 escalation acknowledged; PR #24 stays open |
+| +1 day | Human authors M14 spec (5 design decisions) |
+| +1 day | CC produces M14 understanding + plan |
+| +3-5 days | M14 implementation (CI smoke + sizing fix + audit + bug fixes) |
+| +1 day | Operator 18-test full run |
+| +1 day | Phase 2/3 + V1.0 ship |
+| **Total** | **~7-10 calendar days from today** |
+
+vs. 1-2 days had patches kept working. The CI smoke test
+built in M14 S1 protects all future GUI integration work from
+re-falling into the same governance pattern.
+
+### V1.0 governance lessons (consolidated, M13 → M14)
+
+1. M2-M12 frozen-surface protocol held: 0 unauthorised
+   modifications; all post-freeze additive APIs went through
+   ADR review (ADR-007 through ADR-010).
+2. Per-module unit tests do **not** substitute for end-to-end
+   GUI integration tests. M5 / M8 / M9 each had thorough
+   unit-test coverage; all three still had GUI integration
+   gaps that escaped to M13.
+3. Per-test binaries each have their own link topology;
+   release-binary link topology must be smoke-tested
+   separately (ADR-010 §Implementation lesson).
+4. The 18-test HW verification protocol is the
+   gate-of-last-resort. It worked: 4 operator runs caught 4
+   distinct layers. But it's a slow / expensive gate. M14's
+   CI smoke test pushes that detection earlier in the
+   feedback loop.
