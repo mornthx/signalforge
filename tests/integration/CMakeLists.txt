@@ -448,3 +448,8 @@ catch_discover_tests(test_m13_deb_package
     DISCOVERY_MODE PRE_TEST
     PROPERTIES SKIP_RETURN_CODE 4
 )
+
+# M14 S1 — CI release-binary GUI smoke (offscreen Qt + UDP fixture +
+# chart pixel-diff Tier A + log-grep Tier B). See gui/CMakeLists.txt
+# and gui/release_binary_smoke.sh for details.
+add_subdirectory(gui)

@@ -234,6 +234,53 @@ void MainWindow::buildConnectionUi() {
             });
 }
 
+// ---- M14 S1 GUI smoke-test hooks ---------------------------------------
+
+bool MainWindow::autoLoadTestFixture(const QString& yamlPath) {
+    if (connectionManager_ == nullptr || yamlPath.isEmpty()) {
+        return false;
+    }
+    if (!connectionManager_->loadConfigFile(yamlPath)) {
+        SF_LOG_ERROR("MainWindow: autoLoadTestFixture: failed to load '{}'", yamlPath.toStdString());
+        return false;
+    }
+    connectionManager_->connectAll();
+    SF_LOG_INFO("MainWindow: autoLoadTestFixture: loaded + connectAll for '{}'", yamlPath.toStdString());
+    return true;
+}
+
+bool MainWindow::autoSelectSignal(const QString& signalId) {
+    if (chartManager_ == nullptr || signalId.isEmpty()) {
+        return false;
+    }
+    const auto ids = chartManager_->chartIds();
+    if (ids.isEmpty()) {
+        SF_LOG_ERROR("MainWindow: autoSelectSignal: no charts to attach signal '{}'", signalId.toStdString());
+        return false;
+    }
+    auto* chart = chartManager_->chart(ids.first());
+    if (chart == nullptr) {
+        return false;
+    }
+    chart->addSignal(signalId);
+    SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' added to chart '{}'", signalId.toStdString(),
+                ids.first().toStdString());
+    return true;
+}
+
+QImage MainWindow::grabChartImage() const {
+    if (chartContainer_ == nullptr) {
+        return {};
+    }
+    const auto widgets = chartContainer_->findChildren<QQuickWidget*>();
+    if (widgets.isEmpty()) {
+        return {};
+    }
+    return widgets.first()->grabFramebuffer();
+}
+
+// ---- existing private helpers ------------------------------------------
+
 QStringList MainWindow::enumerateAvailableSchemaIds() const {
     // Walk examples/schemas/*.yaml relative to the binary's
     // working directory. Schema IDs are yaml file stems for V1;

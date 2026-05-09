@@ -15,8 +15,8 @@ Source: `.claude/M14-understanding.md` + `.claude/M14-plan.md`
 
 | ID | Title | Status | Commits | Notes |
 |---|---|---|---|---|
-| S0 | Concerns C1-C6 + PR #24 closure | **in progress** | (this commit) | Includes M14-concerns.md, M14-progress.md scaffold, PR #24 close-with-supersede |
-| S1 | CI release-binary smoke test (Tier A + Tier B) + framework | not started | — | Per C1: shell+Python harness invoked by Catch2 wrapper at `tests/integration/gui/` |
+| S0 | Concerns C1-C6 + PR #24 closure | done | `8515137` | M14-concerns.md, M14-progress.md scaffold, PR #24 closed-with-supersede |
+| S1 | CI release-binary smoke test (Tier A + Tier B) + framework | **CC-side done; WILL_FAIL until S2** | (this commit) | Harness demonstrably catches run-4 0×0 bug. Regression-protect verification deferred to S2 close (needs run-4 fixed to establish a passing baseline) |
 | S2 | Run-4 chart sizing fix | not started | — | Two plausible impls (itemChange vs qmlRegisterType); HALT #9 if can't pick |
 | S3 | GUI audit (operator-paired) | not started | — | Per C2: daily ping-pong by spec §3.2 section |
 | S4 | Critical bug fixes | not started | — | Per-bug commit (M14.3 P); ADR-011+ for architectural changes |
@@ -74,6 +74,66 @@ commits as they land.
 ### Pass 1 — (date / section TBD)
 
 (awaiting first operator pass; S3 begins after S1 + S2 close)
+
+### Incidental findings during S1 harness development (2026-05-09)
+
+These were observed while building the S1 smoke harness against the
+current `milestone/M14` HEAD. Logged here so they are not lost; severity
++ S4 fix priority will be assigned during the S3 audit pass.
+
+- **F1 (Critical)** — Chart QQuickWidget framebuffer is 0×0. The chart
+  panel renders entirely as the QQuickWidget clear color because the
+  Chart QQuickItem has zero width/height. This is the run-4 bug; **S2
+  fixes it**. Smoke `M14_SMOKE_TIER_A: non_white_pixels=0
+  total_pixels=0 width=0 height=0` confirms.
+- **F2 (Serious?)** — Segfault during shutdown after `--exit-after-dump`
+  drives `QApplication::quit()`. The dump line is logged successfully
+  and `SignalForge exiting, rc=0` is logged before the crash. Stderr
+  shows offscreen-platform-specific `QPainter::begin: Paint device
+  returned engine == 0, type: 3` plus warnings about
+  `propagateSizeHints` / `raise()`. Root cause TBD; severity to be
+  decided in S3 (does not block CI smoke; the harness's checks all run
+  off the log file before the crash).
+- **F3 (Serious?)** — `UdpDriver destroyed in non-Idle state; callers
+  should close() first` warning on shutdown. Connection lifecycle is
+  not closing the driver before destruction. May be related to F2.
+
+## S1 deliverable evidence
+
+Harness output against `milestone/M14` HEAD `aae2f4b` (= run-4 unfixed):
+
+```
+=== M14 S1 release-binary smoke ===
+Tier A line: M14_SMOKE_TIER_A: non_white_pixels=0 total_pixels=0
+              width=0 height=0
+FAIL Tier A: chart framebuffer is entirely clear-color
+  total_pixels=0 non_white_pixels=0
+```
+
+ctest treatment:
+- `tests/integration/gui/CMakeLists.txt` registers the smoke with
+  `set_tests_properties(... PROPERTIES WILL_FAIL TRUE)` so the
+  expected Tier-A failure does NOT break ctest. Verified via
+  `ctest --show-only=json-v1` showing `WILL_FAIL: True` on the test.
+- 608/608 ctest pass on Debug + Release after S1 (was 607/607
+  pre-S1; +1 new smoke case running in WILL_FAIL mode).
+- debug-asan: build clean; local ctest blocked by the host
+  `/etc/ld.so.preload` ASan-conflict (documented constraint;
+  CI is authoritative).
+
+S1 regression-protect verification (revert each ADR + confirm smoke
+fails) is **deferred to S2 close** — without the run-4 fix the smoke
+already fails on baseline, so the per-ADR-revert experiment has no
+"green baseline" to revert from. After S2 lands, the verification
+runs as part of S2 close before the WILL_FAIL property is removed.
+
+## Frozen-surface modifications (S1 audit)
+
+S1 added one public method group to `src/app/main_window.hpp`
+(`autoLoadTestFixture`, `autoSelectSignal`, `grabChartImage`).
+`main_window.hpp` is **not** in the M2-M12 frozen list per
+`docs/v1.0-spec-list.md` §1 (it's the V1 integration point; intentionally
+unfrozen). No frozen-`.hpp` modifications in S1; counter remains 0/2.
 
 ## HALT log
 

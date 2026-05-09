@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QImage>
 #include <QMainWindow>
+#include <QString>
 #include <memory>
 
 class QComboBox;
@@ -56,6 +58,27 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
+
+    // ---- M14 S1 GUI smoke-test hooks ------------------------------------
+    // These are non-frozen public helpers used by the
+    // `tests/integration/gui/release_binary_smoke.sh` harness via the
+    // `--auto-load-test-fixture` / `--auto-select-signal` /
+    // `--dump-chart-png-after-ms` CLI flags in `main.cpp`. They exercise
+    // already-public ConnectionManager / ChartManager APIs so the smoke
+    // path stays inside the production code path; only the orchestration
+    // glue lives here.
+
+    /// Load a connection-config YAML and connect every connection.
+    /// Returns false if the file is missing or the YAML is malformed.
+    [[nodiscard]] bool autoLoadTestFixture(const QString& yamlPath);
+
+    /// Add `signalId` to the first chart in `chartManager_`. Returns
+    /// false if no chart exists or the signal id is empty.
+    [[nodiscard]] bool autoSelectSignal(const QString& signalId);
+
+    /// Grab the first chart-hosting QQuickWidget's framebuffer as a
+    /// QImage. Returns a null QImage if no chart widget is laid out.
+    [[nodiscard]] QImage grabChartImage() const;
 
 protected:
     void showEvent(QShowEvent* event) override;
