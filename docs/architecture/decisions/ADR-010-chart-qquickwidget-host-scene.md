@@ -160,6 +160,70 @@ in CI that exercises the full chain:
 This would have caught all three V1.0 blockers at the milestone
 that introduced them, rather than at M13 release.
 
+## Implementation lesson (post-S8.1, run-3 finding, 2026-05-09)
+
+S8 + S8.1 fixed the qrc URL path. But the production binary
+**still** failed runtime ChartHost.qml load:
+
+```
+$ nm build/release/src/app/signalforge | grep qInitResources_qml
+$
+```
+
+Root cause: **static-archive linker drop**. `qrc_qml.cpp.o` lives
+in `libsignalforge_app_ui.a`. `main.cpp` references no symbol
+from it. `ld` pulls in only referenced objects from `.a`
+archives (per System V archive semantics) — the qrc object was
+silently discarded, the file-scope static initializer that would
+have called `qRegisterResourceData` never ran, and the resource
+never registered. `setSource(qrc:/qml/ChartHost.qml)` then
+returned `Error` at runtime with no compile-time signal.
+
+**Fix**: `Q_INIT_RESOURCE(qml)` at the top of `main()` forces
+linker retention by taking the address of the generated
+`qInitResources_qml` symbol:
+
+```cpp
+int main(int argc, char** argv) {
+    Q_INIT_RESOURCE(qml);   // forces retention of qrc_qml.cpp.o
+    // ...
+}
+```
+
+Verified post-fix:
+
+```
+$ nm build/release/src/app/signalforge | grep qInitResources_qml
+0000000000abc123 T qInitResources_qml
+```
+
+**CI gap**: per-test binaries each have their own link topology
+and were pulling the qrc symbol correctly through Catch2's
+`Catch2WithMain` reference patterns (or via direct test code
+that exercised the resource). The release-binary link topology
+was untested. The bug was invisible to ctest 606/606 green and
+to per-job CI matrix coverage.
+
+The S8.2 smoke test
+(`tests/integration/test_m13_qrc_resources_smoke.cpp`) closes
+this gap for the qrc registration: it links
+`signalforge_app_ui`, calls `Q_INIT_RESOURCE(qml)` explicitly,
+and asserts `QFile(":/qml/ChartHost.qml")` opens. Future
+qrc-related regressions in this resource will fail this test.
+
+**V1.5+ governance lesson** (additive to the GUI-integration
+recommendation above):
+
+- **CI smoke test against the actual release binary required** —
+  not just per-test binaries. Per-test binaries' link topology
+  is not the production binary's link topology.
+- For each `Q_INIT_RESOURCE` / `qmlRegisterType` /
+  `qRegisterMetaType` / similar registration pattern that lives
+  in a static archive, add a smoke test that asserts the
+  registration actually happened in the production binary
+  (e.g. `nm $bin | grep $symbol` post-build, or a headless
+  launch test that exercises the resource).
+
 ## Cross-references
 
 - ADR-008 (sister fix; closes M5 §4.6 deferred schema wire-up)

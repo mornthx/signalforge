@@ -410,6 +410,20 @@ target_compile_definitions(test_v1_live_mode_pipeline
 )
 catch_discover_tests(test_v1_live_mode_pipeline DISCOVERY_MODE PRE_TEST)
 
+# ADR-010 S8.2: smoke test that Q_INIT_RESOURCE(qml) actually reaches
+# ChartHost.qml. Linked against signalforge_app_ui so the qrc_qml.cpp.o
+# object is available to be retained by Q_INIT_RESOURCE.
+add_executable(test_m13_qrc_resources_smoke
+    test_m13_qrc_resources_smoke.cpp
+)
+target_link_libraries(test_m13_qrc_resources_smoke
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_app_ui
+)
+catch_discover_tests(test_m13_qrc_resources_smoke DISCOVERY_MODE PRE_TEST)
+
 add_executable(test_m13_deb_package
     test_m13_deb_package.cpp
 )
