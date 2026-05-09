@@ -114,20 +114,72 @@ S4 fix priority will be assigned during the S3 audit pass.
   - Chart `pos=(0,0) visible=true enabled=true opacity=1`
   - QQuickWidget background-clear-color test (240,240,240)
     DID register in the framebuffer → grab path works
-  Possible root causes (deferred to S3 audit / S4 fix):
-  - Chart's QSGNode tree isn't being submitted to QQuickWindow
-    scene-graph (despite `setFlag(ItemHasContents, true)`)
-  - Chart's coordinate space is collapsed (e.g., bounding-rect
-    clipped to 0 even when width/height are non-zero)
-  - Default chart line colors are being drawn on a layer that
-    doesn't reach the framebuffer in the QQuickWidget host
-    composition path
-  - Buffer registry samples are ingested but the chart's
-    visible-signals query under the schema's id format
-    returns empty
-  S4 will diagnose + fix this with ADR-012 if architectural.
-  The S1 smoke test correctly catches it (currently passes ctest
-  via `WILL_FAIL TRUE`; cleared at S4 close).
+
+  ### F4 forensic notes (post-S2 chart.cpp read; NO fix
+  attempted)
+
+  Read `src/chart/chart.cpp` `updatePaintNode` + `onTick`
+  per the user's S2 instruction. Observations:
+
+  - `updatePaintNode` is the standard QQuickItem render path:
+    builds a `QSGNode` tree of `QSGGeometryNode`s (one per
+    visible signal) with `QSGFlatColorMaterial`. `setFlag(
+    ItemHasContents, true)` is set in the ctor (line 141), so
+    the QSG render thread WILL call `updatePaintNode`. Each
+    signal's geometry is filled from `impl_->latestSamples`.
+  - **If `latestSamples[signalId]` is empty, the node's
+    geometry is allocated to 0 vertices** (line 406) —
+    rendering nothing visible. This is the silent path to
+    "chart sized 661×720 but pixels all white".
+  - `onTick` (the 30 Hz redraw timer slot) populates
+    `latestSamples` by calling
+    `registry_->bufferFor(signalId)->queryRange(axisStart,
+    axisEnd, pixelWidth)`.
+  - `axisStart` / `axisEnd` come from `timeAxis_->visible
+    Start() / visibleEnd()`. In live mode the time axis is
+    anchored to the host's monotonic clock (~10 s window
+    ending at "now").
+  - **Likely F4 root cause**: timestamp domain mismatch
+    between decoded sample timestamps and the chart's time
+    axis. The smoke fixture's `udp_fixture_sender.py` sends
+    `temperature_sensor` frames whose `timestamp_ms` field
+    starts at 0 (`seq * 20`). If the SchemaDecoder uses the
+    decoded `timestamp_ms` directly as the sample timestamp,
+    samples land at "epoch + 0…4000 ms" while the chart's
+    visible window is at "host_now − 10 s … host_now"
+    (~e.g. 1762 e9 ns). `queryRange` returns empty →
+    `latestSamples[signalId]` is empty → `updatePaintNode`
+    paints nothing.
+
+  ### Three candidate interpretations (resolved by S3
+  operator pass)
+
+  1. **F4-A — smoke fixture bug**. SchemaDecoder is correct
+     (uses decoded `timestamp_ms`); the smoke harness is
+     wrong (should send timestamps near `host_now`). Fix:
+     update `udp_fixture_sender.py` to anchor `timestamp_ms`
+     at `time.time_ns() / 1e6 - frame_count * 20`. No
+     production-code change. Severity: **Serious** (smoke
+     test only; doesn't block V1.0).
+  2. **F4-B — SchemaDecoder timestamp policy bug**.
+     SchemaDecoder should use host-receive-time (not
+     decoded `timestamp_ms`) so live charts work without
+     requiring device clocks to match host. Production fix
+     in schema decoder. Severity: **Critical** for V1.0.
+  3. **F4-C — chart time-axis policy bug**. Chart should
+     auto-align its visible window to recent samples
+     (rather than to host_now) so any monotonic device
+     timeline renders. Production fix in `TimeAxisManager`
+     or `Chart::onTick`. Severity: **Critical** for V1.0.
+
+  S3 operator pass disambiguates: if real hardware
+  connection (operator's actual board) renders fine → F4-A
+  is the answer (M9 hardware happens to have device clock
+  ≈ host clock, or the operator's device sends host-time).
+  If real hardware also shows blank chart → F4-B or F4-C.
+
+  Until S3 confirms, S1 smoke remains `WILL_FAIL TRUE` and
+  CC does NOT attempt a fix.
 
 ## S1 deliverable evidence
 
