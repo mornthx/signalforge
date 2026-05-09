@@ -30,8 +30,17 @@ import sys
 import time
 
 
-def make_frame(seq: int) -> bytes:
-    timestamp_ms = seq * 20  # 50 Hz
+def make_frame(seq: int, base_ns: int) -> bytes:
+    # M14 F4 Wave 1 (Path α): the temperature_sensor schema documents
+    # `timestamp_ms` as "Device-local monotonic millisecond counter".
+    # Production SchemaDecoder timestamps samples with `frame.recvAt`
+    # (driver-set steady_clock::now()), not with this field — but real
+    # hardware reports a `timestamp_ms` close to host wall-clock, so
+    # we anchor the synthetic fixture's value the same way to keep
+    # the smoke fixture indistinguishable from production data on
+    # any consumer that does inspect the field.
+    timestamp_ns = base_ns + seq * 20_000_000  # 50 Hz cadence in ns
+    timestamp_ms = (timestamp_ns // 1_000_000) & 0xFFFFFFFF  # uint32 wrap
     # Sweep the temperature signal so the chart actually moves —
     # a flat-line signal won't produce non-clear pixels in many themes.
     temperature_raw = int(2500 + 500 * math.sin(seq * 0.05))  # raw int16
@@ -71,8 +80,9 @@ def main() -> int:
 
     sent = 0
     start = time.monotonic()
+    base_ns = time.time_ns()  # anchor `timestamp_ms` near host wall-clock
     for seq in range(args.frames):
-        sock.sendto(make_frame(seq), addr)
+        sock.sendto(make_frame(seq, base_ns), addr)
         sent += 1
         # Sleep until next deadline (drop drift if behind).
         deadline = start + (seq + 1) * period

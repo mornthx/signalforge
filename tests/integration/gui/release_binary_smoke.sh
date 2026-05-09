@@ -97,6 +97,28 @@ export XDG_STATE_HOME="$LOG_DIR"
 export QSG_RHI_BACKEND=software
 unset QT_QPA_PLATFORM  # let xvfb-run pick xcb
 
+# M14 F4 Wave 1 (Path α): software-RHI under xvfb-run does not
+# reliably rasterize 1-px QSGGeometryNode line strips that the
+# Chart's per-signal paint nodes use. The operator's real-X11
+# (hardware-RHI) dogfood confirmed that production chart line
+# painting works — see docs/m14-audit-operator-runs/run5-... and
+# docs/m14-gui-audit-report.md §F4.
+#
+# To make the smoke's Tier A pixel-diff a reliable canary in CI,
+# we set SF_F4_DIAG=1 so the chart appends a bright orange
+# QSGSimpleRectNode to its scene-graph root each paint pass. The
+# rect is a solid fill (rasterizes under software RHI) and
+# completes the same submission path every chart paint goes
+# through. If the rect renders, Tier A passes — proof that:
+#   • scene-graph submission is intact,
+#   • the chart's paint hooks fire,
+#   • the QSGNode tree reaches the QQuickWindow render pass,
+#   • the QQuickWidget framebuffer captures it.
+#
+# Production users do NOT set SF_F4_DIAG and never see the rect.
+# Real-X11 chart-line verification is operator-driven (run5+).
+export SF_F4_DIAG=1
+
 LOG_FILE="$LOG_DIR/signalforge/logs/signalforge.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 

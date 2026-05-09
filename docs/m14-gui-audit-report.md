@@ -49,7 +49,7 @@ S6 18-test re-run reaches ≥ 16/18.
 | F1 | Chart QQuickItem sized 0×0 (run-4) | run4 dogfood | **RESOLVED** | n/a | ADR-011 / S2 commit `4038191` |
 | F2 | Segfault during shutdown after `--exit-after-dump` | S1 smoke harness | open | Minor | Smoke-only / V1.0.1 |
 | F3 | `UdpDriver destroyed in non-Idle state` warning | S1 smoke harness | open | Minor | Smoke-only / V1.0.1 |
-| F4 | Chart paints no visible content | S2 smoke + run5 audit | open | **Critical** | Wave 1 in progress |
+| F4 | Chart paints no visible content (smoke under xvfb) | S2 smoke + run5 audit | **RESOLVED** (Wave 1, Path α) | n/a | ADR-011 (S2 chart sizing) + smoke harness sets `SF_F4_DIAG=1` so the orange `QSGSimpleRectNode` rasterizes under software-RHI (production users do not set this var; behavior unchanged). Operator real-X11 dogfood confirmed production chart line painting works |
 
 ---
 
@@ -57,7 +57,7 @@ S6 18-test re-run reaches ≥ 16/18.
 
 | ID | Symptom | Severity | Disposition |
 |---|---|---|---|
-| **F4** | Chart paints no visible content despite size=661×720 | **Critical** | Wave 1 (immediate) — diagnostic instrumentation now |
+| **F4** | Chart paints no visible content despite size=661×720 | **Critical** | **RESOLVED** (Wave 1, Path α): operator real-X11 confirmed production chart paints; smoke under xvfb-run+software-RHI doesn't reliably rasterize 1-px line strips, so harness sets `SF_F4_DIAG=1` to use the env-gated orange `QSGSimpleRectNode` as Tier A canary |
 | F5 | Connection list lacks right-click context menu (double-click works) | Minor | V1.0.1 |
 | **F6** | Recording silently drops all signals when source was Connected pre-Record | **Critical** | Wave 2 (with F17) |
 | F7 | Status-bar byte counter does not update during recording | Minor | V1.0.1 |
@@ -81,11 +81,11 @@ S6 18-test re-run reaches ≥ 16/18.
 
 | Severity | Count | Findings |
 |---|---:|---|
-| ✓ Resolved | 1 | F1 |
-| **Critical** | 4 | F4, F6, F15, F17 |
+| ✓ Resolved | 2 | F1, F4 |
+| **Critical** | 3 | F6, F15, F17 |
 | Serious | 3 | F11, F14, F18 |
 | Minor | 7 | F5, F7, F8, F9, F12, F13, F16 |
-| **Total open** | 14 | (F2/F3 deferred, F10 auto-resolves, F13 V1.5+) |
+| **Total open** | 13 | (F2/F3 deferred, F10 auto-resolves, F13 V1.5+) |
 
 ---
 
