@@ -309,4 +309,134 @@ is expected.
   the post-build `dpkg-deb --contents` check; cpack-deb.cmake
   amended; rebuild verified `/opt/signalforge/...` paths.
 
-S3 commit: pending push.
+S3 commit: `c0f36f1` "docs: M13 V1.0 release notes + install +
+spec list + 18-test HW protocol (M13 S3)". Pushed; CI in flight.
+
+---
+
+## S4 — 30-min memory soaks (HALT — H5 fired on M10 soak)
+
+- Start: 2026-05-09T11:50Z
+- Halted: 2026-05-09T12:15Z (after M10 soak ran ~270 s)
+
+### M10 soak result
+
+`bench_session_writer --soak 1800 --memory-snapshot 30`
+exhibited **linear, unbounded VmRSS growth**: ~14 MB per
+30-second snapshot (~470 KB/s sustained). At sec=270, VmRSS
+was 138 420 KB (vs initial 25 724 KB) — **+438 % in 240 s**.
+
+Projected 30-min final = ~870 MB → **~3 300 % growth** vs
+the spec §5.3 HALT bar of `> 15 %`. **Two orders of magnitude
+past HALT threshold.**
+
+Background soak killed at sec≈270 once the linear pattern
+was unambiguous. 9 snapshots preserved at
+`tests/benchmark/results/M13-soak-data/m10-soak.jsonl`.
+
+### Suspicious observations
+
+- `bytes_written = 0` throughout the soak, despite 60 k
+  events/sec sustained input + `dropped = 0`. The bench
+  reads `writer.bytesWritten()` at line 144 of
+  `tests/benchmark/bench_session_writer.cpp`; a zero-byte
+  reading + sustained input + linear VmRSS growth is
+  consistent with **events accumulating in memory rather
+  than being flushed to disk**.
+- This may be a bench-fixture-side artefact (e.g.,
+  `bytesWritten()` only updates after `stop()`) rather
+  than a real M10 SessionWriter leak. **CC has not
+  investigated further** per the user's S4 failure-handling
+  guidance.
+
+### M11 soak — NOT STARTED
+
+Per concerns C2 + the user's S4 failure-handling guidance,
+CC stopped at the M10 H5 fire and did not proceed to the
+M11 soak. M11 soak status is `operator-pending`.
+
+### HALT report
+
+Full H5 disposition + decision options (A/B/C/D) in
+`.claude/halt/HALT-2026-05-09T12-15Z-m10-soak-leak.md`.
+
+### Status
+
+S4 is **incomplete** until user direction is received per
+the HALT report. CC has paused all further M13 work pending
+the disposition decision.
+
+---
+
+## S5 — Integration tests (completed in parallel during S4)
+
+- Start: 2026-05-09T12:00Z (during M10 soak)
+- Close: 2026-05-09T12:10Z
+
+### Deliverables
+
+Authored + tested in parallel during the M10 soak per
+concerns C2 background-doc-work plan. S5 is **independent
+of S4**: integration tests don't depend on soak results.
+
+- `tests/integration/test_m13_release_artifacts.cpp` (~85
+  LOC): 7 cases verifying source-tree files exist:
+  - V1.0 release docs (release-notes, install, spec-list,
+    HW protocol)
+  - Prior milestone HW verification protocols (M9, M10, M11)
+  - Frozen format spec (sfreplay-v1)
+  - 6 ADRs (numbering jumps 005 → 007; ADR-006 was skipped
+    at M7 close — discovery during S5; updated
+    `docs/v1.0-spec-list.md` accordingly)
+  - M3-M12 baseline.md
+  - DEB scripts + desktop entry + icon
+  - `LICENSE` (referenced by CPack)
+- `tests/integration/test_m13_deb_package.cpp` (~125 LOC):
+  8 cases via `dpkg-deb`. Each test SKIPs cleanly if the
+  `.deb` isn't pre-built (CI doesn't build `package` target):
+  - .deb file present
+  - `dpkg-deb --info` control fields (name / version /
+    arch / section / priority / depends)
+  - `/opt/signalforge/bin/*` binaries
+  - V1.0 docs + benchmarks
+  - Desktop entry + icons
+  - Profile harness scripts
+  - ADRs (6 total — ADR-006 skipped per source tree)
+  - File size < 50 MB (spec §5.1 target)
+- `tests/integration/CMakeLists.txt`: appends both targets
+  with `SIGNALFORGE_SOURCE_ROOT` compile-define for path
+  resolution.
+
+### Build / test counts
+
+- Debug + Release build clean.
+- ctest: Debug **602/602** + Release **602/602** (+15 from
+  M12 close at 587):
+  - test_m13_release_artifacts: 7 cases / 32 assertions
+  - test_m13_deb_package: 8 cases / 30 assertions
+- All M0-M12 regression detectors quiet.
+
+### Discovery during S5 — ADR-006 missing
+
+S5's "ADRs all present" test surfaced a discrepancy:
+`docs/architecture/decisions/` contains only **6** ADRs
+(numbering 001-005 + 007), not 7 as
+`docs/v1.0-spec-list.md` originally claimed. ADR-006 was
+reserved for "M7 cycle detection in expression engine"
+during early planning but was not authored at M7 close;
+the M7 cycle-detection design lives in
+`.claude/M7-done.md` instead.
+
+`docs/v1.0-spec-list.md §3` updated at S5 to reflect
+reality (6 ADRs, numbering jump explained). Test file
+references the correct 6 ADR filenames.
+
+This is a **documentation correction**, not a freeze
+violation — no .hpp / format spec changed. H1 trigger
+remains clear.
+
+### S5 commit
+
+S5 commit pending push (committed alongside S4 HALT report
+to preserve the milestone state on origin per CLAUDE.md
+HALT protocol "commit whatever is committable").

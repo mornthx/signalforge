@@ -375,3 +375,31 @@ target_link_libraries(test_m12_optimization_correctness
         signalforge_decoder
 )
 catch_discover_tests(test_m12_optimization_correctness DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_m13_release_artifacts
+    test_m13_release_artifacts.cpp
+)
+target_link_libraries(test_m13_release_artifacts
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+)
+target_compile_definitions(test_m13_release_artifacts
+    PRIVATE
+        SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
+)
+catch_discover_tests(test_m13_release_artifacts DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_m13_deb_package
+    test_m13_deb_package.cpp
+)
+target_link_libraries(test_m13_deb_package
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+)
+target_compile_definitions(test_m13_deb_package
+    PRIVATE
+        SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
+)
+catch_discover_tests(test_m13_deb_package DISCOVERY_MODE PRE_TEST)
