@@ -82,6 +82,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     teeSink_ = std::make_unique<signalforge::session::TeeSignalValueSink>();
     teeSink_->addSink(signalBufferRegistry_.get());
     sessionWriter_ = std::make_unique<signalforge::session::SessionWriter>(*signalBufferRegistry_, this);
+    // ADR-013 (F6): subscribe SessionWriter to the TeeSink at construction
+    // so `onSignalsRegistered` events from the SchemaDecoder always reach
+    // the writer's catalog cache, regardless of whether a recording is
+    // active. SessionWriter::onSignal early-returns when state != Recording,
+    // and `onSignalsRegistered` always caches; gating recording state at
+    // start()/stop() is sufficient. Without this subscription, Connect →
+    // Record → Stop produces a file with zero Type-1 records (silent data
+    // loss documented in run5 audit §F6).
+    teeSink_->addSink(sessionWriter_.get());
     {
         std::shared_ptr<signalforge::decoder::SignalValueSink> sink(teeSink_.get(),
                                                                     [](signalforge::decoder::SignalValueSink*) {});
@@ -114,9 +123,24 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Auto-load the persisted connection list. Missing file is
     // benign (first launch); ERROR-level parse failures degrade
     // to an empty manager (logged by ConnectionManager).
+    // ADR-013 (F17): loadConfigFile sets configPath_ regardless of
+    // whether the file exists, so subsequent addConnection /
+    // editConnection / removeConnection mutations autosave to this
+    // path through ConnectionManager::autoSave().
     const QString cfgPath = signalforge::connection::ConnectionManager::defaultConfigPath();
     QDir().mkpath(QFileInfo(cfgPath).absolutePath());
     (void)connectionManager_->loadConfigFile(cfgPath);
+
+    // ADR-013 (F17) defense-in-depth: also save on application exit.
+    // Catches any future mutation path that bypasses autoSave() and
+    // covers the "user adds a connection then immediately quits"
+    // edge case (autoSave already runs synchronously on
+    // addConnection, so this is belt-and-suspenders).
+    connect(qApp, &QCoreApplication::aboutToQuit, this, [this, cfgPath]() {
+        if (connectionManager_ != nullptr) {
+            (void)connectionManager_->saveConfigFile(cfgPath);
+        }
+    });
 
     chartManager_ = std::make_unique<signalforge::chart::ChartManager>(*signalBufferRegistry_, this);
 
@@ -580,10 +604,9 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             event->ignore();
             return;
         }
-        // Detach + stop the writer.
-        if (teeSink_ != nullptr) {
-            teeSink_->removeSink(sessionWriter_.get());
-        }
+        // ADR-013 (F6): SessionWriter stays subscribed to TeeSink for the
+        // MainWindow lifetime; stop() flips state to Idle and writes the
+        // footer. No removeSink needed.
         (void)sessionWriter_->stop();
     }
     QMainWindow::closeEvent(event);
@@ -614,10 +637,9 @@ void MainWindow::onRecordToggle() {
         return;
     }
     if (sessionWriter_->isRecording()) {
-        // Stop path: detach from the tee then stop + close file.
-        if (teeSink_ != nullptr) {
-            teeSink_->removeSink(sessionWriter_.get());
-        }
+        // Stop path: stop + close file. ADR-013 (F6): SessionWriter stays
+        // subscribed to TeeSink across recording sessions; state gates
+        // file writes.
         const std::size_t bytes = sessionWriter_->stop();
         recordAction_->setText(tr("&Record…"));
         if (recordingStatusLabel_ != nullptr) {
@@ -638,9 +660,8 @@ void MainWindow::onRecordToggle() {
         QMessageBox::critical(this, tr("Recording failed"), tr("Could not start recording: see log for details."));
         return;
     }
-    if (teeSink_ != nullptr) {
-        teeSink_->addSink(sessionWriter_.get());
-    }
+    // ADR-013 (F6): SessionWriter is already subscribed to TeeSink at
+    // MainWindow ctor — no per-recording addSink needed.
     currentRecordingPath_ = path;
     recordAction_->setText(tr("&Stop recording"));
     if (recordingStatusLabel_ != nullptr) {
@@ -664,9 +685,9 @@ void MainWindow::onRecordingError(const QString& message) {
     if (recordAction_ != nullptr) {
         recordAction_->setText(tr("&Record…"));
     }
-    if (teeSink_ != nullptr && sessionWriter_ != nullptr) {
-        teeSink_->removeSink(sessionWriter_.get());
-    }
+    // ADR-013 (F6): SessionWriter stays subscribed to TeeSink across
+    // recording-error states; recording state has already flipped to
+    // Error inside the writer's worker-error connector. No removeSink.
     QMessageBox::critical(this, tr("Recording error"), message);
 }
 
