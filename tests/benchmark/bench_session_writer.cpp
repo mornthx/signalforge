@@ -106,9 +106,18 @@ int runBench(int durationSeconds, int memorySnapshotSeconds) {
     const std::int64_t vmRssInitialKb = readVmRssKb();
     std::int64_t vmRssBaselineKb = -1;
 
-    // Tracking
+    // Tracking — rolling buffer to keep bench memory bounded
+    // under long soak runs. M13 S4 found the unbounded
+    // `reserve(durationSeconds * 60000)` at 60 k events/sec ×
+    // 30 min × 8 bytes ≈ 864 MB of latency samples, which
+    // dominated the soak's VmRSS growth and looked like an
+    // M10 leak. The cap below keeps the p99 statistic
+    // representative (last ~100 k samples ≈ 1.7 s window at
+    // 60 k events/sec) without unbounded growth.
+    constexpr std::size_t kEnqueueLatRingSize = 100000;
     std::vector<long long> enqueueLatNs;
-    enqueueLatNs.reserve(static_cast<std::size_t>(durationSeconds) * 60000);
+    enqueueLatNs.reserve(kEnqueueLatRingSize);
+    std::size_t enqueueLatHead = 0;
 
     long long inject = 0;
     auto nextSnapshot = t0 + std::chrono::seconds(memorySnapshotSeconds);
@@ -127,7 +136,14 @@ int runBench(int durationSeconds, int memorySnapshotSeconds) {
             writer.onSignal(t0Steady + std::chrono::nanoseconds(inject * 1000), sigs[i].id,
                             d::SignalValue{static_cast<double>(inject)});
             const auto enqEnd = std::chrono::steady_clock::now();
-            enqueueLatNs.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(enqEnd - enqStart).count());
+            const long long lat = std::chrono::duration_cast<std::chrono::nanoseconds>(enqEnd - enqStart).count();
+            // Rolling buffer: fill once, then overwrite oldest.
+            if (enqueueLatNs.size() < kEnqueueLatRingSize) {
+                enqueueLatNs.push_back(lat);
+            } else {
+                enqueueLatNs[enqueueLatHead] = lat;
+                enqueueLatHead = (enqueueLatHead + 1) % kEnqueueLatRingSize;
+            }
         }
         ++inject;
         if (now >= nextSnapshot) {
