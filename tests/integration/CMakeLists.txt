@@ -390,6 +390,26 @@ target_compile_definitions(test_m13_release_artifacts
 )
 catch_discover_tests(test_m13_release_artifacts DISCOVERY_MODE PRE_TEST)
 
+add_executable(test_v1_live_mode_pipeline
+    test_v1_live_mode_pipeline.cpp
+)
+target_link_libraries(test_v1_live_mode_pipeline
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Test
+        signalforge_connection
+        signalforge_decoder
+        signalforge_drivers
+        signalforge_pipeline
+        signalforge_buffer
+)
+target_compile_definitions(test_v1_live_mode_pipeline
+    PRIVATE
+        SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
+)
+catch_discover_tests(test_v1_live_mode_pipeline DISCOVERY_MODE PRE_TEST)
+
 add_executable(test_m13_deb_package
     test_m13_deb_package.cpp
 )
