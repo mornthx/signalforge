@@ -40,10 +40,11 @@ TEST_CASE("M13 S5: V1.0 frozen format spec exists", "[m13][s5]") {
     requireFileExists("docs/format/sfreplay-v1.md");
 }
 
-TEST_CASE("M13 S5: ADRs ship with V1.0 (8 ADRs; 006 skipped)", "[m13][s5]") {
-    // V1 has 8 ADRs total; numbering jumps 005 → 007 because
+TEST_CASE("M13 S5: ADRs ship with V1.0 (9 ADRs; 006 skipped)", "[m13][s5]") {
+    // V1 has 9 ADRs total; numbering jumps 005 → 007 because
     // M7 cycle-detection was documented in done.md not ADR.
     // ADR-008 + ADR-009 added at M13 S7 (V1.0 live-mode plumbing fix).
+    // ADR-010 added at M13 S8 (chart QQuickWidget host scene fix).
     // See docs/v1.0-spec-list.md §3 for rationale.
     requireFileExists("docs/architecture/decisions/ADR-001-rendering-approach.md");
     requireFileExists("docs/architecture/decisions/ADR-002-crash-reporting-backend.md");
@@ -53,6 +54,7 @@ TEST_CASE("M13 S5: ADRs ship with V1.0 (8 ADRs; 006 skipped)", "[m13][s5]") {
     requireFileExists("docs/architecture/decisions/ADR-007-sfreplay-v1-format-pivot.md");
     requireFileExists("docs/architecture/decisions/ADR-008-decoder-registrar-runtime-schema.md");
     requireFileExists("docs/architecture/decisions/ADR-009-mainwindow-pipeline-attach.md");
+    requireFileExists("docs/architecture/decisions/ADR-010-chart-qquickwidget-host-scene.md");
 }
 
 TEST_CASE("M13 S5: M3-M12 baseline.md files all exist", "[m13][s5]") {

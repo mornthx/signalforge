@@ -316,9 +316,26 @@ void MainWindow::rebuildChartWidgets() {
         if (chart == nullptr) {
             continue;
         }
+        // ADR-010: load the QML host scene so QQuickWidget exposes a
+        // non-null rootObject(). Without it, setParentItem(nullptr)
+        // orphans Chart and nothing renders. setSource is synchronous
+        // for qrc:/ URLs, so rootObject() is ready immediately.
         auto* hostWidget = new QQuickWidget(chartContainer_);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
-        chart->setParentItem(hostWidget->rootObject());
+        hostWidget->setSource(QUrl(QStringLiteral("qrc:/qml/ChartHost.qml")));
+        if (hostWidget->status() != QQuickWidget::Ready) {
+            SF_LOG_ERROR("MainWindow: ChartHost.qml failed to load (status={})",
+                         static_cast<int>(hostWidget->status()));
+            hostWidget->deleteLater();
+            continue;
+        }
+        auto* root = hostWidget->rootObject();
+        if (root == nullptr) {
+            SF_LOG_ERROR("MainWindow: ChartHost.qml loaded but rootObject() is null");
+            hostWidget->deleteLater();
+            continue;
+        }
+        chart->setParentItem(root);
         chartLayout_->addWidget(hostWidget, 1);
     }
 }

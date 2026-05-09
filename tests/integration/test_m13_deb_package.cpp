@@ -123,7 +123,7 @@ TEST_CASE("M13 S5: package includes profile harness scripts", "[m13][s5][deb]") 
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/tools/profile/m12_regression_suite.sh")));
 }
 
-TEST_CASE("M13 S5: package includes ADRs (8 total — ADR-006 skipped)", "[m13][s5][deb]") {
+TEST_CASE("M13 S5: package includes ADRs (9 total — ADR-006 skipped)", "[m13][s5][deb]") {
     if (!debExists()) {
         SKIP("deb not built");
     }
@@ -132,6 +132,7 @@ TEST_CASE("M13 S5: package includes ADRs (8 total — ADR-006 skipped)", "[m13][
     REQUIRE(contents.contains(QStringLiteral("ADR-007-sfreplay-v1-format-pivot.md")));
     REQUIRE(contents.contains(QStringLiteral("ADR-008-decoder-registrar-runtime-schema.md")));
     REQUIRE(contents.contains(QStringLiteral("ADR-009-mainwindow-pipeline-attach.md")));
+    REQUIRE(contents.contains(QStringLiteral("ADR-010-chart-qquickwidget-host-scene.md")));
 }
 
 TEST_CASE("M13 S5: deb file size under 50 MB target (spec §5.1)", "[m13][s5][deb]") {
