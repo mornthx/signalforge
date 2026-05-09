@@ -284,8 +284,17 @@ void SessionPlayer::dispatchLoop() {
         return;
     }
 
-    std::int64_t prevTs = currentPosNs_.load();
+    const std::int64_t prevTs = currentPosNs_.load();
     std::chrono::steady_clock::time_point lastEmitTime{};
+
+    // M12 S3 (C4 Stage B): deadline-based pacing.
+    // Anchor the wall-clock deadline of each dispatch to a fixed
+    // play-start origin + scaled file offset. `sleep_until`
+    // converges on the deadline without per-record drift
+    // accumulation (M11 S4 used `sleep_for` per delta which lets
+    // scheduler overshoot accumulate).
+    const auto playStart = std::chrono::steady_clock::now();
+    const std::int64_t playStartTsNs = prevTs;
 
     while (playing_.load(std::memory_order_acquire)) {
         if (workerThread_ && workerThread_->isInterruptionRequested()) {
@@ -308,30 +317,37 @@ void SessionPlayer::dispatchLoop() {
             }
         }
 
-        // Compute scaled delay since previous dispatch. At 1×
-        // speed (S4 default) this is real-time; S5 will add
-        // non-1× scaling. Sleep is chunked so `pause()` can break
-        // a long inter-record wait within ~5 ms.
-        const std::int64_t deltaNs = rec.timestampNs - prevTs;
-        if (deltaNs > 0) {
-            const double speed = speedFactor_.load(std::memory_order_acquire);
-            const std::int64_t scaledNs = static_cast<std::int64_t>(static_cast<double>(deltaNs) / speed);
+        // Compute the absolute wall-clock deadline for this record:
+        //   deadline = playStart + (rec.timestampNs - playStartTsNs) / speed
+        // For sub-100 µs remaining sleep, dispatch immediately —
+        // Linux scheduler granularity makes shorter sleeps unreliable
+        // and adds overhead without benefit.
+        const double speed = speedFactor_.load(std::memory_order_acquire);
+        const std::int64_t fileOffsetNs = rec.timestampNs - playStartTsNs;
+        const std::int64_t scaledOffsetNs = static_cast<std::int64_t>(static_cast<double>(fileOffsetNs) / speed);
+        const auto deadline = playStart + std::chrono::nanoseconds{scaledOffsetNs};
+        constexpr auto kSleepThreshold = std::chrono::microseconds{100};
+        const auto now = std::chrono::steady_clock::now();
+        if (deadline > now + kSleepThreshold) {
+            // Long sleep: chunked so pause() interrupts within ~5 ms.
             constexpr auto kChunk = std::chrono::milliseconds{5};
-            auto remaining = std::chrono::nanoseconds{scaledNs};
-            while (remaining.count() > 0 && playing_.load(std::memory_order_acquire)) {
-                const auto chunk =
-                    (remaining > std::chrono::nanoseconds{kChunk}) ? std::chrono::nanoseconds{kChunk} : remaining;
-                std::this_thread::sleep_for(chunk);
-                remaining -= chunk;
+            while (std::chrono::steady_clock::now() + kChunk < deadline && playing_.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(kChunk);
+            }
+            // Final sub-chunk sleep — sleep_until converges
+            // precisely on the deadline.
+            if (playing_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_until(deadline);
             }
             if (!playing_.load(std::memory_order_acquire)) {
                 // Pause interrupted mid-sleep. Save the record so
-                // resume picks it up without re-reading (which
-                // would skip past it on the file pointer).
+                // resume picks it up without re-reading.
                 pendingRecord_ = rec;
                 break;
             }
         }
+        // else: deadline within 100 µs of now (or already past) →
+        // dispatch immediately.
 
         // Update counters before dispatch so pause / state-query
         // observers see the correct position promptly.
@@ -353,16 +369,17 @@ void SessionPlayer::dispatchLoop() {
 
         // 30 Hz position throttle (C5). The first record always
         // emits; subsequent ones are skipped until 33 ms elapse.
-        const auto now = std::chrono::steady_clock::now();
-        if (lastEmitTime.time_since_epoch().count() == 0 || (now - lastEmitTime) >= std::chrono::milliseconds(33)) {
+        const auto emitNow = std::chrono::steady_clock::now();
+        if (lastEmitTime.time_since_epoch().count() == 0 || (emitNow - lastEmitTime) >= std::chrono::milliseconds(33)) {
             const std::int64_t emitTs = rec.timestampNs;
             const std::size_t emitIdx = currentRecordIdx_.load(std::memory_order_acquire);
             QMetaObject::invokeMethod(
                 this, [this, emitTs, emitIdx]() { emit positionUpdated(emitTs, emitIdx); }, Qt::QueuedConnection);
-            lastEmitTime = now;
+            lastEmitTime = emitNow;
         }
-
-        prevTs = rec.timestampNs;
+        // C4 Stage B: no per-record prevTs update needed —
+        // each iteration's deadline is anchored to playStart +
+        // (rec.timestampNs - playStartTsNs) / speed.
     }
 
     // Drop here when paused. The thread loop exits but the QThread
