@@ -374,6 +374,15 @@ bool readDriverConfig(const YAML::Node& node, DriverType type, DriverConfig& out
 }  // namespace
 
 bool ConnectionManager::loadConfigFile(const QString& path) {
+    // ADR-013 (F17): bootstrap the autosave target unconditionally —
+    // even on first-launch / missing-file / parse-error / schema-
+    // mismatch paths — so subsequent addConnection / editConnection /
+    // removeConnection mutations write through autoSave() to the
+    // right file. Pre-fix, configPath_ was only set on the success
+    // path (line at function tail), so a missing file kept it empty
+    // forever and connections.yaml was never written.
+    configPath_ = path;
+
     // Reset to empty before loading.
     while (!orderedIds_.isEmpty()) {
         const QString id = orderedIds_.first();
@@ -484,6 +493,10 @@ bool ConnectionManager::loadConfigFile(const QString& path) {
         Q_EMIT connectionAdded(id);
     }
 
+    // ADR-013 (F17): configPath_ is set at the top of this function
+    // unconditionally, so this success-path assignment is redundant.
+    // Kept as a no-op write for clarity (configPath_ is already
+    // `path` here).
     configPath_ = path;
     return true;
 }

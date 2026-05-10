@@ -29,6 +29,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QQuickItem>
 #include <QQuickWidget>
 #include <QSlider>
 #include <QSplitter>
@@ -41,6 +42,24 @@
 #include <unordered_map>
 
 namespace {
+
+// M14 F12: format a relative-from-zero replay position in
+// mm:ss.fff (audit §F12 — pre-fix formatter showed raw nanoseconds
+// which looked like an absolute UTC timestamp). Negative or
+// out-of-range inputs clamp to "00:00.000".
+QString formatReplayPosition(std::int64_t ns) {
+    if (ns < 0) {
+        ns = 0;
+    }
+    const std::int64_t totalMs = ns / 1'000'000;
+    const std::int64_t mm = totalMs / 60'000;
+    const std::int64_t ss = (totalMs / 1'000) % 60;
+    const std::int64_t fff = totalMs % 1'000;
+    return QStringLiteral("%1:%2.%3")
+        .arg(mm, 2, 10, QLatin1Char('0'))
+        .arg(ss, 2, 10, QLatin1Char('0'))
+        .arg(fff, 3, 10, QLatin1Char('0'));
+}
 
 // driverId convention: `<type>:<connectionId>` — DecoderRegistrar
 // splits on ':' and uses the prefix as its driver-type lookup key
@@ -81,6 +100,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     teeSink_ = std::make_unique<signalforge::session::TeeSignalValueSink>();
     teeSink_->addSink(signalBufferRegistry_.get());
     sessionWriter_ = std::make_unique<signalforge::session::SessionWriter>(*signalBufferRegistry_, this);
+    // ADR-013 (F6): subscribe SessionWriter to the TeeSink at construction
+    // so `onSignalsRegistered` events from the SchemaDecoder always reach
+    // the writer's catalog cache, regardless of whether a recording is
+    // active. SessionWriter::onSignal early-returns when state != Recording,
+    // and `onSignalsRegistered` always caches; gating recording state at
+    // start()/stop() is sufficient. Without this subscription, Connect →
+    // Record → Stop produces a file with zero Type-1 records (silent data
+    // loss documented in run5 audit §F6).
+    teeSink_->addSink(sessionWriter_.get());
     {
         std::shared_ptr<signalforge::decoder::SignalValueSink> sink(teeSink_.get(),
                                                                     [](signalforge::decoder::SignalValueSink*) {});
@@ -113,9 +141,24 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Auto-load the persisted connection list. Missing file is
     // benign (first launch); ERROR-level parse failures degrade
     // to an empty manager (logged by ConnectionManager).
+    // ADR-013 (F17): loadConfigFile sets configPath_ regardless of
+    // whether the file exists, so subsequent addConnection /
+    // editConnection / removeConnection mutations autosave to this
+    // path through ConnectionManager::autoSave().
     const QString cfgPath = signalforge::connection::ConnectionManager::defaultConfigPath();
     QDir().mkpath(QFileInfo(cfgPath).absolutePath());
     (void)connectionManager_->loadConfigFile(cfgPath);
+
+    // ADR-013 (F17) defense-in-depth: also save on application exit.
+    // Catches any future mutation path that bypasses autoSave() and
+    // covers the "user adds a connection then immediately quits"
+    // edge case (autoSave already runs synchronously on
+    // addConnection, so this is belt-and-suspenders).
+    connect(qApp, &QCoreApplication::aboutToQuit, this, [this, cfgPath]() {
+        if (connectionManager_ != nullptr) {
+            (void)connectionManager_->saveConfigFile(cfgPath);
+        }
+    });
 
     chartManager_ = std::make_unique<signalforge::chart::ChartManager>(*signalBufferRegistry_, this);
 
@@ -149,6 +192,15 @@ void MainWindow::buildChartUi() {
 
     centralSplitter_->setStretchFactor(0, 1);
     centralSplitter_->setStretchFactor(1, 4);
+    // Initial split sizes (256 + 1024 = 1280, matching the window's
+    // resize() above). QSplitter's stretch factor only governs *extra*
+    // space distribution on subsequent resizes; initial pane sizes
+    // come from sizeHint(). The chart pane's sizeHint() is dominated
+    // by the QQuickWidget which reports an invalid hint until the
+    // QML scene loads — without explicit setSizes() the chart pane
+    // collapses to ~12 px under offscreen QPA (caught by M14 S1
+    // smoke; see ADR-011 §"Implementation note: splitter sizing").
+    centralSplitter_->setSizes({256, 1024});
     setCentralWidget(centralSplitter_);
 
     auto* toolbar = addToolBar(tr("Chart"));
@@ -178,9 +230,13 @@ void MainWindow::buildChartUi() {
     fpsLabel_ = new QLabel(tr("FPS: -"));
     droppedLabel_ = new QLabel(tr("Dropped: 0"));
     throttledLabel_ = new QLabel;
+    // M14 F15: signal_buffer budget indicator (idle / 80% warn / FULL).
+    bufferBudgetLabel_ = new QLabel;
+    bufferBudgetLabel_->setToolTip(tr("Signal buffer memory budget usage"));
     statusBar()->addPermanentWidget(fpsLabel_);
     statusBar()->addPermanentWidget(droppedLabel_);
     statusBar()->addPermanentWidget(throttledLabel_);
+    statusBar()->addPermanentWidget(bufferBudgetLabel_);
 
     auto* statusTimer = new QTimer(this);
     statusTimer->setInterval(1000);
@@ -233,6 +289,160 @@ void MainWindow::buildConnectionUi() {
                 }
             });
 }
+
+// ---- M14 S1 GUI smoke-test hooks ---------------------------------------
+
+bool MainWindow::autoLoadTestFixture(const QString& yamlPath) {
+    if (connectionManager_ == nullptr || yamlPath.isEmpty()) {
+        return false;
+    }
+    if (!connectionManager_->loadConfigFile(yamlPath)) {
+        SF_LOG_ERROR("MainWindow: autoLoadTestFixture: failed to load '{}'", yamlPath.toStdString());
+        return false;
+    }
+    connectionManager_->connectAll();
+    SF_LOG_INFO("MainWindow: autoLoadTestFixture: loaded + connectAll for '{}'", yamlPath.toStdString());
+    return true;
+}
+
+bool MainWindow::autoSelectSignal(const QString& signalId) {
+    if (chartManager_ == nullptr || signalId.isEmpty()) {
+        return false;
+    }
+    const auto ids = chartManager_->chartIds();
+    if (ids.isEmpty()) {
+        SF_LOG_ERROR("MainWindow: autoSelectSignal: no charts to attach signal '{}'", signalId.toStdString());
+        return false;
+    }
+    auto* chart = chartManager_->chart(ids.first());
+    if (chart == nullptr) {
+        return false;
+    }
+    chart->addSignal(signalId);
+    SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' added to chart '{}'", signalId.toStdString(),
+                ids.first().toStdString());
+    return true;
+}
+
+bool MainWindow::autoStartRecording(const QString& path) {
+    if (sessionWriter_ == nullptr || path.isEmpty() || sessionWriter_->isRecording()) {
+        return false;
+    }
+    // M14 F9: derive decoderSchemaId from the last Connected connection
+    // with a non-empty schema id (matches the onRecordToggle GUI path).
+    QString recordingSchemaId;
+    if (connectionManager_ != nullptr) {
+        for (const auto& id : connectionManager_->connectionIds()) {
+            const auto* conn = connectionManager_->connection(id);
+            if (conn == nullptr || conn->state() != signalforge::connection::Connection::State::Connected) {
+                continue;
+            }
+            const QString& cfgSchema = conn->config().decoderSchemaId;
+            if (!cfgSchema.isEmpty()) {
+                recordingSchemaId = cfgSchema;
+            }
+        }
+    }
+    if (!sessionWriter_->start(path, /*description*/ QString{}, recordingSchemaId)) {
+        SF_LOG_ERROR("MainWindow::autoStartRecording: SessionWriter::start failed for '{}'", path.toStdString());
+        return false;
+    }
+    currentRecordingPath_ = path;
+    SF_LOG_INFO("MainWindow::autoStartRecording: -> {} (schemaId='{}')", path.toStdString(),
+                recordingSchemaId.toStdString());
+    return true;
+}
+
+std::size_t MainWindow::autoStopRecording() {
+    if (sessionWriter_ == nullptr || !sessionWriter_->isRecording()) {
+        return 0;
+    }
+    const std::size_t eventsBeforeStop = sessionWriter_->eventsRecorded();
+    const std::size_t droppedBeforeStop = sessionWriter_->droppedEvents();
+    const std::size_t bytes = sessionWriter_->stop();
+    SF_LOG_INFO("MainWindow::autoStopRecording: stopped ({} bytes -> {}); events={} dropped={}", bytes,
+                currentRecordingPath_.toStdString(), eventsBeforeStop, droppedBeforeStop);
+    currentRecordingPath_.clear();
+    return bytes;
+}
+
+QImage MainWindow::grabChartImage() const {
+    if (chartContainer_ == nullptr) {
+        return {};
+    }
+    const auto widgets = chartContainer_->findChildren<QQuickWidget*>();
+    if (widgets.isEmpty()) {
+        SF_LOG_WARN("MainWindow::grabChartImage: no QQuickWidget children of chartContainer_");
+        return {};
+    }
+    auto* qqw = widgets.first();
+    SF_LOG_INFO("MainWindow::grabChartImage: QQuickWidget size={}x{} root={}", qqw->width(), qqw->height(),
+                qqw->rootObject() == nullptr ? "null" : "ok");
+    if (chartManager_ != nullptr) {
+        for (const auto& cid : chartManager_->chartIds()) {
+            auto* c = chartManager_->chart(cid);
+            if (c == nullptr) {
+                continue;
+            }
+            const auto sigs = c->visibleSignals();
+            const auto st = c->stats();
+            SF_LOG_INFO("MainWindow::grabChartImage: chart='{}' size={}x{} pos=({},{}) "
+                        "visible={} enabled={} opacity={} signals={} redraws={} dropped={}",
+                        cid.toStdString(), c->width(), c->height(), c->x(), c->y(), c->isVisible(), c->isEnabled(),
+                        c->opacity(), sigs.size(), st.totalRedraws, st.droppedFrames);
+            // Defensive: ensure visible + opacity 1 in case parent QML scene
+            // didn't propagate. Diagnostic only — won't change anything if
+            // already correct.
+            if (!c->isVisible() || c->opacity() < 0.99) {
+                c->setVisible(true);
+                c->setOpacity(1.0);
+                SF_LOG_INFO("MainWindow::grabChartImage: forced visible+opacity for chart '{}'", cid.toStdString());
+            }
+        }
+        if (signalBufferRegistry_ != nullptr) {
+            SF_LOG_INFO("MainWindow::grabChartImage: SignalBufferRegistry has {} signal id(s)",
+                        signalBufferRegistry_->signalIds().size());
+        }
+    }
+    // First, prefer grabFramebuffer() — it captures the QQuickWidget's
+    // RHI scene-graph output. Force a synchronous update + event
+    // processing pass so the most recent chart redraw lands in the
+    // framebuffer before we grab.
+    qqw->update();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+    QImage img = qqw->grabFramebuffer();
+    bool useFramebuffer = !img.isNull() && img.width() > 0 && img.height() > 0;
+    if (useFramebuffer) {
+        // Sanity-check: framebuffer must contain non-clear pixels OR we
+        // should not trust it (some platform plugins return a successful
+        // but stale/white image even when scene graph rendered).
+        // We always log the framebuffer count separately so the harness
+        // sees both paths.
+        std::uint64_t fbNonWhite = 0;
+        for (int y = 0; y < img.height(); ++y) {
+            for (int x = 0; x < img.width(); ++x) {
+                const QRgb px = img.pixel(x, y);
+                if (qRed(px) != 255 || qGreen(px) != 255 || qBlue(px) != 255) {
+                    ++fbNonWhite;
+                }
+            }
+        }
+        SF_LOG_INFO("MainWindow::grabChartImage: framebuffer path: non_white={} size={}x{}", fbNonWhite, img.width(),
+                    img.height());
+        if (fbNonWhite == 0) {
+            // Framebuffer returned all-white; fall through to QWidget::grab().
+            useFramebuffer = false;
+        }
+    }
+    if (!useFramebuffer) {
+        SF_LOG_INFO("MainWindow::grabChartImage: falling back to QWidget::grab()");
+        const QPixmap pm = qqw->grab();
+        img = pm.toImage();
+    }
+    return img;
+}
+
+// ---- existing private helpers ------------------------------------------
 
 QStringList MainWindow::enumerateAvailableSchemaIds() const {
     // Walk examples/schemas/*.yaml relative to the binary's
@@ -322,6 +532,13 @@ void MainWindow::rebuildChartWidgets() {
         // for qrc:/ URLs, so rootObject() is ready immediately.
         auto* hostWidget = new QQuickWidget(chartContainer_);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+        // QQuickWidget's default size policy is Preferred/Preferred and
+        // its sizeHint() can be invalid until a scene is loaded; under
+        // a QVBoxLayout that means the layout gives it 0 width even
+        // with a stretch factor. Force Expanding/Expanding so the
+        // layout fills the chart pane horizontally + vertically.
+        hostWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        hostWidget->setMinimumSize(1, 1);
         hostWidget->setSource(QUrl(QStringLiteral("qrc:/qml/ChartHost.qml")));
         if (hostWidget->status() != QQuickWidget::Ready) {
             SF_LOG_ERROR("MainWindow: ChartHost.qml failed to load (status={})",
@@ -336,6 +553,15 @@ void MainWindow::rebuildChartWidgets() {
             continue;
         }
         chart->setParentItem(root);
+        // ADR-011: bind Chart's geometry to the host scene root.
+        // QQuickWidget::SizeRootObjectToView keeps `root` matched to the
+        // widget; ChartHost.qml's anchors.fill keeps the QML scene matched
+        // to root. The C++ chart child does NOT inherit either — it lands
+        // at the QQuickItem default 0×0 unless we bind explicitly here.
+        const auto syncSize = [chart, root]() { chart->setSize(QSizeF(root->width(), root->height())); };
+        syncSize();
+        connect(root, &QQuickItem::widthChanged, chart, syncSize);
+        connect(root, &QQuickItem::heightChanged, chart, syncSize);
         chartLayout_->addWidget(hostWidget, 1);
     }
 }
@@ -414,6 +640,30 @@ void MainWindow::refreshStatusBar() {
     if (throttledLabel_ != nullptr) {
         throttledLabel_->setText(totalDropped > 0 ? tr("⚠ throttled") : QString{});
     }
+    // M14 F15: surface signal_buffer budget pressure to the user. Pre-fix
+    // the registry silently logged "registration rejected: would exceed
+    // budget" without any UI signal — operator could only tell the chart
+    // wasn't drawing some signals by reading the log file. Now the
+    // status bar shows the percentage utilized and flips to a warning
+    // tone above the 80 % soft threshold.
+    if (bufferBudgetLabel_ != nullptr && signalBufferRegistry_ != nullptr) {
+        const std::size_t used = signalBufferRegistry_->totalMemoryBytes();
+        const std::size_t budget = signalBufferRegistry_->totalBudgetBytes();
+        if (budget == 0) {
+            bufferBudgetLabel_->setText(QString{});
+        } else {
+            const int pct = static_cast<int>((100ULL * used) / budget);
+            QString text;
+            if (pct >= 100) {
+                text = tr("⚠ buffer FULL (%1 MiB / %2 MiB)").arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+            } else if (pct >= 80) {
+                text = tr("⚠ buffer %1%% (%2 / %3 MiB)").arg(pct).arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+            } else {
+                text = tr("buffer %1%% (%2 MiB)").arg(pct).arg(used / (1024 * 1024));
+            }
+            bufferBudgetLabel_->setText(text);
+        }
+    }
     if (signalSelector_ != nullptr) {
         signalSelector_->refresh();
     }
@@ -442,10 +692,9 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             event->ignore();
             return;
         }
-        // Detach + stop the writer.
-        if (teeSink_ != nullptr) {
-            teeSink_->removeSink(sessionWriter_.get());
-        }
+        // ADR-013 (F6): SessionWriter stays subscribed to TeeSink for the
+        // MainWindow lifetime; stop() flips state to Idle and writes the
+        // footer. No removeSink needed.
         (void)sessionWriter_->stop();
     }
     QMainWindow::closeEvent(event);
@@ -476,10 +725,9 @@ void MainWindow::onRecordToggle() {
         return;
     }
     if (sessionWriter_->isRecording()) {
-        // Stop path: detach from the tee then stop + close file.
-        if (teeSink_ != nullptr) {
-            teeSink_->removeSink(sessionWriter_.get());
-        }
+        // Stop path: stop + close file. ADR-013 (F6): SessionWriter stays
+        // subscribed to TeeSink across recording sessions; state gates
+        // file writes.
         const std::size_t bytes = sessionWriter_->stop();
         recordAction_->setText(tr("&Record…"));
         if (recordingStatusLabel_ != nullptr) {
@@ -496,13 +744,43 @@ void MainWindow::onRecordToggle() {
     if (path.isEmpty()) {
         return;
     }
-    if (!sessionWriter_->start(path)) {
+    // M14 F9: capture the active connection's decoderSchemaId in the
+    // recording's metadata header. SessionWriter::start already
+    // accepts a `decoderSchemaId` parameter (M10-frozen
+    // session_writer.hpp:89) but MainWindow never passed one — the
+    // recorded file's metadata field stayed empty, breaking M11
+    // schema-match validation when re-opening the recording later
+    // (audit run5 §F9).
+    //
+    // Selection rule: walk the connection list; pick the first
+    // Connected connection that has a non-empty decoderSchemaId.
+    // If multiple Connected drivers have schemas, last-Connected
+    // wins is acceptable for V1 (operator-driven recording —
+    // the operator can disconnect drivers they don't want
+    // associated with the file). V1.0.1 may add a UI for explicit
+    // selection.
+    QString recordingSchemaId;
+    if (connectionManager_ != nullptr) {
+        for (const auto& id : connectionManager_->connectionIds()) {
+            const auto* conn = connectionManager_->connection(id);
+            if (conn == nullptr) {
+                continue;
+            }
+            if (conn->state() != signalforge::connection::Connection::State::Connected) {
+                continue;
+            }
+            const QString& cfgSchema = conn->config().decoderSchemaId;
+            if (!cfgSchema.isEmpty()) {
+                recordingSchemaId = cfgSchema;
+            }
+        }
+    }
+    if (!sessionWriter_->start(path, /*description*/ QString{}, recordingSchemaId)) {
         QMessageBox::critical(this, tr("Recording failed"), tr("Could not start recording: see log for details."));
         return;
     }
-    if (teeSink_ != nullptr) {
-        teeSink_->addSink(sessionWriter_.get());
-    }
+    // ADR-013 (F6): SessionWriter is already subscribed to TeeSink at
+    // MainWindow ctor — no per-recording addSink needed.
     currentRecordingPath_ = path;
     recordAction_->setText(tr("&Stop recording"));
     if (recordingStatusLabel_ != nullptr) {
@@ -526,9 +804,9 @@ void MainWindow::onRecordingError(const QString& message) {
     if (recordAction_ != nullptr) {
         recordAction_->setText(tr("&Record…"));
     }
-    if (teeSink_ != nullptr && sessionWriter_ != nullptr) {
-        teeSink_->removeSink(sessionWriter_.get());
-    }
+    // ADR-013 (F6): SessionWriter stays subscribed to TeeSink across
+    // recording-error states; recording state has already flipped to
+    // Error inside the writer's worker-error connector. No removeSink.
     QMessageBox::critical(this, tr("Recording error"), message);
 }
 
@@ -540,6 +818,18 @@ void MainWindow::buildReplayUi() {
     openSessionAction_ = fileMenu->addAction(tr("&Open Session…"));
     openSessionAction_->setShortcut(QKeySequence(tr("Ctrl+O")));
     connect(openSessionAction_, &QAction::triggered, this, &MainWindow::onOpenSessionRequested);
+
+    // M14 F18: File → Quit (Ctrl+Q on Linux via QKeySequence::Quit).
+    // Pre-fix the only exit path was the window-X button; M13
+    // protocol §Test 9 ("Quit-while-recording prompt") could not be
+    // initiated via keyboard. close() routes through the existing
+    // closeEvent() handler so the recording-in-progress prompt + any
+    // future aboutToQuit-bound persistence still fires (ADR-013 F17
+    // defense-in-depth).
+    fileMenu->addSeparator();
+    auto* quitAction = fileMenu->addAction(tr("&Quit"));
+    quitAction->setShortcut(QKeySequence::Quit);
+    connect(quitAction, &QAction::triggered, this, &MainWindow::close);
 
     // Replay toolbar — initially hidden; visible only in Replay mode.
     replayToolbar_ = addToolBar(tr("Replay"));
@@ -587,6 +877,13 @@ void MainWindow::buildReplayUi() {
             &MainWindow::onReplayStateChanged);
     connect(playbackController_.get(), &signalforge::replay::PlaybackController::errorOccurred, this,
             &MainWindow::onReplayError);
+
+    // M14 F14: react to mode transitions so File→Open Session +
+    // Record action enabled-state stay consistent with the current
+    // mode (audit §F14). updateReplayActionStates re-reads
+    // replayModeManager_->currentMode() and updates both actions.
+    connect(replayModeManager_.get(), &signalforge::replay::ReplayModeManager::modeChanged, this,
+            [this](signalforge::replay::AppMode) { updateReplayActionStates(); });
 
     updateReplayActionStates();
 }
@@ -726,10 +1023,13 @@ void MainWindow::onReplayPositionChanged(std::int64_t timestampNs, std::size_t r
     }
     if (replayStatusLabel_ != nullptr && playbackController_ != nullptr) {
         const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
-        replayStatusLabel_->setText(tr("Replay: %1 | %2 / %3 ns | %4 / %5 records")
+        // M14 F12: relative-from-zero mm:ss.fff format per M11 §Test 4
+        // / §Test 5 (audit §F12). Pre-fix the formatter emitted raw
+        // nanoseconds which read like an absolute UTC timestamp.
+        replayStatusLabel_->setText(tr("Replay: %1 | %2 / %3 | %4 / %5 records")
                                         .arg(filename)
-                                        .arg(timestampNs)
-                                        .arg(playbackController_->durationNs())
+                                        .arg(formatReplayPosition(timestampNs))
+                                        .arg(formatReplayPosition(playbackController_->durationNs()))
                                         .arg(recordIndex)
                                         .arg(playbackController_->totalRecords()));
     }
@@ -761,8 +1061,14 @@ void MainWindow::updateReplayActionStates() {
     if (recordAction_ != nullptr) {
         recordAction_->setEnabled(!inReplay);
     }
-    if (openSessionAction_ != nullptr && sessionWriter_ != nullptr) {
-        openSessionAction_->setEnabled(!sessionWriter_->isRecording());
+    if (openSessionAction_ != nullptr) {
+        // M14 F14: also disable while already in Replay mode (audit
+        // §F14 — clicking Open Session in Replay otherwise produces an
+        // error popup; M11 §S8 expects the operator to use Exit Replay
+        // first). The `inReplay` guard layers on top of the existing
+        // record-in-progress guard.
+        const bool recording = (sessionWriter_ != nullptr && sessionWriter_->isRecording());
+        openSessionAction_->setEnabled(!recording && !inReplay);
     }
 }
 

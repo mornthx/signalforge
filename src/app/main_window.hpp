@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QImage>
 #include <QMainWindow>
+#include <QString>
 #include <memory>
 
 class QComboBox;
@@ -57,6 +59,38 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    // ---- M14 S1 GUI smoke-test hooks ------------------------------------
+    // These are non-frozen public helpers used by the
+    // `tests/integration/gui/release_binary_smoke.sh` harness via the
+    // `--auto-load-test-fixture` / `--auto-select-signal` /
+    // `--dump-chart-png-after-ms` CLI flags in `main.cpp`. They exercise
+    // already-public ConnectionManager / ChartManager APIs so the smoke
+    // path stays inside the production code path; only the orchestration
+    // glue lives here.
+
+    /// Load a connection-config YAML and connect every connection.
+    /// Returns false if the file is missing or the YAML is malformed.
+    [[nodiscard]] bool autoLoadTestFixture(const QString& yamlPath);
+
+    /// Add `signalId` to the first chart in `chartManager_`. Returns
+    /// false if no chart exists or the signal id is empty.
+    [[nodiscard]] bool autoSelectSignal(const QString& signalId);
+
+    /// Grab the first chart-hosting QQuickWidget's framebuffer as a
+    /// QImage. Returns a null QImage if no chart widget is laid out.
+    [[nodiscard]] QImage grabChartImage() const;
+
+    /// Programmatically start recording a session to `path`, reusing the
+    /// same active-connection schema-discovery rule as the GUI Record
+    /// menu (M14 F9). Returns false if a recording is already active or
+    /// if SessionWriter::start fails. Used by the M14 S6 mechanical
+    /// 18-test automation for T7 / T8 / T10 / T11.
+    [[nodiscard]] bool autoStartRecording(const QString& path);
+
+    /// Programmatically stop the active recording. Returns the byte
+    /// count written (0 if no active recording).
+    std::size_t autoStopRecording();
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
@@ -112,6 +146,7 @@ private:
     QLabel* fpsLabel_ = nullptr;
     QLabel* droppedLabel_ = nullptr;
     QLabel* throttledLabel_ = nullptr;
+    QLabel* bufferBudgetLabel_ = nullptr;  ///< M14 F15: signal_buffer budget usage
 
     // M9 connection UI.
     QDockWidget* connectionDock_ = nullptr;

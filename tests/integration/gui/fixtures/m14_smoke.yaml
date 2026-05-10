@@ -1,0 +1,28 @@
+schema_version: 1
+description: |
+  M14 S1 CI smoke-test fixture. Single UDP listener on 127.0.0.1:9998
+  decoded by the temperature_sensor schema. The
+  release_binary_smoke.sh harness drives this binding by sending
+  hand-crafted temperature_sensor frames to the local UDP port; the
+  signalforge binary is launched with
+    --auto-load-test-fixture <this file>
+    --auto-select-signal temperature
+    --dump-chart-png-after-ms 3000
+  and the harness asserts the chart QQuickWidget framebuffer ends up
+  with at least one non-clear pixel (Tier A) and the log file has no
+  known error patterns (Tier B).
+
+connections:
+  - id: m14-smoke-udp
+    displayName: "M14 smoke UDP"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9998
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []

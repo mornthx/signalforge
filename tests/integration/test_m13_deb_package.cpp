@@ -97,7 +97,9 @@ TEST_CASE("M13 S5: dpkg-deb --contents includes V1.0 docs + baselines", "[m13][s
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/docs/install.md")));
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/docs/v1.0-spec-list.md")));
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/docs/m13-hardware-verification.md")));
-    REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/docs/release-notes/v1.0.0.md")));
+    // V0.1 status summary supersedes the V1.0 release-notes that the
+    // V1.0-ship plan would have shipped (V0 charter defers V1.0).
+    REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/docs/v0.1-status-summary.md")));
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/docs/format/sfreplay-v1.md")));
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/benchmarks/results/M11-baseline.md")));
     REQUIRE(contents.contains(QStringLiteral("./opt/signalforge/benchmarks/results/M12-baseline.md")));
