@@ -250,6 +250,7 @@ int runMemorySoak(int durationSeconds, int snapshotSeconds) {
     const auto baseline = readVmRssKb();
     std::printf("{\"mode\":\"soak\",\"baseline_kb\":%lld,\"duration_s\":%d}\n", static_cast<long long>(baseline),
                 durationSeconds);
+    std::fflush(stdout);
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(durationSeconds);
     auto nextSnapshot = std::chrono::steady_clock::now() + std::chrono::seconds(snapshotSeconds);
@@ -275,6 +276,7 @@ int runMemorySoak(int durationSeconds, int snapshotSeconds) {
             const auto growth = (rss - baseline) * 100 / std::max<std::int64_t>(baseline, 1);
             std::printf("{\"mode\":\"soak\",\"rss_kb\":%lld,\"growth_pct\":%lld}\n", static_cast<long long>(rss),
                         static_cast<long long>(growth));
+            std::fflush(stdout);
             if (growth > 10) {
                 std::fprintf(stderr, "FAIL: VmRSS growth %lld%% > 10%% (HALT trigger H3)\n",
                              static_cast<long long>(growth));

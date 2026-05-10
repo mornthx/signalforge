@@ -40,6 +40,29 @@
 #include <QWindow>
 #include <unordered_map>
 
+namespace {
+
+// driverId convention: `<type>:<connectionId>` — DecoderRegistrar
+// splits on ':' and uses the prefix as its driver-type lookup key
+// (so "udp:conn-3" → "udp"). Mirrors the `driverTypeToYamlInternal`
+// helper in connection_manager.cpp's anonymous namespace.
+QString driverTypeName(signalforge::connection::DriverType t) {
+    using DT = signalforge::connection::DriverType;
+    switch (t) {
+    case DT::Serial:
+        return QStringLiteral("serial");
+    case DT::Tcp:
+        return QStringLiteral("tcp");
+    case DT::Udp:
+        return QStringLiteral("udp");
+    case DT::Replay:
+        return QStringLiteral("replay");
+    }
+    return QStringLiteral("unknown");
+}
+
+}  // namespace
+
 namespace signalforge::app {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -65,6 +88,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             pipelineManager_.get(), std::unordered_map<QString, QString>{}, std::move(sink), this);
     }
     connectionManager_ = std::make_unique<signalforge::connection::ConnectionManager>(*decoderRegistrar_, this);
+
+    // ADR-009: bridge ConnectionManager state transitions into
+    // PipelineManager attach/detach. Without this, no production
+    // code calls PipelineManager::attach(), pipelineAttached never
+    // fires, and DecoderRegistrar never builds a SchemaDecoder.
+    connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::connectionStateChanged, this,
+            [this](const QString& id, signalforge::connection::Connection::State state) {
+                auto* conn = connectionManager_->connection(id);
+                if (conn == nullptr || conn->driver() == nullptr) {
+                    return;
+                }
+                const QString driverId = driverTypeName(conn->config().driverType) + QStringLiteral(":") + id;
+                if (state == signalforge::connection::Connection::State::Connected) {
+                    signalforge::pipeline::PipelineConfig cfg;
+                    cfg.driverId = driverId;
+                    (void)pipelineManager_->attach(conn->driver(), cfg);
+                } else if (state == signalforge::connection::Connection::State::Idle ||
+                           state == signalforge::connection::Connection::State::Error) {
+                    pipelineManager_->detach(driverId);
+                }
+            });
 
     // Auto-load the persisted connection list. Missing file is
     // benign (first launch); ERROR-level parse failures degrade
@@ -272,9 +316,26 @@ void MainWindow::rebuildChartWidgets() {
         if (chart == nullptr) {
             continue;
         }
+        // ADR-010: load the QML host scene so QQuickWidget exposes a
+        // non-null rootObject(). Without it, setParentItem(nullptr)
+        // orphans Chart and nothing renders. setSource is synchronous
+        // for qrc:/ URLs, so rootObject() is ready immediately.
         auto* hostWidget = new QQuickWidget(chartContainer_);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
-        chart->setParentItem(hostWidget->rootObject());
+        hostWidget->setSource(QUrl(QStringLiteral("qrc:/qml/ChartHost.qml")));
+        if (hostWidget->status() != QQuickWidget::Ready) {
+            SF_LOG_ERROR("MainWindow: ChartHost.qml failed to load (status={})",
+                         static_cast<int>(hostWidget->status()));
+            hostWidget->deleteLater();
+            continue;
+        }
+        auto* root = hostWidget->rootObject();
+        if (root == nullptr) {
+            SF_LOG_ERROR("MainWindow: ChartHost.qml loaded but rootObject() is null");
+            hostWidget->deleteLater();
+            continue;
+        }
+        chart->setParentItem(root);
         chartLayout_->addWidget(hostWidget, 1);
     }
 }

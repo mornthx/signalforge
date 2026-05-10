@@ -43,6 +43,16 @@ void initializeCrashReporting() {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // ADR-010 S8.2: force the linker to retain qrc_qml.cpp.o from
+    // libsignalforge_app_ui.a. Static archives only pull in objects
+    // whose symbols are referenced; main.cpp otherwise references
+    // nothing in qrc_qml.cpp, so its file-scope static initializer
+    // (which registers ChartHost.qml at qrc:/qml/ChartHost.qml) was
+    // dropped — runtime setSource silently failed and the chart
+    // panel rendered blank. Q_INIT_RESOURCE forces retention by
+    // taking the address of the generated qInitResources_qml symbol.
+    Q_INIT_RESOURCE(qml);
+
     signalforge::observability::init_logging();
     SF_LOG_INFO("SignalForge starting (version={})", SIGNALFORGE_VERSION);
 

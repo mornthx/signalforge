@@ -375,3 +375,76 @@ target_link_libraries(test_m12_optimization_correctness
         signalforge_decoder
 )
 catch_discover_tests(test_m12_optimization_correctness DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_m13_release_artifacts
+    test_m13_release_artifacts.cpp
+)
+target_link_libraries(test_m13_release_artifacts
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+)
+target_compile_definitions(test_m13_release_artifacts
+    PRIVATE
+        SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
+)
+catch_discover_tests(test_m13_release_artifacts DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_v1_live_mode_pipeline
+    test_v1_live_mode_pipeline.cpp
+)
+target_link_libraries(test_v1_live_mode_pipeline
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Test
+        signalforge_connection
+        signalforge_decoder
+        signalforge_drivers
+        signalforge_pipeline
+        signalforge_buffer
+)
+target_compile_definitions(test_v1_live_mode_pipeline
+    PRIVATE
+        SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
+)
+catch_discover_tests(test_v1_live_mode_pipeline DISCOVERY_MODE PRE_TEST)
+
+# ADR-010 S8.2: smoke test that Q_INIT_RESOURCE(qml) actually reaches
+# ChartHost.qml. Linked against signalforge_app_ui so the qrc_qml.cpp.o
+# object is available to be retained by Q_INIT_RESOURCE.
+add_executable(test_m13_qrc_resources_smoke
+    test_m13_qrc_resources_smoke.cpp
+)
+target_link_libraries(test_m13_qrc_resources_smoke
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_app_ui
+)
+catch_discover_tests(test_m13_qrc_resources_smoke DISCOVERY_MODE PRE_TEST)
+
+add_executable(test_m13_deb_package
+    test_m13_deb_package.cpp
+)
+target_link_libraries(test_m13_deb_package
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+)
+target_compile_definitions(test_m13_deb_package
+    PRIVATE
+        SIGNALFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}"
+)
+# M13 S5: this test requires the .deb to be pre-built via
+# `cmake --build <build> --target package`. CI does not run
+# the package target by default, so SKIP-mode invocations
+# would return Catch2 v3.5+ exit code 4 (interpreted by ctest
+# as failure). The catch_discover_tests call below sets
+# SKIP_RETURN_CODE=4 so SKIPs are reported as "Skipped" rather
+# than "Failed". Operators who built the .deb locally see
+# all 8 cases pass.
+catch_discover_tests(test_m13_deb_package
+    DISCOVERY_MODE PRE_TEST
+    PROPERTIES SKIP_RETURN_CODE 4
+)

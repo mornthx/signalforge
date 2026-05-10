@@ -1,0 +1,8 @@
+[2026-05-09 11:27:29.122] [info] [session_writer.cpp:110] SessionWriter recording started: /tmp/bench_session_writer-XDgZJp/bench.sfreplay
+{"scenario":"session_soak","sec":30,"vmrss_kb":12560,"events_recorded":1800060,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":60,"vmrss_kb":12624,"events_recorded":3600060,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":90,"vmrss_kb":12624,"events_recorded":5400120,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":120,"vmrss_kb":12624,"events_recorded":7200180,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":150,"vmrss_kb":12624,"events_recorded":9000240,"bytes_written":0,"dropped":0}
+[2026-05-09 11:30:29.122] [info] [session_writer.cpp:141] SessionWriter recording stopped: /tmp/bench_session_writer-XDgZJp/bench.sfreplay (302402331 bytes)
+{"scenario":"session_summary","duration_seconds":180,"events_recorded":10800000,"events_per_sec":60000.0,"bytes_written":302402331,"bytes_per_sec":1680012.9,"dropped_events":0,"enqueue_p99_ns":11379,"enqueue_max_ns":84475,"vmrss_initial_kb":11716,"vmrss_baseline_kb":12624,"vmrss_final_kb":12812,"vmrss_growth_pct":1.489}

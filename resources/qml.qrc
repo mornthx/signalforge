@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/qml">
+    <!-- alias collapses the source-relative `qml/ChartHost.qml`
+         to plain `ChartHost.qml`; combined with prefix="/qml"
+         the resource lives at qrc:/qml/ChartHost.qml (matching
+         the setSource URL in MainWindow::rebuildChartWidgets).
+         Without the alias the resource registers at the
+         double-prefix path qrc:/qml/qml/ChartHost.qml. -->
+    <file alias="ChartHost.qml">qml/ChartHost.qml</file>
+  </qresource>
+</RCC>

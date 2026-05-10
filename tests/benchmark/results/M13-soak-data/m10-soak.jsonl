@@ -1,0 +1,10 @@
+[2026-05-09 11:11:46.730] [info] [session_writer.cpp:110] SessionWriter recording started: /tmp/bench_session_writer-LiFJtL/bench.sfreplay
+{"scenario":"session_soak","sec":30,"vmrss_kb":25724,"events_recorded":1800060,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":60,"vmrss_kb":39788,"events_recorded":3600120,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":90,"vmrss_kb":53852,"events_recorded":5400180,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":120,"vmrss_kb":67912,"events_recorded":7200180,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":150,"vmrss_kb":81976,"events_recorded":9000240,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":180,"vmrss_kb":96040,"events_recorded":10800300,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":210,"vmrss_kb":110292,"events_recorded":12600300,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":240,"vmrss_kb":124356,"events_recorded":14400360,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":270,"vmrss_kb":138420,"events_recorded":16200360,"bytes_written":0,"dropped":0}

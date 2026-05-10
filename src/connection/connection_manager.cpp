@@ -19,6 +19,49 @@
 
 namespace signalforge::connection {
 
+namespace {
+
+// ADR-008 helper. Maps a ConnectionConfig's driverType + decoderSchemaId
+// onto a `setSchemaForDriverType` call. Empty `decoderSchemaId` →
+// empty schemaPath (clears the registrar's map entry for this type).
+//
+// V1 schema-id-to-path convention: `examples/schemas/<id>.yaml`
+// (matches `MainWindow::enumerateAvailableSchemaIds`).
+QString driverTypeToYamlInternal(DriverType t) {
+    switch (t) {
+    case DriverType::Serial:
+        return QStringLiteral("serial");
+    case DriverType::Tcp:
+        return QStringLiteral("tcp");
+    case DriverType::Udp:
+        return QStringLiteral("udp");
+    case DriverType::Replay:
+        return QStringLiteral("replay");
+    }
+    return QStringLiteral("serial");
+}
+
+QString resolveSchemaPath(const QString& decoderSchemaId) {
+    if (decoderSchemaId.isEmpty()) {
+        return QString();
+    }
+    return QStringLiteral("examples/schemas/") + decoderSchemaId + QStringLiteral(".yaml");
+}
+
+// ADR-008 wire-up: map a ConnectionConfig onto a
+// `setSchemaForDriverType` call. Free helper in anonymous
+// namespace so we don't add a method to M9-frozen
+// ConnectionManager::* (ADR-008 only authorizes the additive
+// method on M5-frozen DecoderRegistrar).
+void applyDecoderSchemaForConfig(signalforge::decoder::DecoderRegistrar* registrar, const ConnectionConfig& cfg) {
+    if (registrar == nullptr) {
+        return;
+    }
+    registrar->setSchemaForDriverType(driverTypeToYamlInternal(cfg.driverType), resolveSchemaPath(cfg.decoderSchemaId));
+}
+
+}  // namespace
+
 ConnectionManager::ConnectionManager(signalforge::decoder::DecoderRegistrar& decoderRegistrar, QObject* parent)
     : QObject(parent), decoderRegistrar_(&decoderRegistrar) {}
 
@@ -42,6 +85,11 @@ QString ConnectionManager::addConnection(const ConnectionConfig& config) {
     const QString id = resolved.id;
     insertConnection(id, std::move(conn));
     wireConnection(id, ref);
+
+    // ADR-008: wire the per-connection decoderSchemaId to the
+    // DecoderRegistrar's runtime map so SchemaDecoder pipelines
+    // attach with the right schema.
+    applyDecoderSchemaForConfig(decoderRegistrar_, resolved);
 
     Q_EMIT connectionAdded(id);
     (void)autoSave();
@@ -68,6 +116,10 @@ bool ConnectionManager::editConnection(const QString& id, const ConnectionConfig
     // setConfig rebuilds the underlying driver but the Connection
     // QObject itself is the same — its stateChanged/errorOccurred
     // signals are still wired from addConnection().
+    // ADR-008: refresh the registrar's per-driver-type schema map
+    // so future pipelineAttached events for this driver type use
+    // the (possibly changed) decoderSchemaId.
+    applyDecoderSchemaForConfig(decoderRegistrar_, adjusted);
     (void)autoSave();
     return true;
 }
@@ -80,8 +132,17 @@ bool ConnectionManager::removeConnection(const QString& id) {
     if (it->second && it->second->state() != Connection::State::Idle) {
         return false;
     }
+    // ADR-008: capture the driver type before erasing so we can
+    // clear the registrar entry. (Per ADR §"Known limitations":
+    // if multiple connections of the same type exist, this clear
+    // removes the entry for all of them; survivors must be
+    // re-registered via edit.)
+    const auto removedType = it->second ? it->second->config().driverType : DriverType::Serial;
     connections_.erase(it);
     orderedIds_.removeAll(id);
+    if (decoderRegistrar_ != nullptr) {
+        decoderRegistrar_->setSchemaForDriverType(driverTypeToYamlInternal(removedType), QString());
+    }
     Q_EMIT connectionRemoved(id);
     (void)autoSave();
     return true;
@@ -416,6 +477,10 @@ bool ConnectionManager::loadConfigFile(const QString& path) {
         const QString id = cfg.id;
         insertConnection(id, std::move(conn));
         wireConnection(id, ref);
+        // ADR-008: each loaded connection wires its decoderSchemaId
+        // into the DecoderRegistrar's runtime map. For multi-conn-
+        // same-type, last-loaded-wins (per ADR known limitation).
+        applyDecoderSchemaForConfig(decoderRegistrar_, cfg);
         Q_EMIT connectionAdded(id);
     }
 

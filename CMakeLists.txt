@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
-project(SignalForge VERSION 0.0.1 LANGUAGES CXX)
+# M13: Version bumped to 1.0.0 for V1 release per spec §3.3 P.
+# Pre-M13 alpha tags (v0.0.0-alpha.1 .. v0.0.13-alpha.1) used 0.0.x;
+# v1.0.0 is the canonical V1 final tag.
+project(SignalForge VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,3 +47,12 @@ add_subdirectory(tools/expr_lint)
 add_subdirectory(tools/sfreplay_inspect)
 add_subdirectory(tools/profile)
 add_subdirectory(tests)
+
+# M13 S1: install rules + CPack DEB packaging for V1.0 release.
+# When CPack is run via `cmake --build <build> --target package`,
+# CMAKE_INSTALL_PREFIX defaults to /opt/signalforge per the cpack
+# config below. Absolute install paths (/usr/share/applications/,
+# /usr/share/icons/...) are honoured by CPack DEB's staging dir
+# logic.
+include(cmake/install.cmake)
+include(cmake/cpack-deb.cmake)

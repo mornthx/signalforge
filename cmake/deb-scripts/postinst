@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# cmake/deb-scripts/postinst
+#
+# M13 S2: SignalForge .deb post-install script.
+# Runs after dpkg unpacks files into /opt/signalforge/ +
+# /usr/share/applications/ + /usr/share/icons/...
+#
+# Responsibilities (per spec §4.2 + spec §3.4):
+#   1. Create /usr/local/bin/{signalforge,sfreplay_inspect} symlinks
+#      pointing into /opt/signalforge/bin/
+#   2. Refresh MIME database so .sfreplay files associate with the app
+#   3. Refresh icon cache (best-effort)
+#   4. Refresh desktop database (best-effort)
+#
+# All steps tolerate missing tools — they print a non-fatal note
+# and continue. The package is usable without them; they're polish.
+
+set -e
+
+BIN_DIR="/opt/signalforge/bin"
+SYMLINK_DIR="/usr/local/bin"
+
+# 1. Symlinks for command-line access.
+mkdir -p "${SYMLINK_DIR}"
+for cmd in signalforge sfreplay_inspect; do
+    src="${BIN_DIR}/${cmd}"
+    dst="${SYMLINK_DIR}/${cmd}"
+    if [ -x "${src}" ]; then
+        # Replace any existing symlink/file (idempotent on upgrade).
+        rm -f "${dst}"
+        ln -s "${src}" "${dst}"
+    fi
+done
+
+# 2. MIME database refresh — registers .sfreplay association.
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime/ 2>/dev/null || true
+fi
+
+# 3. Icon cache refresh.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor/ 2>/dev/null || true
+fi
+
+# 4. Desktop database refresh.
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications/ 2>/dev/null || true
+fi
+
+cat <<'EOF'
+
+SignalForge installed to /opt/signalforge/.
+Launch via:
+  - GUI: applications menu → "SignalForge"
+  - CLI: signalforge
+
+Documentation: /opt/signalforge/docs/
+Release notes: /opt/signalforge/docs/release-notes/v1.0.0.md
+
+For serial-port access you may need to add yourself to the
+dialout group:
+  sudo usermod -aG dialout $USER
+  (log out and back in for the change to take effect)
+
+EOF
+
+exit 0

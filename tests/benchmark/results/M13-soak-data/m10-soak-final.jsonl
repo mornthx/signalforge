@@ -1,0 +1,32 @@
+[2026-05-09 11:32:00.452] [info] [session_writer.cpp:110] SessionWriter recording started: /tmp/bench_session_writer-QHifFa/bench.sfreplay
+{"scenario":"session_soak","sec":60,"vmrss_kb":12572,"events_recorded":3600060,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":120,"vmrss_kb":12636,"events_recorded":7200120,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":180,"vmrss_kb":12636,"events_recorded":10800180,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":240,"vmrss_kb":12636,"events_recorded":14400180,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":300,"vmrss_kb":12636,"events_recorded":18000180,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":360,"vmrss_kb":12636,"events_recorded":21600240,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":420,"vmrss_kb":12636,"events_recorded":25200300,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":480,"vmrss_kb":12636,"events_recorded":28800300,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":540,"vmrss_kb":12636,"events_recorded":32400360,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":600,"vmrss_kb":12636,"events_recorded":36000420,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":660,"vmrss_kb":12636,"events_recorded":39600420,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":720,"vmrss_kb":12636,"events_recorded":43200420,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":780,"vmrss_kb":12636,"events_recorded":46800480,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":840,"vmrss_kb":12636,"events_recorded":50400480,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":900,"vmrss_kb":12636,"events_recorded":54000540,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":960,"vmrss_kb":12636,"events_recorded":57600540,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1020,"vmrss_kb":12636,"events_recorded":61200600,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1080,"vmrss_kb":12636,"events_recorded":64800600,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1140,"vmrss_kb":12636,"events_recorded":68400600,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1200,"vmrss_kb":12636,"events_recorded":72000600,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1260,"vmrss_kb":12636,"events_recorded":75600660,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1320,"vmrss_kb":12636,"events_recorded":79200720,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1380,"vmrss_kb":12636,"events_recorded":82800780,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1440,"vmrss_kb":12636,"events_recorded":86400780,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1500,"vmrss_kb":12636,"events_recorded":90000840,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1560,"vmrss_kb":12636,"events_recorded":93600840,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1620,"vmrss_kb":12636,"events_recorded":97200840,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1680,"vmrss_kb":12636,"events_recorded":100800900,"bytes_written":0,"dropped":0}
+{"scenario":"session_soak","sec":1740,"vmrss_kb":12636,"events_recorded":104400960,"bytes_written":0,"dropped":0}
+[2026-05-09 12:02:00.452] [info] [session_writer.cpp:141] SessionWriter recording stopped: /tmp/bench_session_writer-QHifFa/bench.sfreplay (3024002331 bytes)
+{"scenario":"session_summary","duration_seconds":1800,"events_recorded":108000000,"events_per_sec":60000.0,"bytes_written":3024002331,"bytes_per_sec":1680001.3,"dropped_events":0,"enqueue_p99_ns":11872,"enqueue_max_ns":98748,"vmrss_initial_kb":11728,"vmrss_baseline_kb":12636,"vmrss_final_kb":12824,"vmrss_growth_pct":1.488}

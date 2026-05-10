@@ -63,6 +63,27 @@ public:
     /// first `:`).  Returns an empty QString if the id has no `:`.
     [[nodiscard]] static QString driverTypeOf(const QString& driverId);
 
+    /// Update the schema path for a given driver type at runtime.
+    ///
+    /// Affects pipelines attached **after** this call; existing
+    /// decoders for `driverType` are NOT re-keyed (they continue to
+    /// serve their original schema until they detach). Empty
+    /// `schemaPath` removes the mapping (matches "no decoder for this
+    /// type" semantics from the M5 ctor map).
+    ///
+    /// Thread-safe — protected by the existing `decoderMutex_`.
+    ///
+    /// **Added in M13 S7 (ADR-008).** M5 spec §4.6 deferred the
+    /// per-connection schema selection mechanism to M9; M9
+    /// implemented the YAML persistence + dialog UI but did not wire
+    /// runtime updates. This method closes the gap. See
+    /// `docs/architecture/decisions/ADR-008-decoder-registrar-runtime-schema.md`.
+    ///
+    /// Known V1.0 limitation: the map is per-driver-type, not per-
+    /// connection-id. Multi-connection-same-type users see "last
+    /// config wins" for new pipeline attachments.
+    void setSchemaForDriverType(const QString& driverType, const QString& schemaPath);
+
 private slots:
     void onPipelineAttached(const QString& driverId, signalforge::pipeline::FramePipeline* pipeline);
     void onPipelineDetached(const QString& driverId);
