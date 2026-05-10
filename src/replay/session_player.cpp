@@ -293,8 +293,18 @@ void SessionPlayer::dispatchLoop() {
     // converges on the deadline without per-record drift
     // accumulation (M11 S4 used `sleep_for` per delta which lets
     // scheduler overshoot accumulate).
-    const auto playStart = std::chrono::steady_clock::now();
-    const std::int64_t playStartTsNs = prevTs;
+    //
+    // M14 F19: when setSpeed changes `speedFactor_` mid-playback,
+    // the original playStart anchor becomes stale (deadlines
+    // computed against it land in the past for speed-up, in the
+    // far future for slow-down). The loop now re-reads speed each
+    // iteration AND re-anchors playStart + playStartTsNs whenever
+    // the observed speed differs from `lastSpeed`. Pre-fix the
+    // operator had to Pause + re-Play to force a fresh anchor
+    // (audit run-6 §F19).
+    auto playStart = std::chrono::steady_clock::now();
+    std::int64_t playStartTsNs = prevTs;
+    double lastSpeed = speedFactor_.load(std::memory_order_acquire);
 
     while (playing_.load(std::memory_order_acquire)) {
         if (workerThread_ && workerThread_->isInterruptionRequested()) {
@@ -323,6 +333,14 @@ void SessionPlayer::dispatchLoop() {
         // Linux scheduler granularity makes shorter sleeps unreliable
         // and adds overhead without benefit.
         const double speed = speedFactor_.load(std::memory_order_acquire);
+        // M14 F19: re-anchor on speed change so the deadline is
+        // computed against the current wall-clock + current file
+        // position with the new speed scaling.
+        if (speed != lastSpeed) {
+            playStart = std::chrono::steady_clock::now();
+            playStartTsNs = currentPosNs_.load(std::memory_order_acquire);
+            lastSpeed = speed;
+        }
         const std::int64_t fileOffsetNs = rec.timestampNs - playStartTsNs;
         const std::int64_t scaledOffsetNs = static_cast<std::int64_t>(static_cast<double>(fileOffsetNs) / speed);
         const auto deadline = playStart + std::chrono::nanoseconds{scaledOffsetNs};
