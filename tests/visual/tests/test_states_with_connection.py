@@ -70,3 +70,8 @@ def test_connected_state_optional_description():
     assert len(desc["connections"]) >= 1, desc
     for c in desc["connections"]:
         assert c["state"], c
+
+
+if __name__ == "__main__":
+    from lib.runner import run_tests
+    run_tests(globals())

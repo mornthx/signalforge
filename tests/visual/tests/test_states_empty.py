@@ -108,3 +108,8 @@ def test_empty_launch_optional_description():
     assert desc["dialogs_open"] == [], desc
     assert desc["errors_visible"] == [], desc
     assert desc["chart_contents"]["lines_visible"] is False, desc
+
+
+if __name__ == "__main__":
+    from lib.runner import run_tests
+    run_tests(globals())

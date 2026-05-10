@@ -85,3 +85,8 @@ def test_chart_with_signal_optional_description():
     # is implicit — vision-LLM widget enumeration would surface
     # signal_selector in widgets_visible.
     assert "signal_selector" in desc["widgets_visible"], desc
+
+
+if __name__ == "__main__":
+    from lib.runner import run_tests
+    run_tests(globals())
