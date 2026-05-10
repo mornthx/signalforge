@@ -17,7 +17,7 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 | S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | done | `2fe5034` | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
 | S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | done | `d82d630` | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
 | S2 | Vision-LLM integration | done | `ae2e453` (+ S2 fixes `f5db33f`, `1b7db01`, `671c865`) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
-| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress | Round 1 `e94a656`, Round 2 `03d929d`, V0.3 hand-off `8266e4c`, Round 3 `f797918`, Round 4 `9e7ec30`, Round 5 (this commit) | Round 1: 6 captures (00, 04, 05, 14, 15, 33). Round 2: 3 more (02, 12 PASS; 13 FLAKY 0.999 %). Multi-chart 01/36/37 deferred to V0.3 per operator decision A. Round 3: 4 replay captures (17, 18, 19, 20) via autoLoadReplaySession + autoReplayPlay/SeekPercent + bootstrapped session fixture. Round 4: 6 menu/dialog captures (24, 25, 26, 30, 31, 32) via captureFullScreen + autoOpenMenu + autoShow{Add,Edit}ConnectionDialog. Round 5: 1 more (21-replay-speed-5x) via autoReplaySpeedComboPopup. **20 / 38 captured (19 PASS + 1 FLAKY)**, 3 deferred-V0.3, 15 operator-manual. |
+| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | fidelity-audited | Rounds 1–6 (this commit closes R6) | 20 captured + fidelity-audited. Round 6 fixed (a) failures uncovered by operator's local PNG review: autoStartRecording/autoStopRecording now mirror the production onRecordToggle status-label updates (states 14, 15 now distinct); autoReplaySeekPercent now manually updates replaySeekSlider_ + replayStatusLabel_ since seek() doesn't emit positionChanged on its own (states 19, 20); replay-state launch_args now include --auto-select-signal so 17–20 have signal-selected state visible; state 18 capture-after-ms timing tuned so capture lands during the Playing window. **Final fidelity classification**: PASS=18, FAIL-b (V1 GUI gap)=1, FAIL-c (capture-mechanism)=1, DEFERRED-V0.3 (multi-chart)=3, operator-manual=15. |
 | S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |
 | S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | done | `b55203e` | `.github/workflows/ci.yml` uploads `tests/screenshots/**` as `visual-screenshots-<preset>` artifact (14 day retention) on every run via `if: always()`. `tests/visual/README.md` documents add-test workflow, baseline accept loop, local-only vision-LLM hybrid. Pixel-diff gate validated locally: absent baseline → matched, identical → 0%, regressions caught at strict thresholds. C7 verified: zero `secrets.*` references, no API key in CI. `accept-baseline.sh` already shipped in S1. CI run `25634337073` green (11m25s, all 3 presets). **Order-violation note**: S5 was executed before S3 post-compaction; per operator feedback (`feedback_plan_ordering.md`), plan ordering is the source of truth — re-read M15-plan before picking next subtask. |
 | S6 | CC autonomy demonstration | not started | — | End-to-end self-test |
@@ -125,7 +125,7 @@ tolerance.
 | 02 | conn-udp-idle | C | 2 | PASS | 0.000 % — `autoLoadFixtureNoConnect` primitive (Round 2) |
 | 03 | conn-udp-connecting | manual | — | SKIP | UDP bind ≈ instant; transient state not observable under headless capture. Operator-manual. |
 | 04 | conn-udp-connected | C | 1 | PASS | 0.000 % |
-| 05 | conn-udp-with-signal | C | 1 | PASS | 0.002 % |
+| 05 | conn-udp-with-signal | C | 1 | FAIL (c) | Signal `temperature` checked ✓; chart pane present but no line — software-RHI cannot rasterize 1-px QSGGeometryNode line strips per ADR-010. Capture-mechanism limit; deferred V0.3 hardware-RHI baseline pass. |
 | 06 | conn-udp-disconnecting | manual | — | SKIP | Transient; same constraint as 03. |
 | 07 | conn-udp-error | manual | — | SKIP | Needs intentional bind-fail (port already bound) or driver fault injection. Operator-manual or Round 4 fault-injection fixture. |
 | 08 | conn-serial-idle | manual | — | SKIP | Hardware required (or socat virtual pty extension). Out-of-scope for headless CI; operator-manual. |
@@ -134,13 +134,13 @@ tolerance.
 | 11 | conn-tcp-connected | manual | — | SKIP | Same constraint as 10. |
 | 12 | multi-2-drivers | C | 2 | PASS | 0.002 % — `m15_multi_2.yaml` fixture (Round 2) |
 | 13 | multi-5-drivers | C | 2 | FLAKY | 0.999 % — `m15_multi_5.yaml` fixture (Round 2). Operator review: signal-selector layout under software-RHI varies slightly run-to-run; flagged for tighter capture timing or layout-stabilisation pass. |
-| 14 | recording-active | C | 1 | PASS | 0.002 % |
-| 15 | recording-stopped | C | 1 | PASS | 0.002 % |
+| 14 | recording-active | C | 1 + R6 | PASS | R1 stable but state-bar absent; R6 fix: `autoStartRecording` now sets `recordingStatusLabel_` ✓ |
+| 15 | recording-stopped | C | 1 + R6 | PASS | R6 fix: `autoStopRecording` shows `Stopped (849 bytes)` ✓ |
 | 16 | replay-open-dialog | B | 4 | PENDING | modal QFileDialog; needs full-screen grab + slot trigger |
-| 17 | replay-loaded | C | 3 | PASS | 0.000 % — `autoLoadReplaySession` primitive + bootstrapped fixture (`m15-replay-fixture.sfreplay`, 849 B) |
-| 18 | replay-playing | C | 3 | PASS | 0.000 % — `autoReplayPlay` primitive; play fires 500 ms post-load |
-| 19 | replay-scrubber-mid | C | 3 | PASS | 0.002 % — `autoReplaySeekPercent(50)` primitive |
-| 20 | replay-end | C | 3 | PASS | 0.002 % — `autoReplaySeekPercent(100)` primitive |
+| 17 | replay-loaded | C | 3 + R6 | PASS | R6 fix: `--auto-select-signal` added so replay-mode chart subscriber visible. Chart line absent (ADR-010 software-RHI limit) — same (c) constraint as 05. |
+| 18 | replay-playing | C | 3 + R6 | FAIL (b) | R6 timing fix: play at 2000 ms so capture lands during Playing window. Backend state IS Playing at capture time, but production GUI doesn't visually distinguish Playing from Paused beyond chart updates (which need hardware-RHI). V1 UX gap deferred V0.3. |
+| 19 | replay-scrubber-mid | C | 3 + R6 | PASS | R6 fix: `autoReplaySeekPercent` now manually updates `replaySeekSlider_` + `replayStatusLabel_` (`seek()` doesn't emit positionChanged on its own). Status bar shows `seek 50 %%`. |
+| 20 | replay-end | C | 3 + R6 | PASS | R6 fix; status `seek 100 %%` distinct from 19. |
 | 21 | replay-speed-5x | C-fullscreen | 5 | PASS | 0.000 % — `autoReplaySpeedComboPopup(3)` (3=5×) + `QScreen::grabWindow(0)` |
 | 22 | mode-live-to-replay | B | 4 | PENDING | modal confirm; needs sequence trigger |
 | 23 | mode-replay-to-live | B | 4 | PENDING | modal 3-option; needs replay-loaded prerequisite + sequence trigger |
@@ -172,6 +172,61 @@ tolerance.
 - **Specialised modal flows (3)**: 16 replay-open-dialog (modal QFileDialog — would need a non-modal show variant or xdotool keystroke), 22 mode-live-to-replay / 23 mode-replay-to-live (sequence-triggered confirm dialogs). Each needs a custom slot-trigger + non-modal show or xdotool keystroke; V0.3 work.
 
 S3 closes at 20/38 captured + 3 deferred-V0.3 + 15 operator-manual.
+
+### Fidelity audit results (post Round 6)
+
+Operator-requested vision audit of each captured PNG via CC's
+multimodal Read tool against the C3 documented expected state.
+4 categorical findings surfaced (replay chart empty, recording
+state-bar absent, multi-driver verification, missing chart
+waveforms) drove Round 6 fixture/primitive fixes. Final
+per-baseline classification:
+
+| State | Class | Read-tool finding |
+|---|---|---|
+| 00-empty-launch | PASS | Empty connections panel; signal selector empty; status `0/0 connected | Idle`. |
+| 02-conn-udp-idle | PASS | Connections panel: `M14 smoke UDP [UDP] — Idle`; status `0/1 connected | Idle`. |
+| 04-conn-udp-connected | PASS | `M14 smoke UDP [UDP] — Connected`; signal-selector tree populated (8 signals, none checked); `1/1 connected`. |
+| 05-conn-udp-with-signal | FAIL (c) | Signal `temperature` checkbox checked ✓; chart pane present but no line — software-RHI cannot rasterize 1-px QSGGeometryNode line strips per ADR-010 §"Implementation lesson"; deferred V0.3 hardware-RHI baseline pass. |
+| 12-multi-2-drivers | PASS | 2 connection rows `M15 multi-2 A/B [UDP] — Connected`; 2 driver subtrees in signal selector; `2/2 connected`. |
+| 13-multi-5-drivers | PASS-FLAKY | 5 connection rows A–E all Connected; 5 driver subtrees (4 visible, scroll for 5th); `5/5 connected`. Stability diff 0.999 % between runs (signal-selector layout reflow at boundary); content correct, layout jitter. |
+| 14-recording-active | PASS (R6) | After R6 fix: status bar `● Recording: m15-baseline-rec.sf (0 bytes)` ✓. (0 bytes is correct: capture script doesn't feed UDP traffic into the recording, so the GUI reflects an empty active recording.) |
+| 15-recording-stopped | PASS (R6) | After R6 fix: status bar `Stopped (849 bytes)` ✓. Distinct from 14. |
+| 17-replay-loaded | PASS (R6) | After R6 fix: replay toolbar visible (Play/Step/Step ▶/scrubber/1×/Exit Replay); signal-selector tree populated from replay catalog; `temperature` checkbox checked; status `Replay: m15-replay-fixture.sfreplay`. Chart line not visible (ADR-010 software-RHI limit — same (c) as 05; signal-selected state IS visible in tree). |
+| 18-replay-playing | FAIL (b) | Signal selected ✓ (R6); state at capture time IS Playing per backend; production GUI does not visually distinguish Playing from Paused beyond chart-line updates (which require hardware-RHI). V1 UX gap: Play button doesn't toggle to Pause icon; no playback indicator. Deferred V0.3 — recommended fix: Play button toggles label/icon based on PlaybackState. |
+| 19-replay-scrubber-mid | PASS (R6) | After R6 fix: status bar shows `Replay: m15-replay-fixture.sfreplay | seek 50 %% | 0 / 0 records` ✓. Scrubber slider visual position lags because `playbackController_->totalRecords()` returns 0 in this fixture (catalog-only session; small-record-count edge case); status text is the authoritative state indicator. |
+| 20-replay-end | PASS (R6) | After R6 fix: status `seek 100 %%`. Distinct from 19. |
+| 21-replay-speed-5x | PASS | Replay loaded; signal-selector populated; speed combo OPEN with `5×` highlighted in orange; toolbar shows `Exit Replay`. |
+| 24-dialog-add-serial | PASS | Modal dialog: Display name (empty), Decoder schema, Auto-connect on startup, Driver type=`Serial`, Device=`/dev/ttyS0`, Baud rate=115200, Data bits=8, Parity=none, Stop bits=1, Flow control=none, Auto-connect commands section, Test connection / OK / Cancel. |
+| 25-dialog-add-udp | PASS | Same dialog with Driver type=`UDP`; UDP fields visible: Local bind address=0.0.0.0, Local bind port=0, Remote host=(empty: receive-only), Remote port=0, Multicast group/TTL. |
+| 26-dialog-edit | PASS | Same dialog pre-filled with M14 smoke values: Display name=`M14 smoke UDP`, Decoder schema=`temperature_sensor`, Driver type=`UDP`, Local bind address=`127.0.0.1`, Local bind port=`9998`. |
+| 30-menu-file-open | PASS | File menu open: `Open Session… Ctrl+O` / `Quit Ctrl+Q`. |
+| 31-menu-connections-open | PASS | Connections menu open: `Add… Ctrl+M` / `Connect all` / `Disconnect all`. |
+| 32-menu-session-open | PASS | Session menu open: `Record… Ctrl+R`. |
+| 33-status-buffer-normal | PASS | Status bar `buffer 3%% (8 MiB)` — < 80 % threshold ✓. Note: production GUI does not currently color-code buffer pressure; V0.3 input — visual differentiation between normal / warn / full would aid operators. |
+
+**V0.2 acceptance summary**:
+
+- **PASS = 18** (0/0/02/04/12/13-flaky/14/15/17/19/20/21/24/25/26/30/31/32/33). Operator can run `scripts/accept-baseline.sh <state>` to promote each.
+- **FAIL (b) V1 GUI gap = 1** (18-replay-playing): Play button does not toggle on PlaybackState transitions; deferred V0.3 widget-rebuild.
+- **FAIL (c) capture-mechanism = 1** (05-conn-udp-with-signal): chart-line absent under software-RHI (ADR-010); V0.3 to add hardware-RHI baseline pass.
+- **DEFERRED-V0.3 multi-chart segfault = 3** (01, 36, 37) per `HALT-20260510T172100Z`.
+- **Operator-manual residual = 15** (transient ConnectionState / hardware Serial+TCP / extreme buffer-pressure / fault-injection error states / specialised modal flows).
+
+**Total V0.3 hand-off backlog**: 1 (b) + 1 (c) + 3 multi-chart + 15 operator-manual = **20 of 38** for V0.3 capture-or-redesign.
+
+### V1 UX gap inventory (S7 design input)
+
+Discovered during fidelity audit; tracked here for the V0.3 (M16+) UX-rebuild design pass:
+
+1. **`buffer 0%%` / `seek 50 %%` double-percent encoding** — `tr("buffer %1%%").arg(...)` and analogous strings emit literal `%%`. Status bar reads `buffer 3%% (8 MiB)` instead of `buffer 3% (8 MiB)`. Consistent across status/replay labels. Trivial fix — change `%1%%` → `%1 %`. (Operator catalogued earlier; reconfirmed visible in 14 / 15 / 33 / 19 / 20.)
+2. **Buffer pressure not color-coded** — same numeric text shown for 3 % / 80 % / 100 %; operator must read the digits. V0.3: green/yellow/red coding + threshold lines on the buffer indicator.
+3. **Play button does not toggle on PlaybackState** — same `Play` label whether state = Loaded / Paused / Playing / Ended. Operators rely on chart-line motion to infer state; under software-RHI no chart updates exist. V0.3: toggle to `Pause` when Playing, `Replay` when Ended; or use a dedicated state badge.
+4. **Auto-connect on startup combo "currently has no effect"** — verbatim help text in connection-dialog says the field has no effect, yet the field is present and editable. V0.3: either remove the field or implement honour for it.
+5. **Replay status text on seek shows `0 / 0 records`** — `playbackController_->totalRecords()` returns 0 for catalog-only sessions or small-fixture edge cases; status label exposes this raw count. V0.3: defer the records text until a meaningful value is available, OR show `seek 50 %` without the records suffix when count is 0.
+6. **Replay seek slider does not visually move on programmatic seek** — `seek()` updates internal position but does not emit `positionChanged` (only dispatched records emit), so `replaySeekSlider_` setValue is bypassed. Workaround landed in Round 6 for the test path, but production replay-API users hitting `seek()` programmatically would observe the same inconsistency. V0.3: emit a `positionChanged(target_ns, target_idx)` from inside `seek()` after success.
+7. **Default Driver type in Connection dialog = Serial** — first-launch operators on UDP-heavy embedded workflows always have to change the dropdown. V0.3: drive default from the most-recently-used driver type, or detect Serial device presence to pick a sensible default.
+8. **`Auto-connect commands` UI is busy-by-default** — the dialog reserves ~30 % vertical space for an auto-connect-commands editor that's empty in 90 % of operator workflows. V0.3: collapse by default behind an "Advanced" disclosure.
 
 ### Review path (canonical vs convenience archive)
 

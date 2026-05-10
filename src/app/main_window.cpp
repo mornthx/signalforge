@@ -351,6 +351,16 @@ bool MainWindow::autoStartRecording(const QString& path) {
         return false;
     }
     currentRecordingPath_ = path;
+    // M15 S3 Round 6: mirror the production onRecordToggle UI updates
+    // so the GUI reflects the recording state in headless capture (the
+    // S3 fidelity audit found state-14 / state-15 captures looked
+    // identical to state-05 because these UI updates were skipped).
+    if (recordingStatusLabel_ != nullptr) {
+        recordingStatusLabel_->setText(tr("● Recording: %1 (0 bytes)").arg(QFileInfo(path).fileName()));
+    }
+    if (recordAction_ != nullptr) {
+        recordAction_->setText(tr("&Stop recording"));
+    }
     SF_LOG_INFO("MainWindow::autoStartRecording: -> {} (schemaId='{}')", path.toStdString(),
                 recordingSchemaId.toStdString());
     return true;
@@ -363,6 +373,13 @@ std::size_t MainWindow::autoStopRecording() {
     const std::size_t eventsBeforeStop = sessionWriter_->eventsRecorded();
     const std::size_t droppedBeforeStop = sessionWriter_->droppedEvents();
     const std::size_t bytes = sessionWriter_->stop();
+    // M15 S3 Round 6: mirror the production onRecordToggle UI updates.
+    if (recordingStatusLabel_ != nullptr) {
+        recordingStatusLabel_->setText(tr("Stopped (%1 bytes)").arg(bytes));
+    }
+    if (recordAction_ != nullptr) {
+        recordAction_->setText(tr("&Record…"));
+    }
     SF_LOG_INFO("MainWindow::autoStopRecording: stopped ({} bytes -> {}); events={} dropped={}", bytes,
                 currentRecordingPath_.toStdString(), eventsBeforeStop, droppedBeforeStop);
     currentRecordingPath_.clear();
@@ -533,7 +550,36 @@ bool MainWindow::autoReplaySeekPercent(int percent) {
     }
     const auto duration = playbackController_->durationNs();
     const auto target = (duration * percent) / 100;
-    return playbackController_->seek(target);
+    if (!playbackController_->seek(target)) {
+        return false;
+    }
+    // M15 S3 Round 6: PlaybackController::seek() does not emit
+    // positionChanged on its own (positionChanged fires only from
+    // dispatched records during play / step). Without an explicit
+    // GUI update, the seek slider stays at 0 and the replay status
+    // label shows only the filename — making seek-state captures
+    // (states 19, 20) visually indistinguishable from the loaded
+    // state. Mirror what onReplayPositionChanged does so the
+    // headless screenshot reflects the seeked position.
+    if (replaySeekSlider_ != nullptr) {
+        const auto totalRecords = static_cast<int>(playbackController_->totalRecords());
+        if (totalRecords > 0) {
+            const int sliderValue = (totalRecords * percent) / 100;
+            replaySliderUserDriven_ = false;
+            replaySeekSlider_->setValue(sliderValue);
+            replaySliderUserDriven_ = true;
+        }
+    }
+    if (replayStatusLabel_ != nullptr) {
+        const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
+        const auto recordIndex = (playbackController_->totalRecords() * static_cast<std::size_t>(percent)) / 100;
+        replayStatusLabel_->setText(tr("Replay: %1 | seek %2 %% | %3 / %4 records")
+                                        .arg(filename)
+                                        .arg(percent)
+                                        .arg(recordIndex)
+                                        .arg(playbackController_->totalRecords()));
+    }
+    return true;
 }
 
 std::size_t MainWindow::autoAddCharts(int extra) {
