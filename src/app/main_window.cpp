@@ -700,6 +700,18 @@ void MainWindow::buildReplayUi() {
     openSessionAction_->setShortcut(QKeySequence(tr("Ctrl+O")));
     connect(openSessionAction_, &QAction::triggered, this, &MainWindow::onOpenSessionRequested);
 
+    // M14 F18: File → Quit (Ctrl+Q on Linux via QKeySequence::Quit).
+    // Pre-fix the only exit path was the window-X button; M13
+    // protocol §Test 9 ("Quit-while-recording prompt") could not be
+    // initiated via keyboard. close() routes through the existing
+    // closeEvent() handler so the recording-in-progress prompt + any
+    // future aboutToQuit-bound persistence still fires (ADR-013 F17
+    // defense-in-depth).
+    fileMenu->addSeparator();
+    auto* quitAction = fileMenu->addAction(tr("&Quit"));
+    quitAction->setShortcut(QKeySequence::Quit);
+    connect(quitAction, &QAction::triggered, this, &MainWindow::close);
+
     // Replay toolbar — initially hidden; visible only in Replay mode.
     replayToolbar_ = addToolBar(tr("Replay"));
     replayToolbar_->setMovable(false);
