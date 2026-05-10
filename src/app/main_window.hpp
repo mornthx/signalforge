@@ -143,6 +143,45 @@ public:
     /// input or null playback controller.
     [[nodiscard]] bool autoReplaySeekPercent(int percent);
 
+    /// M15 S3 Round 4: capture the full primary screen (xvfb
+    /// framebuffer in CI; user's monitor when run directly) as
+    /// a PNG at ``path``. Uses ``QScreen::grabWindow(0)`` so the
+    /// capture includes top-level windows that are not children
+    /// of MainWindow (e.g. open menus, modal dialogs). Distinct
+    /// from ``captureScreenshot`` which grabs MainWindow only.
+    /// Returns false if the path is empty, no primary screen is
+    /// available, or the save fails.
+    [[nodiscard]] bool captureFullScreen(const QString& path);
+
+    /// M15 S3 Round 4: programmatically open one of the
+    /// MainWindow's menu-bar menus by display name (e.g.
+    /// ``"File"``, ``"Connections"``, ``"Session"``). Match is
+    /// case-insensitive, ignoring ``&`` mnemonics. Returns false
+    /// if the menu cannot be located or has no associated QMenu.
+    /// Used to capture menu-open visual baselines (M15-concerns
+    /// C3 §30–§32). Pairs with ``captureFullScreen`` since the
+    /// menu popup is a separate top-level window.
+    [[nodiscard]] bool autoOpenMenu(const QString& name);
+
+    /// M15 S3 Round 4: programmatically show the connection-add
+    /// dialog non-modally so it can be captured under
+    /// mechanism-B. Differs from the production
+    /// ``onAddConnectionRequested`` slot which uses ``exec()``
+    /// (blocks the event loop) — this path uses ``show()``
+    /// + ``WA_DeleteOnClose`` so the screenshot QTimer can fire
+    /// in the regular event loop. Used for M15-concerns C3
+    /// §24–§25. ``driverType`` accepts ``"serial"`` / ``"udp"``
+    /// / ``"tcp"`` / ``"replay"`` (case-insensitive); empty
+    /// string leaves the driver-type combo at its default.
+    /// Returns false if the dialog cannot be created.
+    [[nodiscard]] bool autoShowAddConnectionDialog(const QString& driverType = QString());
+
+    /// M15 S3 Round 4: same as ``autoShowAddConnectionDialog``
+    /// but for the connection-edit flow. Picks the first
+    /// connection in the registry; returns false if there is no
+    /// connection to edit. Pairs with M15-concerns C3 §26.
+    [[nodiscard]] bool autoShowEditConnectionDialog();
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

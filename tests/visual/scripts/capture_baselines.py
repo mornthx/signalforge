@@ -134,6 +134,12 @@ class StateSpec:
     note: str = ""
     """Free-form note surfaced in the report."""
 
+    fullscreen: bool = False
+    """When True, pass `--capture-fullscreen-*` flags (Round 4
+    full-screen grab via QScreen::grabWindow) instead of the
+    default `--capture-screenshot-*` (MainWindow QWidget::grab).
+    Required for menu / modal-dialog captures."""
+
 
 @dataclass
 class StateReport:
@@ -372,21 +378,44 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         ),
         StateSpec(
             name="24-dialog-add-serial",
-            description="Connection-add dialog, Serial driver type selected",
-            mechanism="manual",
-            note="Needs --auto-open-add-conn-dialog=serial flag + B mechanism for the modal.",
+            description="Connection-add dialog with Serial driver type pre-selected",
+            mechanism="C",
+            launch_args=[
+                "--auto-open-dialog", "add",
+                "--auto-open-dialog-driver", "serial",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 4 primitive `autoShowAddConnectionDialog(\"serial\")` (non-modal show() + setDriverType); fullscreen grab via QScreen::grabWindow(0).",
         ),
         StateSpec(
             name="25-dialog-add-udp",
-            description="Connection-add dialog, UDP driver type selected",
-            mechanism="manual",
-            note="Same as 24 but UDP-typed.",
+            description="Connection-add dialog with UDP driver type pre-selected",
+            mechanism="C",
+            launch_args=[
+                "--auto-open-dialog", "add",
+                "--auto-open-dialog-driver", "udp",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 4 primitive `autoShowAddConnectionDialog(\"udp\")`.",
         ),
         StateSpec(
             name="26-dialog-edit",
-            description="Connection-edit dialog",
-            mechanism="manual",
-            note="Needs --auto-open-edit-conn-dialog flag + existing connection.",
+            description="Connection-edit dialog populated from existing connection",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-test-fixture",
+                "tests/integration/gui/fixtures/m14_smoke.yaml",
+                "--auto-open-dialog",
+                "edit",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 4 primitive `autoShowEditConnectionDialog` (non-modal show()); requires fixture-loaded connection.",
         ),
         StateSpec(
             name="27-dialog-quit-recording",
@@ -409,20 +438,32 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="30-menu-file-open",
             description="File menu open",
-            mechanism="manual",
-            note="Menu popup is a separate top-level window; mechanism C grabs the MainWindow only. Needs B (full screen) + xdotool key 'Alt+F'.",
+            mechanism="C",
+            launch_args=["--auto-open-menu", "File"],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 4 primitive `autoOpenMenu(\"File\")` + QScreen::grabWindow(0).",
         ),
         StateSpec(
             name="31-menu-connections-open",
             description="Connections menu open",
-            mechanism="manual",
-            note="Same as 30; B mechanism + xdotool.",
+            mechanism="C",
+            launch_args=["--auto-open-menu", "Connections"],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 4 primitive `autoOpenMenu(\"Connections\")` + QScreen::grabWindow(0).",
         ),
         StateSpec(
             name="32-menu-session-open",
             description="Session menu open",
-            mechanism="manual",
-            note="Same as 30; B mechanism + xdotool.",
+            mechanism="C",
+            launch_args=["--auto-open-menu", "Session"],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 4 primitive `autoOpenMenu(\"Session\")` + QScreen::grabWindow(0).",
         ),
         StateSpec(
             name="33-status-buffer-normal",
@@ -501,6 +542,7 @@ def capture_state_with_stability(spec: StateSpec, runs: int = 3) -> StateReport:
                 exit_after_ms=spec.exit_after_ms,
                 timeout_s=spec.timeout_s,
                 mechanism="C",
+                fullscreen=spec.fullscreen,
             )
             if not res.exists():
                 return StateReport(spec=spec, status="ERROR",

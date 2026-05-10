@@ -25,12 +25,15 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QScreen>
 #include <QSlider>
 #include <QSplitter>
 #include <QStatusBar>
@@ -375,6 +378,100 @@ bool MainWindow::autoLoadFixtureNoConnect(const QString& yamlPath) {
         return false;
     }
     SF_LOG_INFO("MainWindow: autoLoadFixtureNoConnect: loaded (no connect) for '{}'", yamlPath.toStdString());
+    return true;
+}
+
+bool MainWindow::captureFullScreen(const QString& path) {
+    if (path.isEmpty()) {
+        SF_LOG_WARN("MainWindow::captureFullScreen: empty path");
+        return false;
+    }
+    auto* screen = QGuiApplication::primaryScreen();
+    if (screen == nullptr) {
+        SF_LOG_ERROR("MainWindow::captureFullScreen: no primary screen");
+        return false;
+    }
+    const QPixmap pm = screen->grabWindow(0);
+    if (pm.isNull()) {
+        SF_LOG_ERROR("MainWindow::captureFullScreen: grabWindow(0) returned null pixmap");
+        return false;
+    }
+    if (!pm.save(path, "PNG")) {
+        SF_LOG_ERROR("MainWindow::captureFullScreen: failed to save PNG to '{}'", path.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("MainWindow::captureFullScreen: {}x{} -> {}", pm.width(), pm.height(), path.toStdString());
+    return true;
+}
+
+bool MainWindow::autoOpenMenu(const QString& name) {
+    auto* bar = menuBar();
+    if (bar == nullptr || name.isEmpty()) {
+        return false;
+    }
+    for (auto* action : bar->actions()) {
+        QString text = action->text();
+        text.remove(QLatin1Char('&'));
+        if (text.compare(name, Qt::CaseInsensitive) == 0) {
+            auto* menu = action->menu();
+            if (menu == nullptr) {
+                SF_LOG_WARN("MainWindow::autoOpenMenu: '{}' action has no menu", name.toStdString());
+                return false;
+            }
+            const QPoint pos = bar->mapToGlobal(bar->actionGeometry(action).bottomLeft());
+            menu->popup(pos);
+            SF_LOG_INFO("MainWindow::autoOpenMenu: '{}' popped at ({},{})", name.toStdString(), pos.x(), pos.y());
+            return true;
+        }
+    }
+    SF_LOG_WARN("MainWindow::autoOpenMenu: no menu named '{}'", name.toStdString());
+    return false;
+}
+
+bool MainWindow::autoShowAddConnectionDialog(const QString& driverType) {
+    auto* dlg = new signalforge::connection::ConnectionDialog(enumerateAvailableSchemaIds(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowModality(Qt::NonModal);
+    if (!driverType.isEmpty()) {
+        const QString d = driverType.toLower();
+        using DT = signalforge::connection::DriverType;
+        if (d == "serial") {
+            dlg->setDriverType(DT::Serial);
+        } else if (d == "tcp") {
+            dlg->setDriverType(DT::Tcp);
+        } else if (d == "udp") {
+            dlg->setDriverType(DT::Udp);
+        } else if (d == "replay") {
+            dlg->setDriverType(DT::Replay);
+        } else {
+            SF_LOG_WARN("autoShowAddConnectionDialog: unknown driverType '{}', leaving default",
+                        driverType.toStdString());
+        }
+    }
+    dlg->show();
+    SF_LOG_INFO("MainWindow::autoShowAddConnectionDialog: shown non-modal (driverType='{}')", driverType.toStdString());
+    return true;
+}
+
+bool MainWindow::autoShowEditConnectionDialog() {
+    if (connectionManager_ == nullptr) {
+        return false;
+    }
+    const auto ids = connectionManager_->connectionIds();
+    if (ids.isEmpty()) {
+        SF_LOG_WARN("MainWindow::autoShowEditConnectionDialog: no connection to edit");
+        return false;
+    }
+    auto* conn = connectionManager_->connection(ids.first());
+    if (conn == nullptr) {
+        return false;
+    }
+    auto* dlg = new signalforge::connection::ConnectionDialog(enumerateAvailableSchemaIds(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowModality(Qt::NonModal);
+    dlg->setConfig(conn->config());
+    dlg->show();
+    SF_LOG_INFO("MainWindow::autoShowEditConnectionDialog: shown non-modal for '{}'", ids.first().toStdString());
     return true;
 }
 

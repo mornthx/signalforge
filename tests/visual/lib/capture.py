@@ -100,6 +100,7 @@ def capture_signalforge_state(
     mechanism: str = "C",
     config_dir: Path | None = None,
     state_dir: Path | None = None,
+    fullscreen: bool = False,
 ) -> CaptureResult:
     """Launch SignalForge, drive `launch_args`, capture a screenshot.
 
@@ -139,6 +140,7 @@ def capture_signalforge_state(
                 mechanism=mechanism,
                 config_dir=tmp_path / "cfg",
                 state_dir=tmp_path / "state",
+                fullscreen=fullscreen,
             )
     return _run_capture(
         binary=binary,
@@ -151,6 +153,7 @@ def capture_signalforge_state(
         mechanism=mechanism,
         config_dir=config_dir,
         state_dir=state_dir,
+        fullscreen=fullscreen,
     )
 
 
@@ -165,6 +168,7 @@ def _run_capture(
     mechanism: str,
     config_dir: Path,
     state_dir: Path,
+    fullscreen: bool = False,
 ) -> CaptureResult:
     config_dir.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +181,15 @@ def _run_capture(
     env["QSG_RHI_BACKEND"] = "software"
 
     if mechanism == "C":
+        # M15 S3 Round 4: when fullscreen=True, pass the
+        # `--capture-fullscreen-*` flags (which call
+        # `MainWindow::captureFullScreen` →
+        # `QScreen::grabWindow(0)`) so the capture includes
+        # top-level windows outside MainWindow (open menus,
+        # modal dialogs). Otherwise use the default
+        # `--capture-screenshot-*` (`QWidget::grab` of MainWindow).
+        capture_after_flag = "--capture-fullscreen-after-ms" if fullscreen else "--capture-screenshot-after-ms"
+        capture_path_flag = "--capture-fullscreen-path" if fullscreen else "--capture-screenshot-path"
         cmd = [
             "xvfb-run",
             "--auto-servernum",
@@ -187,9 +200,9 @@ def _run_capture(
             f"{timeout_s}s",
             str(binary),
             *launch_args,
-            "--capture-screenshot-after-ms",
+            capture_after_flag,
             str(capture_after_ms),
-            "--capture-screenshot-path",
+            capture_path_flag,
             str(actual),
             "--exit-after-ms",
             str(exit_after_ms),

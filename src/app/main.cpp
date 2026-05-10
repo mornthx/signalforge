@@ -140,6 +140,18 @@ int main(int argc, char** argv) {
     const QString autoReplayPlayAfterArg = flagValue(argc, argv, "--auto-replay-play-after-ms");
     const QString autoReplaySeekPercentArg = flagValue(argc, argv, "--auto-replay-seek-percent");
 
+    // M15 S3 Round 4 menu/dialog baseline-capture flags. Full-screen
+    // capture (`--capture-fullscreen-*`) captures top-level windows
+    // outside MainWindow (open menu popups, modal dialogs); pairs
+    // with `--auto-open-menu`, `--auto-open-dialog` to put the GUI
+    // into the target state before capture. Used for C3 §24–§26
+    // (connection dialogs) and §30–§32 (menu open).
+    const QString captureFsMsArg = flagValue(argc, argv, "--capture-fullscreen-after-ms");
+    const QString captureFsPathArg = flagValue(argc, argv, "--capture-fullscreen-path");
+    const QString autoOpenMenuArg = flagValue(argc, argv, "--auto-open-menu");
+    const QString autoOpenDialogArg = flagValue(argc, argv, "--auto-open-dialog");
+    const QString autoOpenDialogDriverArg = flagValue(argc, argv, "--auto-open-dialog-driver");
+
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
     window.show();
@@ -206,6 +218,50 @@ int main(int argc, char** argv) {
             QTimer::singleShot(700, &app, [&window, percent]() {
                 if (!window.autoReplaySeekPercent(percent)) {
                     SF_LOG_ERROR("SignalForge: autoReplaySeekPercent({}) returned false", percent);
+                }
+            });
+        }
+    }
+    if (!autoOpenMenuArg.isEmpty()) {
+        // Menu pops up at 2000 ms; captures schedule for 2500 ms
+        // so the menu is fully drawn at capture time.
+        QTimer::singleShot(2000, &app, [&window, autoOpenMenuArg]() {
+            if (!window.autoOpenMenu(autoOpenMenuArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-open-menu '{}' failed", autoOpenMenuArg.toStdString());
+            }
+        });
+    }
+    if (!autoOpenDialogArg.isEmpty()) {
+        // Dialog shows at 2000 ms (non-modal show()); captures
+        // schedule for 2500 ms.
+        QTimer::singleShot(2000, &app, [&window, autoOpenDialogArg, autoOpenDialogDriverArg]() {
+            const QString d = autoOpenDialogArg.toLower();
+            bool ok = false;
+            if (d == "add" || d == "add-conn") {
+                ok = window.autoShowAddConnectionDialog(autoOpenDialogDriverArg);
+            } else if (d == "edit" || d == "edit-conn") {
+                ok = window.autoShowEditConnectionDialog();
+            } else {
+                SF_LOG_ERROR("SignalForge: --auto-open-dialog '{}' unknown (expected add|edit)",
+                             autoOpenDialogArg.toStdString());
+            }
+            if (!ok) {
+                SF_LOG_ERROR("SignalForge: --auto-open-dialog '{}' failed", autoOpenDialogArg.toStdString());
+            }
+        });
+    }
+    if (!captureFsMsArg.isEmpty()) {
+        bool ok = false;
+        const int captureMs = captureFsMsArg.toInt(&ok);
+        if (!ok || captureMs < 0) {
+            SF_LOG_ERROR("SignalForge: --capture-fullscreen-after-ms requires non-negative integer; got '{}'",
+                         captureFsMsArg.toStdString());
+        } else if (captureFsPathArg.isEmpty()) {
+            SF_LOG_ERROR("SignalForge: --capture-fullscreen-after-ms requires --capture-fullscreen-path");
+        } else {
+            QTimer::singleShot(captureMs, &app, [&window, captureFsPathArg]() {
+                if (!window.captureFullScreen(captureFsPathArg)) {
+                    SF_LOG_ERROR("SignalForge: --capture-fullscreen-path '{}' failed", captureFsPathArg.toStdString());
                 }
             });
         }

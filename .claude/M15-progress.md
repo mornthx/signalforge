@@ -17,7 +17,7 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 | S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | done | `2fe5034` | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
 | S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | done | `d82d630` | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
 | S2 | Vision-LLM integration | done | `ae2e453` (+ S2 fixes `f5db33f`, `1b7db01`, `671c865`) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
-| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress | Round 1 `e94a656`, Round 2 `03d929d`, V0.3 hand-off `8266e4c`, Round 3 (this commit) | Round 1: 6 captures (00, 04, 05, 14, 15, 33). Round 2: 3 more (02 PASS, 12 PASS, 13 FLAKY 0.999 %). Multi-chart 01/36/37 deferred to V0.3 per operator decision A (HALT-20260510T172100Z; rebuild segfault is V1 production code, spec §2.2 #1 forbids UX fixes during M15). Round 3: 4 replay captures (17, 18, 19, 20) PASS via autoLoadReplaySession + autoReplayPlay/Pause/SeekPercent primitives + a bootstrap helper that records a 849 B session fixture from m14_smoke + udp_fixture_sender. **13 / 38 captured (12 PASS + 1 FLAKY)**, 10 still feasible via Round 4 (mech B for menus/dialogs), 12 operator-manual. Round 4 in flight. |
+| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress | Round 1 `e94a656`, Round 2 `03d929d`, V0.3 hand-off `8266e4c`, Round 3 `f797918`, Round 4 (this commit) | Round 1: 6 captures (00, 04, 05, 14, 15, 33). Round 2: 3 more (02 PASS, 12 PASS, 13 FLAKY 0.999 %). Multi-chart 01/36/37 deferred to V0.3 per operator decision A (HALT-20260510T172100Z). Round 3: 4 replay captures (17, 18, 19, 20) PASS via autoLoadReplaySession + autoReplayPlay/Pause/SeekPercent primitives + a 849 B session fixture bootstrapped from m14_smoke. Round 4: 6 menu/dialog captures (24, 25, 26, 30, 31, 32) PASS via captureFullScreen (QScreen::grabWindow(0)) + autoOpenMenu + autoShow{Add,Edit}ConnectionDialog primitives + 5 new CLI flags. **19 / 38 captured (18 PASS + 1 FLAKY)**, 3 deferred-V0.3 (multi-chart), 16 still operator-manual (transient ConnectionState moments / hardware Serial+TCP / extreme buffer-pressure / fault-injection error states / specialised modal flows). |
 | S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |
 | S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | done | `b55203e` | `.github/workflows/ci.yml` uploads `tests/screenshots/**` as `visual-screenshots-<preset>` artifact (14 day retention) on every run via `if: always()`. `tests/visual/README.md` documents add-test workflow, baseline accept loop, local-only vision-LLM hybrid. Pixel-diff gate validated locally: absent baseline → matched, identical → 0%, regressions caught at strict thresholds. C7 verified: zero `secrets.*` references, no API key in CI. `accept-baseline.sh` already shipped in S1. CI run `25634337073` green (11m25s, all 3 presets). **Order-violation note**: S5 was executed before S3 post-compaction; per operator feedback (`feedback_plan_ordering.md`), plan ordering is the source of truth — re-read M15-plan before picking next subtask. |
 | S6 | CC autonomy demonstration | not started | — | End-to-end self-test |
@@ -144,24 +144,34 @@ tolerance.
 | 21 | replay-speed-5x | B | 3+4 | PENDING | needs replay-load + speed flag + B-mech for combo dropdown |
 | 22 | mode-live-to-replay | B | 4 | PENDING | modal confirm; needs sequence trigger |
 | 23 | mode-replay-to-live | B | 4 | PENDING | modal 3-option; needs replay-loaded prerequisite + sequence trigger |
-| 24 | dialog-add-serial | B | 4 | PENDING | modal; needs `--auto-open-add-conn-dialog=serial` flag |
-| 25 | dialog-add-udp | B | 4 | PENDING | modal; needs `--auto-open-add-conn-dialog=udp` flag |
-| 26 | dialog-edit | B | 4 | PENDING | modal; needs `--auto-open-edit-conn-dialog=<id>` flag |
+| 24 | dialog-add-serial | C-fullscreen | 4 | PASS | 0.000 % — `autoShowAddConnectionDialog("serial")` non-modal + `QScreen::grabWindow(0)` |
+| 25 | dialog-add-udp | C-fullscreen | 4 | PASS | 0.000 % — `autoShowAddConnectionDialog("udp")` |
+| 26 | dialog-edit | C-fullscreen | 4 | PASS | 0.000 % — `autoShowEditConnectionDialog` (m14_smoke fixture pre-loaded) |
 | 27 | dialog-quit-recording | manual | — | SKIP | Triggered by closeEvent during recording; Qt close-event injection is brittle headlessly. Operator-manual. |
 | 28 | dialog-recording-error | manual | — | SKIP | Needs SessionWriter::start fault injection. Operator-manual or Round 4 fault-injection. |
 | 29 | dialog-replay-error | manual | — | SKIP | Needs malformed session-file injection. Operator-manual or Round 4. |
-| 30 | menu-file-open | B | 4 | PENDING | menu popup is separate top-level window; needs full-screen grab + slot-trigger to open menu |
-| 31 | menu-connections-open | B | 4 | PENDING | same as 30 |
-| 32 | menu-session-open | B | 4 | PENDING | same as 30 |
+| 30 | menu-file-open | C-fullscreen | 4 | PASS | 0.000 % — `autoOpenMenu("File")` + `QScreen::grabWindow(0)` |
+| 31 | menu-connections-open | C-fullscreen | 4 | PASS | 0.000 % — `autoOpenMenu("Connections")` |
+| 32 | menu-session-open | C-fullscreen | 4 | PASS | 0.000 % — `autoOpenMenu("Session")` |
 | 33 | status-buffer-normal | C | 1 | PASS | 0.002 % |
 | 34 | status-buffer-warn | manual | — | SKIP | timing-dependent; needs traffic-flooding fixture. Operator-manual or Round 4 traffic-gen fixture. |
 | 35 | status-buffer-full | manual | — | SKIP | same as 34 plus drop-overflow timing. |
 | 36 | multi-chart-2 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01; HALT-20260510T172100Z |
 | 37 | multi-chart-5 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01 / 36 |
 
-**Round 3 summary** (cumulative): PASS 12 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING-rounds 10 / SKIP-operator-manual 12 of 38.
+**Round 4 summary** (cumulative): PASS 18 / FLAKY 1 / DEFERRED-V0.3 3 / SKIP-operator-manual 16 of 38.
 
-(Round 2 alone: PASS 8 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING-rounds 14 / SKIP-operator-manual 12. Round 1 alone: PASS 6 / SKIP-pending-rounds 21 / SKIP-operator-manual 11.)
+(Round 3 cumulative: PASS 12 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING 10 / SKIP-operator-manual 12. Round 2 cumulative: PASS 8 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING 14 / SKIP-operator-manual 12. Round 1 alone: PASS 6 / PENDING 21 / SKIP-operator-manual 11.)
+
+**Operator-manual residual (16 of 38)** — categorised by reason:
+
+- **Transient ConnectionState (3)**: 03 connecting / 06 disconnecting / 07 error. Sub-ms windows under software-RHI; not deterministically observable from headless capture.
+- **Hardware Serial / TCP (4)**: 08 / 09 (Serial — needs hardware or socat virtual pty) / 10 / 11 (TCP — needs server-side fixture coordinator). Out of M15 scope; capture once V0.3 builds traffic fixtures.
+- **Extreme buffer-pressure (2)**: 34 buffer-warn / 35 buffer-full. Needs sustained high-rate UDP flooding fixture; flaky under headless capture; V0.3 backpressure track.
+- **Fault-injection error dialogs (3)**: 27 quit-while-recording / 28 recording-error / 29 replay-error. Needs deliberate failure injection (filesystem write-fail, malformed session, etc.) — would add test-only error-injection CLI flags. Defer to V0.3 fault-injection track.
+- **Specialised modal flows (4)**: 16 replay-open-dialog (modal QFileDialog — would need a non-modal show variant or xdotool keystroke), 21 replay-speed-5x (combo-box dropdown popup), 22 mode-live-to-replay / 23 mode-replay-to-live (sequence-triggered confirm dialogs). Each needs a custom slot-trigger + non-modal show or xdotool keystroke; V0.3 work.
+
+S3 closes at 19/38 captured + 3 deferred-V0.3 + 16 operator-manual. The Y-scope state-machine spread is covered (empty / connection / multi-driver / recording / replay / dialogs / menus / status); residuals are timing- or hardware-bound. Operator review one-time-approves the 19 candidates; the 16 operator-manual states are captured by hand during the same review session.
 
 ### S3 HALT — multi-chart capture deferred to V0.3
 
