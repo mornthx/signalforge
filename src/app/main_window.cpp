@@ -43,6 +43,24 @@
 
 namespace {
 
+// M14 F12: format a relative-from-zero replay position in
+// mm:ss.fff (audit §F12 — pre-fix formatter showed raw nanoseconds
+// which looked like an absolute UTC timestamp). Negative or
+// out-of-range inputs clamp to "00:00.000".
+QString formatReplayPosition(std::int64_t ns) {
+    if (ns < 0) {
+        ns = 0;
+    }
+    const std::int64_t totalMs = ns / 1'000'000;
+    const std::int64_t mm = totalMs / 60'000;
+    const std::int64_t ss = (totalMs / 1'000) % 60;
+    const std::int64_t fff = totalMs % 1'000;
+    return QStringLiteral("%1:%2.%3")
+        .arg(mm, 2, 10, QLatin1Char('0'))
+        .arg(ss, 2, 10, QLatin1Char('0'))
+        .arg(fff, 3, 10, QLatin1Char('0'));
+}
+
 // driverId convention: `<type>:<connectionId>` — DecoderRegistrar
 // splits on ':' and uses the prefix as its driver-type lookup key
 // (so "udp:conn-3" → "udp"). Mirrors the `driverTypeToYamlInternal`
@@ -897,10 +915,13 @@ void MainWindow::onReplayPositionChanged(std::int64_t timestampNs, std::size_t r
     }
     if (replayStatusLabel_ != nullptr && playbackController_ != nullptr) {
         const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
-        replayStatusLabel_->setText(tr("Replay: %1 | %2 / %3 ns | %4 / %5 records")
+        // M14 F12: relative-from-zero mm:ss.fff format per M11 §Test 4
+        // / §Test 5 (audit §F12). Pre-fix the formatter emitted raw
+        // nanoseconds which read like an absolute UTC timestamp.
+        replayStatusLabel_->setText(tr("Replay: %1 | %2 / %3 | %4 / %5 records")
                                         .arg(filename)
-                                        .arg(timestampNs)
-                                        .arg(playbackController_->durationNs())
+                                        .arg(formatReplayPosition(timestampNs))
+                                        .arg(formatReplayPosition(playbackController_->durationNs()))
                                         .arg(recordIndex)
                                         .arg(playbackController_->totalRecords()));
     }
