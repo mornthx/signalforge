@@ -112,6 +112,14 @@ int main(int argc, char** argv) {
     const QString autoStopRecordingArg = flagValue(argc, argv, "--auto-stop-recording-after-ms");
     const QString exitAfterMsArg = flagValue(argc, argv, "--exit-after-ms");
 
+    // M15 S1 full-window screenshot capture (mechanism C per
+    // M15-concerns C1). Distinct from --dump-chart-png-* which
+    // captures the QQuickWidget framebuffer only. Used by
+    // tests/visual/ harness for state-machine-complete baseline
+    // coverage (M15-concerns C3).
+    const QString captureMsArg = flagValue(argc, argv, "--capture-screenshot-after-ms");
+    const QString capturePathArg = flagValue(argc, argv, "--capture-screenshot-path");
+
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
     window.show();
@@ -164,6 +172,22 @@ int main(int argc, char** argv) {
             QTimer::singleShot(exitMs, &app, []() {
                 SF_LOG_INFO("SignalForge: --exit-after-ms reached; quitting");
                 QApplication::quit();
+            });
+        }
+    }
+    if (!captureMsArg.isEmpty()) {
+        bool ok = false;
+        const int captureMs = captureMsArg.toInt(&ok);
+        if (!ok || captureMs < 0) {
+            SF_LOG_ERROR("SignalForge: --capture-screenshot-after-ms requires non-negative integer; got '{}'",
+                         captureMsArg.toStdString());
+        } else if (capturePathArg.isEmpty()) {
+            SF_LOG_ERROR("SignalForge: --capture-screenshot-after-ms requires --capture-screenshot-path");
+        } else {
+            QTimer::singleShot(captureMs, &app, [&window, capturePathArg]() {
+                if (!window.captureScreenshot(capturePathArg)) {
+                    SF_LOG_ERROR("SignalForge: --capture-screenshot-path '{}' failed", capturePathArg.toStdString());
+                }
             });
         }
     }

@@ -39,3 +39,7 @@ Thumbs.db
 # (per-CI-run captures); committed baselines live in
 # tests/visual/baselines/.
 tests/screenshots/
+
+# Python bytecode caches (M15 visual harness)
+__pycache__/
+*.pyc

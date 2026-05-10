@@ -14,8 +14,8 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 
 | ID | Title | Status | Commits | Notes |
 |---|---|---|---|---|
-| S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | **in progress** | (this commit) | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
-| S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | not started | — | Per C1: implement C first; B as helper stub |
+| S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | done | `2fe5034` | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
+| S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | **done** | (this commit) | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
 | S2 | Vision-LLM integration | not started | — | Per C2: CC native dev + optional MiMo benchmark; NO CI LLM |
 | S3 | Baseline coverage (Y-scope; 38 baselines per C3) | not started | — | Operator-blocking (one-time approval) |
 | S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |

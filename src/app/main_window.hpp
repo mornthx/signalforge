@@ -91,6 +91,19 @@ public:
     /// count written (0 if no active recording).
     std::size_t autoStopRecording();
 
+    /// M15 S1: capture the full MainWindow as a PNG at `path`. Uses
+    /// `QWidget::grab()` (mechanism C per M15-concerns C1) which is
+    /// in-process, headless-compatible, and reuses MainWindow's
+    /// existing render path (no extra Qt event-loop spin required
+    /// when called from a QTimer slot). Returns false if the path
+    /// is empty or the save fails.
+    ///
+    /// Distinct from `grabChartImage()` (M14 S1 chart-pane-only) —
+    /// `captureScreenshot` produces full-window state captures
+    /// suitable for state-machine-complete baseline coverage
+    /// (M15-concerns C3).
+    [[nodiscard]] bool captureScreenshot(const QString& path);
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

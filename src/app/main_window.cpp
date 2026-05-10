@@ -366,6 +366,29 @@ std::size_t MainWindow::autoStopRecording() {
     return bytes;
 }
 
+bool MainWindow::captureScreenshot(const QString& path) {
+    if (path.isEmpty()) {
+        SF_LOG_WARN("MainWindow::captureScreenshot: empty path");
+        return false;
+    }
+    // M15 S1 mechanism C: full-window in-process grab. Distinct from
+    // M14 S1's grabChartImage() which captures the chart QQuickWidget
+    // framebuffer only. Mechanism B (xvfb + xwd) for full-X-server
+    // captures (e.g. menu open) lives in tests/visual/lib/capture.py
+    // helpers and does NOT touch this binary.
+    const QPixmap pm = grab();
+    if (pm.isNull()) {
+        SF_LOG_ERROR("MainWindow::captureScreenshot: QWidget::grab() returned null pixmap");
+        return false;
+    }
+    if (!pm.save(path, "PNG")) {
+        SF_LOG_ERROR("MainWindow::captureScreenshot: failed to save PNG to '{}'", path.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("MainWindow::captureScreenshot: {}x{} -> {}", pm.width(), pm.height(), path.toStdString());
+    return true;
+}
+
 QImage MainWindow::grabChartImage() const {
     if (chartContainer_ == nullptr) {
         return {};
