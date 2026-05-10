@@ -805,6 +805,13 @@ void MainWindow::buildReplayUi() {
     connect(playbackController_.get(), &signalforge::replay::PlaybackController::errorOccurred, this,
             &MainWindow::onReplayError);
 
+    // M14 F14: react to mode transitions so File→Open Session +
+    // Record action enabled-state stay consistent with the current
+    // mode (audit §F14). updateReplayActionStates re-reads
+    // replayModeManager_->currentMode() and updates both actions.
+    connect(replayModeManager_.get(), &signalforge::replay::ReplayModeManager::modeChanged, this,
+            [this](signalforge::replay::AppMode) { updateReplayActionStates(); });
+
     updateReplayActionStates();
 }
 
@@ -981,8 +988,14 @@ void MainWindow::updateReplayActionStates() {
     if (recordAction_ != nullptr) {
         recordAction_->setEnabled(!inReplay);
     }
-    if (openSessionAction_ != nullptr && sessionWriter_ != nullptr) {
-        openSessionAction_->setEnabled(!sessionWriter_->isRecording());
+    if (openSessionAction_ != nullptr) {
+        // M14 F14: also disable while already in Replay mode (audit
+        // §F14 — clicking Open Session in Replay otherwise produces an
+        // error popup; M11 §S8 expects the operator to use Exit Replay
+        // first). The `inReplay` guard layers on top of the existing
+        // record-in-progress guard.
+        const bool recording = (sessionWriter_ != nullptr && sessionWriter_->isRecording());
+        openSessionAction_->setEnabled(!recording && !inReplay);
     }
 }
 
