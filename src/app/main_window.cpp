@@ -475,6 +475,17 @@ bool MainWindow::autoShowEditConnectionDialog() {
     return true;
 }
 
+bool MainWindow::autoReplaySpeedComboPopup(int index) {
+    if (replaySpeedCombo_ == nullptr || index < 0 || index >= replaySpeedCombo_->count()) {
+        return false;
+    }
+    replaySpeedCombo_->setCurrentIndex(index);
+    replaySpeedCombo_->showPopup();
+    SF_LOG_INFO("MainWindow::autoReplaySpeedComboPopup: index={} ({}×)", index,
+                replaySpeedCombo_->itemData(index).toDouble());
+    return true;
+}
+
 bool MainWindow::autoLoadReplaySession(const QString& path) {
     if (replayModeManager_ == nullptr || playbackController_ == nullptr || path.isEmpty()) {
         return false;

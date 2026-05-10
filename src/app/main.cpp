@@ -151,6 +151,7 @@ int main(int argc, char** argv) {
     const QString autoOpenMenuArg = flagValue(argc, argv, "--auto-open-menu");
     const QString autoOpenDialogArg = flagValue(argc, argv, "--auto-open-dialog");
     const QString autoOpenDialogDriverArg = flagValue(argc, argv, "--auto-open-dialog-driver");
+    const QString autoReplaySpeedPopupIndexArg = flagValue(argc, argv, "--auto-replay-speed-popup-index");
 
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
@@ -249,6 +250,23 @@ int main(int argc, char** argv) {
                 SF_LOG_ERROR("SignalForge: --auto-open-dialog '{}' failed", autoOpenDialogArg.toStdString());
             }
         });
+    }
+    if (!autoReplaySpeedPopupIndexArg.isEmpty()) {
+        bool ok = false;
+        const int idx = autoReplaySpeedPopupIndexArg.toInt(&ok);
+        if (!ok || idx < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-speed-popup-index requires non-negative integer; got '{}'",
+                         autoReplaySpeedPopupIndexArg.toStdString());
+        } else {
+            // Speed-combo popup runs after replay-load (200 ms)
+            // + a settle window. 1500 ms gives the toolbar time
+            // to lay out before we pop the combo.
+            QTimer::singleShot(1500, &app, [&window, idx]() {
+                if (!window.autoReplaySpeedComboPopup(idx)) {
+                    SF_LOG_ERROR("SignalForge: autoReplaySpeedComboPopup({}) returned false", idx);
+                }
+            });
+        }
     }
     if (!captureFsMsArg.isEmpty()) {
         bool ok = false;

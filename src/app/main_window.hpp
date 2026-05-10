@@ -182,6 +182,13 @@ public:
     /// connection to edit. Pairs with M15-concerns C3 §26.
     [[nodiscard]] bool autoShowEditConnectionDialog();
 
+    /// M15 S3 Round 5: select the replay-speed combo entry at
+    /// ``index`` (0=0.5×, 1=1×, 2=2×, 3=5×, 4=10×) and pop the
+    /// dropdown so the popup is visible at capture time. Pairs
+    /// with M15-concerns C3 §21. Returns false if no replay
+    /// session is loaded or the index is out of range.
+    [[nodiscard]] bool autoReplaySpeedComboPopup(int index);
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

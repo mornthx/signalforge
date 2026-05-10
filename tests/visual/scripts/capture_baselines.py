@@ -360,9 +360,18 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         ),
         StateSpec(
             name="21-replay-speed-5x",
-            description="Replay speed combo open at 5×",
-            mechanism="manual",
-            note="Needs replay-load + speed-set flag + B mechanism for combo dropdown.",
+            description="Replay speed combo open at 5× (popup visible)",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-replay",
+                "tests/screenshots/_runs/m15-replay-fixture.sfreplay",
+                "--auto-replay-speed-popup-index",
+                "3",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            fullscreen=True,
+            note="Round 5 primitive `autoReplaySpeedComboPopup(3)` (3=5×); fullscreen grab via QScreen::grabWindow(0). Pops the combo at 1500 ms; capture at 2500 ms.",
         ),
         StateSpec(
             name="22-mode-live-to-replay",
