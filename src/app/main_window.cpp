@@ -702,7 +702,38 @@ void MainWindow::onRecordToggle() {
     if (path.isEmpty()) {
         return;
     }
-    if (!sessionWriter_->start(path)) {
+    // M14 F9: capture the active connection's decoderSchemaId in the
+    // recording's metadata header. SessionWriter::start already
+    // accepts a `decoderSchemaId` parameter (M10-frozen
+    // session_writer.hpp:89) but MainWindow never passed one — the
+    // recorded file's metadata field stayed empty, breaking M11
+    // schema-match validation when re-opening the recording later
+    // (audit run5 §F9).
+    //
+    // Selection rule: walk the connection list; pick the first
+    // Connected connection that has a non-empty decoderSchemaId.
+    // If multiple Connected drivers have schemas, last-Connected
+    // wins is acceptable for V1 (operator-driven recording —
+    // the operator can disconnect drivers they don't want
+    // associated with the file). V1.0.1 may add a UI for explicit
+    // selection.
+    QString recordingSchemaId;
+    if (connectionManager_ != nullptr) {
+        for (const auto& id : connectionManager_->connectionIds()) {
+            const auto* conn = connectionManager_->connection(id);
+            if (conn == nullptr) {
+                continue;
+            }
+            if (conn->state() != signalforge::connection::Connection::State::Connected) {
+                continue;
+            }
+            const QString& cfgSchema = conn->config().decoderSchemaId;
+            if (!cfgSchema.isEmpty()) {
+                recordingSchemaId = cfgSchema;
+            }
+        }
+    }
+    if (!sessionWriter_->start(path, /*description*/ QString{}, recordingSchemaId)) {
         QMessageBox::critical(this, tr("Recording failed"), tr("Could not start recording: see log for details."));
         return;
     }

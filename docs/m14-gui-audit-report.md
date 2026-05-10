@@ -81,11 +81,11 @@ S6 18-test re-run reaches ≥ 16/18.
 
 | Severity | Count | Findings |
 |---|---:|---|
-| ✓ Resolved | 7 | F1, F4 (Wave 1); F6, F17 (Wave 2); F12, F15, F18 (Wave 3) |
-| **Critical** | 0 | (F6, F15, F17 fixed; awaiting operator validation) |
-| Serious | 1 | F11 (likely auto-resolves with F15; awaiting operator) — F14, F18 closed (F18 fixed; F14 deferred to V1.0.1) |
-| Minor | 5 | F5, F7, F8, F9, F16 (V1.0.1 batch) |
-| **Total open** | 6 | (F2/F3 deferred, F10 auto-resolves with F6, F13 V1.5+, F11 pending verify) |
+| ✓ Resolved | 11 | F1, F4 (Wave 1); F6, F17 (Wave 2); F12, F15, F18 (Wave 3); F14, F19, F9 (Wave 4); F10 + F11 auto-resolved |
+| **Critical** | 0 | — |
+| Serious | 0 | F19 fixed Wave 4; F11/F14/F18 closed |
+| Minor | 4 | F5, F7, F8, F16 (V1.0.1 batch) |
+| **Total open** | 4 | (F2/F3 smoke-only deferrals; F13 V1.5+) |
 
 ---
 
