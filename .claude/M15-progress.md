@@ -171,7 +171,45 @@ tolerance.
 - **Fault-injection error dialogs (3)**: 27 quit-while-recording / 28 recording-error / 29 replay-error. Needs deliberate failure injection (filesystem write-fail, malformed session, etc.) — would add test-only error-injection CLI flags. Defer to V0.3 fault-injection track.
 - **Specialised modal flows (3)**: 16 replay-open-dialog (modal QFileDialog — would need a non-modal show variant or xdotool keystroke), 22 mode-live-to-replay / 23 mode-replay-to-live (sequence-triggered confirm dialogs). Each needs a custom slot-trigger + non-modal show or xdotool keystroke; V0.3 work.
 
-S3 closes at 20/38 captured + 3 deferred-V0.3 + 15 operator-manual. The Y-scope state-machine spread is covered (empty / connection / multi-driver / recording / replay / dialogs / menus / status); residuals are timing- or hardware-bound. Operator review one-time-approves the 19 candidates; the 16 operator-manual states are captured by hand during the same review session.
+S3 closes at 20/38 captured + 3 deferred-V0.3 + 15 operator-manual.
+
+### Review path (canonical vs convenience archive)
+
+Per operator clarification: the **canonical** review surface is the
+working tree at `tests/screenshots/baseline-candidate/<state>.png`
+on the milestone branch (`milestone/M15` at the latest
+S3-Round-N commit). The operator pulls / checks out, runs
+`python3 tests/visual/scripts/capture_baselines.py` if they want
+to regenerate, then reviews PNGs locally.
+
+The CI `visual-screenshots-<preset>` artifact is a **convenience
+archive** (14-day retention) — useful for distributed-team review
+or post-merge audit, not the primary review channel. The two are
+deterministically identical for any given commit because the
+capture script is fully reproducible (software RHI + isolated
+XDG dirs + bootstrapped session-file fixture from
+`udp_fixture_sender.py`).
+
+### CI vision-LLM compliance verification (Phase 5 amendment / C7)
+
+Verified at S3 closure (no captures or LLM verdicts are
+generated in CI):
+
+- `.github/workflows/ci.yml` — 0 `secrets.*` references for any
+  vision-LLM purpose; 0 LLM API key references; 0 pip installs
+  of `anthropic` / `openai` / similar.
+- `tests/visual/CMakeLists.txt` — only sets `PYTHONPATH` +
+  `SIGNALFORGE_BINARY` env when running tests; no
+  `MIMO_API_KEY` / `SF_VISUAL_DESCRIBE_BACKEND` injection.
+- `tests/visual/lib/describe.py` empirical: default env
+  → returns `None`. Forcing `SF_VISUAL_DESCRIBE_BACKEND=mimo`
+  without `MIMO_API_KEY` → still returns `None` via
+  `MimoUnavailable` exception. Never reaches remote endpoint
+  without explicit operator opt-in.
+- All three `test_states_*.py` `_optional_description` tests
+  early-return when `describe_screenshot() is None`. Pixel-diff
+  `_matches_baseline` is the only always-on CI gate.
+- HALT trigger H7 has not fired during M15. The Y-scope state-machine spread is covered (empty / connection / multi-driver / recording / replay / dialogs / menus / status); residuals are timing- or hardware-bound. Operator review one-time-approves the 19 candidates; the 16 operator-manual states are captured by hand during the same review session.
 
 ### S3 HALT — multi-chart capture deferred to V0.3
 
