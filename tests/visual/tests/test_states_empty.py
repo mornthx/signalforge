@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.capture import capture_signalforge_state  # noqa: E402
 from lib.compare import compare_baseline  # noqa: E402
+from lib.describe import describe_screenshot  # noqa: E402
+from lib.validate_description import validate_description  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 BASELINES = REPO_ROOT / "tests" / "visual" / "baselines"
@@ -64,3 +66,45 @@ def test_empty_launch_matches_baseline():
         f"visual regression: state='00-empty-launch' "
         f"diff={cmp.diff_percent:.2f}% threshold=5.0% note={cmp.note}"
     )
+
+
+def test_empty_launch_optional_description():
+    """Optional vision-LLM description verification.
+
+    Skipped in CI per M15-concerns C7 (public-repo security: no API
+    key in CI). Operator-local opt-in via
+    `SF_VISUAL_DESCRIBE_BACKEND=mimo` + `MIMO_API_KEY`.
+
+    When a description is produced, asserts schema-conformance +
+    minimal semantic invariants for the empty-launch state:
+    - window_state == "idle" (no connections, nothing recording)
+    - menu_open is None
+    - dialogs_open is empty
+    - errors_visible is empty
+    - chart_contents.lines_visible is False (no signals selected)
+    """
+    actual = REPO_ROOT / "tests" / "screenshots" / "00-empty-launch.png"
+    if not actual.is_file():
+        capture_signalforge_state(
+            state_name="00-empty-launch",
+            launch_args=[],
+            capture_after_ms=1500,
+            exit_after_ms=2500,
+            timeout_s=15,
+        )
+
+    desc = describe_screenshot(actual)
+    if desc is None:
+        # CI default: backend unavailable; pixel-diff carries the
+        # gate. Skip semantic assertions but DO NOT fail.
+        return
+
+    # Backend available (operator-local): schema-validate + assert
+    # invariants for the empty state.
+    violations = validate_description(desc)
+    assert not violations, f"schema violations: {violations}"
+    assert desc["window_state"] == "idle", desc
+    assert desc["menu_open"] is None, desc
+    assert desc["dialogs_open"] == [], desc
+    assert desc["errors_visible"] == [], desc
+    assert desc["chart_contents"]["lines_visible"] is False, desc
