@@ -23,6 +23,10 @@ constexpr auto kMetricBudgetRejected = QLatin1String("signal_buffer_budget_rejec
 
 constexpr double kSoftWarnThreshold = 0.80;
 constexpr std::size_t kTimestampBytes = sizeof(std::chrono::steady_clock::time_point);
+/// M14 F15: minimum interval between "registration rejected" log
+/// lines per driver. Pre-fix a 60 Hz re-registration storm produced
+/// hundreds of error lines per minute (audit §F15).
+constexpr auto kBudgetWarnInterval = std::chrono::seconds(60);
 
 /// Bytes per stored value (excluding the timestamp). Bool is bit-packed
 /// (0.125 bytes); QString is the handle size (~24) plus a heuristic
@@ -71,6 +75,13 @@ struct SignalBufferRegistry::Bookkeeping {
     Metric* budgetWarnedMetric = nullptr;
     Metric* budgetRejectedMetric = nullptr;
     bool warnedAtThreshold = false;
+
+    /// M14 F15 throttle: track the last time we emitted the
+    /// "registration rejected: would exceed budget" log line per
+    /// driver, so a 60 Hz re-registration storm produces at most
+    /// one entry per `kBudgetWarnIntervalMs` per driver. Pre-fix
+    /// the audit observed hundreds of error lines per minute.
+    std::unordered_map<QString, std::chrono::steady_clock::time_point> lastRejectLogAt;
 };
 
 SignalBufferRegistry::SignalBufferRegistry(RegistryConfig config)
@@ -113,7 +124,16 @@ void SignalBufferRegistry::onSignalsRegistered(const QString& driverId,
 
     std::vector<std::pair<signalforge::decoder::SignalMetadata, SignalBufferConfig>> resolved;
     resolved.reserve(signalsList.size());
-    std::size_t newBytes = 0;
+    // M14 F15 idempotent re-registration: when a signal is re-registered
+    // (same id), the existing buffer is overwritten below, so the OLD
+    // estimate is implicitly freed. Net delta = sum(new estimates) -
+    // sum(old estimates for the same ids). Pre-fix `newBytes` summed
+    // only the new estimates and `totalBytes_.fetch_add(newBytes)`
+    // grew the budget tally on every re-registration — driving budget
+    // exhaustion within seconds when something re-fired
+    // onSignalsRegistered for the same driver in a tight loop.
+    std::size_t grossNewBytes = 0;
+    std::size_t reusedOldBytes = 0;
     for (const auto& meta : signalsList) {
         SignalBufferConfig cfg = config_.signalDefaults;
         if (overrides != nullptr) {
@@ -123,9 +143,17 @@ void SignalBufferRegistry::onSignalsRegistered(const QString& driverId,
             }
         }
         const std::size_t est = estimateSignalBytes(meta, cfg);
-        newBytes += est;
+        grossNewBytes += est;
+        // If this signal is already registered, its existing estimate
+        // will be released when the new buffer overwrites it below.
+        // Subtract from the delta so the budget tally stays consistent.
+        auto oldEstIt = signalEstimates_.find(meta.id);
+        if (oldEstIt != signalEstimates_.end()) {
+            reusedOldBytes += oldEstIt->second;
+        }
         resolved.emplace_back(meta, cfg);
     }
+    const std::size_t newBytes = (grossNewBytes >= reusedOldBytes) ? (grossNewBytes - reusedOldBytes) : 0;
 
     const std::size_t currentBytes = totalBytes_.load(std::memory_order_relaxed);
     const std::size_t afterBytes = currentBytes + newBytes;
@@ -133,9 +161,20 @@ void SignalBufferRegistry::onSignalsRegistered(const QString& driverId,
 
     // Hard reject when registration would exceed 100% of the budget.
     if (afterBytes > budget && config_.rejectOnBudgetExceeded) {
-        SF_LOG_ERROR("signal_buffer registration rejected: would exceed budget. "
-                     "current={} bytes, requested={} bytes, budget={} bytes, driver={}",
-                     currentBytes, newBytes, budget, driverId.toStdString());
+        // M14 F15 throttle: emit at most one rejection log per driver
+        // per `kBudgetWarnInterval`. The metric counter still ticks on
+        // every rejection so observability stays accurate.
+        const auto now = std::chrono::steady_clock::now();
+        auto lastIt = bookkeeping_->lastRejectLogAt.find(driverId);
+        const bool shouldLog =
+            (lastIt == bookkeeping_->lastRejectLogAt.end()) || ((now - lastIt->second) >= kBudgetWarnInterval);
+        if (shouldLog) {
+            bookkeeping_->lastRejectLogAt[driverId] = now;
+            SF_LOG_ERROR("signal_buffer registration rejected: would exceed budget. "
+                         "current={} bytes, requested={} bytes, budget={} bytes, driver={} "
+                         "(further rejections from this driver suppressed for 60 s)",
+                         currentBytes, newBytes, budget, driverId.toStdString());
+        }
         if (bookkeeping_->budgetRejectedMetric != nullptr) {
             bookkeeping_->budgetRejectedMetric->add(1);
         }
@@ -159,7 +198,12 @@ void SignalBufferRegistry::onSignalsRegistered(const QString& driverId,
     for (const auto& [meta, cfg] : resolved) {
         auto buf = std::make_unique<SignalBuffer>(meta, cfg);
         buffersBySignalId_[meta.id] = std::move(buf);
-        driverIds.append(meta.id);
+        // M14 F15: dedupe driverIds so re-registration doesn't leak
+        // a duplicate signal id into the driver's list (would
+        // otherwise accumulate one entry per re-registration).
+        if (!driverIds.contains(meta.id)) {
+            driverIds.append(meta.id);
+        }
         const std::size_t est = estimateSignalBytes(meta, cfg);
         signalEstimates_[meta.id] = est;
     }

@@ -230,9 +230,13 @@ void MainWindow::buildChartUi() {
     fpsLabel_ = new QLabel(tr("FPS: -"));
     droppedLabel_ = new QLabel(tr("Dropped: 0"));
     throttledLabel_ = new QLabel;
+    // M14 F15: signal_buffer budget indicator (idle / 80% warn / FULL).
+    bufferBudgetLabel_ = new QLabel;
+    bufferBudgetLabel_->setToolTip(tr("Signal buffer memory budget usage"));
     statusBar()->addPermanentWidget(fpsLabel_);
     statusBar()->addPermanentWidget(droppedLabel_);
     statusBar()->addPermanentWidget(throttledLabel_);
+    statusBar()->addPermanentWidget(bufferBudgetLabel_);
 
     auto* statusTimer = new QTimer(this);
     statusTimer->setInterval(1000);
@@ -593,6 +597,30 @@ void MainWindow::refreshStatusBar() {
     }
     if (throttledLabel_ != nullptr) {
         throttledLabel_->setText(totalDropped > 0 ? tr("⚠ throttled") : QString{});
+    }
+    // M14 F15: surface signal_buffer budget pressure to the user. Pre-fix
+    // the registry silently logged "registration rejected: would exceed
+    // budget" without any UI signal — operator could only tell the chart
+    // wasn't drawing some signals by reading the log file. Now the
+    // status bar shows the percentage utilized and flips to a warning
+    // tone above the 80 % soft threshold.
+    if (bufferBudgetLabel_ != nullptr && signalBufferRegistry_ != nullptr) {
+        const std::size_t used = signalBufferRegistry_->totalMemoryBytes();
+        const std::size_t budget = signalBufferRegistry_->totalBudgetBytes();
+        if (budget == 0) {
+            bufferBudgetLabel_->setText(QString{});
+        } else {
+            const int pct = static_cast<int>((100ULL * used) / budget);
+            QString text;
+            if (pct >= 100) {
+                text = tr("⚠ buffer FULL (%1 MiB / %2 MiB)").arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+            } else if (pct >= 80) {
+                text = tr("⚠ buffer %1%% (%2 / %3 MiB)").arg(pct).arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+            } else {
+                text = tr("buffer %1%% (%2 MiB)").arg(pct).arg(used / (1024 * 1024));
+            }
+            bufferBudgetLabel_->setText(text);
+        }
     }
     if (signalSelector_ != nullptr) {
         signalSelector_->refresh();

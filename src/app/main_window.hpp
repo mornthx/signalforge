@@ -135,6 +135,7 @@ private:
     QLabel* fpsLabel_ = nullptr;
     QLabel* droppedLabel_ = nullptr;
     QLabel* throttledLabel_ = nullptr;
+    QLabel* bufferBudgetLabel_ = nullptr;  ///< M14 F15: signal_buffer budget usage
 
     // M9 connection UI.
     QDockWidget* connectionDock_ = nullptr;
