@@ -55,7 +55,9 @@ Launch via:
   - CLI: signalforge
 
 Documentation: /opt/signalforge/docs/
-Release notes: /opt/signalforge/docs/release-notes/v1.0.0.md
+V0.1 status:   /opt/signalforge/docs/v0.1-status-summary.md
+V0 charter:    /opt/signalforge/docs/V0-series-charter.md
+(V1.0 release notes deferred per V0 charter; see V0.1 status above.)
 
 For serial-port access you may need to add yourself to the
 dialout group:

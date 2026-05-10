@@ -23,8 +23,14 @@ void requireFileExists(const char* relPath) {
 
 }  // namespace
 
-TEST_CASE("M13 S5: V1.0 release-notes files exist", "[m13][s5]") {
-    requireFileExists("docs/release-notes/v1.0.0.md");
+TEST_CASE("M13 S5: V0.1 release docs exist (V1.0 release-notes deferred per V0 charter)", "[m13][s5]") {
+    // V0 charter (`docs/V0-series-charter.md`) defers V1.0 indefinitely;
+    // `docs/release-notes/v1.0.0.md` was removed at V0.1 close. Replaced
+    // here with the V0.1 status summary + V0 charter checks. The
+    // historical V1 freeze record (`docs/v1.0-spec-list.md`) is retained
+    // (see disclaimer at top of that file).
+    requireFileExists("docs/V0-series-charter.md");
+    requireFileExists("docs/v0.1-status-summary.md");
     requireFileExists("docs/install.md");
     requireFileExists("docs/v1.0-spec-list.md");
     requireFileExists("docs/m13-hardware-verification.md");

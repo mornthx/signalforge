@@ -30,8 +30,14 @@ install(TARGETS profile_main
     COMPONENT Runtime
 )
 
-# V1.0 user docs (copies of the source-tree files at install time).
+# V0.x user docs (copies of the source-tree files at install time).
+# Note: V1.0 release notes deferred per V0 series charter
+# (`docs/V0-series-charter.md`); V0.1 status summary supersedes them.
+# `docs/v1.0-spec-list.md` retained (with disclaimer at top) as the
+# authoritative V0.x freeze record.
 install(FILES
+    docs/V0-series-charter.md
+    docs/v0.1-status-summary.md
     docs/install.md
     docs/v1.0-spec-list.md
     docs/m13-hardware-verification.md
@@ -39,14 +45,6 @@ install(FILES
     docs/m10-hardware-verification.md
     docs/m11-hardware-verification.md
     DESTINATION docs
-    COMPONENT Documentation
-)
-
-# Release notes — the canonical V1 user-facing notes live under
-# docs/release-notes/.
-install(FILES
-    docs/release-notes/v1.0.0.md
-    DESTINATION docs/release-notes
     COMPONENT Documentation
 )
 
