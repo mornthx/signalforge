@@ -18,7 +18,17 @@ jobs:
       - name: Install GCC 13
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13 ninja-build xvfb libcurl4-openssl-dev socat python3-pytest
+          sudo apt-get install -y g++-13 ninja-build xvfb libcurl4-openssl-dev socat
+
+      - name: Install pytest (M15 visual tests)
+        run: |
+          # Visual tests under tests/visual/ shell out to
+          # `python3 -m pytest`. CI's `python3` is the toolcache
+          # binary at /opt/hostedtoolcache/Python/.../python3, not
+          # the system one — so apt's `python3-pytest` would not be
+          # importable. Install via pip into whichever python3 is
+          # on PATH; pytest is the only test-only dep we need.
+          python3 -m pip install --upgrade --user pytest
 
       - name: Install Qt 6.10.2
         uses: jurplel/install-qt-action@v4
