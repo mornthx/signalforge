@@ -324,6 +324,48 @@ bool MainWindow::autoSelectSignal(const QString& signalId) {
     return true;
 }
 
+bool MainWindow::autoStartRecording(const QString& path) {
+    if (sessionWriter_ == nullptr || path.isEmpty() || sessionWriter_->isRecording()) {
+        return false;
+    }
+    // M14 F9: derive decoderSchemaId from the last Connected connection
+    // with a non-empty schema id (matches the onRecordToggle GUI path).
+    QString recordingSchemaId;
+    if (connectionManager_ != nullptr) {
+        for (const auto& id : connectionManager_->connectionIds()) {
+            const auto* conn = connectionManager_->connection(id);
+            if (conn == nullptr || conn->state() != signalforge::connection::Connection::State::Connected) {
+                continue;
+            }
+            const QString& cfgSchema = conn->config().decoderSchemaId;
+            if (!cfgSchema.isEmpty()) {
+                recordingSchemaId = cfgSchema;
+            }
+        }
+    }
+    if (!sessionWriter_->start(path, /*description*/ QString{}, recordingSchemaId)) {
+        SF_LOG_ERROR("MainWindow::autoStartRecording: SessionWriter::start failed for '{}'", path.toStdString());
+        return false;
+    }
+    currentRecordingPath_ = path;
+    SF_LOG_INFO("MainWindow::autoStartRecording: -> {} (schemaId='{}')", path.toStdString(),
+                recordingSchemaId.toStdString());
+    return true;
+}
+
+std::size_t MainWindow::autoStopRecording() {
+    if (sessionWriter_ == nullptr || !sessionWriter_->isRecording()) {
+        return 0;
+    }
+    const std::size_t eventsBeforeStop = sessionWriter_->eventsRecorded();
+    const std::size_t droppedBeforeStop = sessionWriter_->droppedEvents();
+    const std::size_t bytes = sessionWriter_->stop();
+    SF_LOG_INFO("MainWindow::autoStopRecording: stopped ({} bytes -> {}); events={} dropped={}", bytes,
+                currentRecordingPath_.toStdString(), eventsBeforeStop, droppedBeforeStop);
+    currentRecordingPath_.clear();
+    return bytes;
+}
+
 QImage MainWindow::grabChartImage() const {
     if (chartContainer_ == nullptr) {
         return {};

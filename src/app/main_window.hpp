@@ -80,6 +80,17 @@ public:
     /// QImage. Returns a null QImage if no chart widget is laid out.
     [[nodiscard]] QImage grabChartImage() const;
 
+    /// Programmatically start recording a session to `path`, reusing the
+    /// same active-connection schema-discovery rule as the GUI Record
+    /// menu (M14 F9). Returns false if a recording is already active or
+    /// if SessionWriter::start fails. Used by the M14 S6 mechanical
+    /// 18-test automation for T7 / T8 / T10 / T11.
+    [[nodiscard]] bool autoStartRecording(const QString& path);
+
+    /// Programmatically stop the active recording. Returns the byte
+    /// count written (0 if no active recording).
+    std::size_t autoStopRecording();
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

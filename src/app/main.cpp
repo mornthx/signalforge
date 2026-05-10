@@ -104,6 +104,14 @@ int main(int argc, char** argv) {
     const QString dumpPngPathArg = flagValue(argc, argv, "--dump-chart-png-path");
     const bool exitAfterDump = hasFlag(argc, argv, "--exit-after-dump");
 
+    // M14 S6 mechanical 18-test automation flags. Drive recording start +
+    // stop programmatically so harnessed tests (T7 round-trip, T8
+    // across-restart, T10 mid-stream, T11 backpressure) can be exercised
+    // without a human clicking the Record menu.
+    const QString autoRecordPath = flagValue(argc, argv, "--auto-record-to");
+    const QString autoStopRecordingArg = flagValue(argc, argv, "--auto-stop-recording-after-ms");
+    const QString exitAfterMsArg = flagValue(argc, argv, "--exit-after-ms");
+
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
     window.show();
@@ -122,6 +130,42 @@ int main(int argc, char** argv) {
                 SF_LOG_ERROR("SignalForge: --auto-select-signal '{}' failed", autoSignalId.toStdString());
             }
         });
+    }
+    if (!autoRecordPath.isEmpty()) {
+        // Defer recording start so connections have a chance to reach
+        // Connected and SchemaDecoder fires onSignalsRegistered (so the
+        // recording's catalog seeds correctly per F6 fix).
+        QTimer::singleShot(700, &app, [&window, autoRecordPath]() {
+            if (!window.autoStartRecording(autoRecordPath)) {
+                SF_LOG_ERROR("SignalForge: --auto-record-to '{}' failed", autoRecordPath.toStdString());
+            }
+        });
+    }
+    if (!autoStopRecordingArg.isEmpty()) {
+        bool ok = false;
+        const int stopMs = autoStopRecordingArg.toInt(&ok);
+        if (!ok || stopMs < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-stop-recording-after-ms requires non-negative integer; got '{}'",
+                         autoStopRecordingArg.toStdString());
+        } else {
+            QTimer::singleShot(stopMs, &app, [&window]() {
+                const std::size_t bytes = window.autoStopRecording();
+                SF_LOG_INFO("SignalForge: auto-stop wrote {} bytes", bytes);
+            });
+        }
+    }
+    if (!exitAfterMsArg.isEmpty()) {
+        bool ok = false;
+        const int exitMs = exitAfterMsArg.toInt(&ok);
+        if (!ok || exitMs < 0) {
+            SF_LOG_ERROR("SignalForge: --exit-after-ms requires non-negative integer; got '{}'",
+                         exitAfterMsArg.toStdString());
+        } else {
+            QTimer::singleShot(exitMs, &app, []() {
+                SF_LOG_INFO("SignalForge: --exit-after-ms reached; quitting");
+                QApplication::quit();
+            });
+        }
     }
     if (!dumpPngArg.isEmpty()) {
         bool ok = false;
