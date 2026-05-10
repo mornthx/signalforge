@@ -44,3 +44,19 @@ jobs:
 
       - name: Test
         run: xvfb-run --auto-servernum ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      # M15 S5 — visual-test screenshot artifact upload (per
+      # M15-concerns C5 + C7). Uploads any captures produced
+      # under tests/screenshots/** so reviewers can compare
+      # actual vs committed baseline locally on a CI failure.
+      # `if: always()` so artifacts upload even when ctest fails.
+      # No vision-LLM in CI (C7); pixel-diff is the only gate.
+      - name: Upload visual-test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-screenshots-${{ matrix.preset }}
+          path: |
+            tests/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14

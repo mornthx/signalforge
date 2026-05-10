@@ -16,10 +16,10 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 |---|---|---|---|---|
 | S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | done | `2fe5034` | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
 | S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | done | `d82d630` | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
-| S2 | Vision-LLM integration | **done** | (this commit) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
+| S2 | Vision-LLM integration | done | `ae2e453` (+ S2 fixes `f5db33f`, `1b7db01`, `671c865`) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
 | S3 | Baseline coverage (Y-scope; 38 baselines per C3) | not started | — | Operator-blocking (one-time approval) |
 | S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |
-| S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | not started | — | Per C5 + C7: NO LLM in CI; pixel diff only |
+| S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | **done** | (this commit) | `.github/workflows/ci.yml` uploads `tests/screenshots/**` as `visual-screenshots-<preset>` artifact (14 day retention) on every run via `if: always()`. `tests/visual/README.md` documents add-test workflow, baseline accept loop, local-only vision-LLM hybrid. Pixel-diff gate validated locally: absent baseline → matched, identical → 0%, regressions caught at strict thresholds. C7 verified: zero `secrets.*` references, no API key in CI. `accept-baseline.sh` already shipped in S1. |
 | S6 | CC autonomy demonstration | not started | — | End-to-end self-test |
 | S7 | M15-done.md + V0.3 hand-off | not started | — | Coverage map + V1 UX gap inventory + industrial refs |
 
