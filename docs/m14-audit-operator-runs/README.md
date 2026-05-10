@@ -15,6 +15,7 @@ directory holds the source evidence those rows are filled from.
 | 3 | 2026-05-09 ~20:50 | HALT at T3 | `qrc_qml.cpp.o` stripped from binary at link time (static-archive rule), `qInitResources_qml` symbol absent → resource never registers | commit `aa100c9` (S8.2, `Q_INIT_RESOURCE(qml)`) — verified in run 4 |
 | 4 | 2026-05-09 ~21:25 | HALT at T3 | Chart QQuickItem stays 0×0 after `setParentItem`; nothing sets width/height | commit `4038191` (S2 chart geometry) — fix present at source, but render still white in run 5 (F4 unresolved at runtime) |
 | 5 | 2026-05-09 → 05-10 | Pivot to non-chart audit | F4 chart still broken at runtime even with S2 fix; **+ 14 new findings F5–F18** spanning recording / persistence / replay UX / observability / resource budgets | (next M14 fix wave) |
+| 6 | 2026-05-10 ~16:12 | Wave 1-3 verification | **F4 / F6 / F10 / F12 / F15 / F17 / F18 all verified PASS at runtime**; 1 new serious finding **F19** (speed-change first-play stutter). M13 acceptance projection jumped from 2/18 (run 5) to **12-14/18 plausible** | F4 already in `7ed9d7b`; F6+F17 in `5c639fe`; F12 in `18bab31`; F15 in `555f270`; F18 in `6026395` |
 
 ## Cross-cutting observations
 
@@ -61,3 +62,12 @@ directory holds the source evidence those rows are filled from.
   `run5-non-chart-audit.md`. F5 (right-click menu) is the lowest
   severity; F6 (recording silent drop), F15 (buffer budget exhaustion)
   and F17 (persistence completely broken) are the critical items.
+- F19 surfaced during run 6 verification and is documented in
+  `run6-wave-1-3-verification.md` §F19. Speed-change first-play stutter
+  is the open serious finding from that run.
+
+## Run-6 finding-resolution snapshot
+
+| Open at run-5 close | Resolved by run-6 | Still open |
+|---|---|---|
+| F4, F6, F10, F12, F15, F17, F18 (7 critical / serious) | All 7 ✓ | F5, F7, F8, F9, F11 (unmeasured), F13, F14, F16 + new F19 |
