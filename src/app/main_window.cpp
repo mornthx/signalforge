@@ -378,6 +378,56 @@ bool MainWindow::autoLoadFixtureNoConnect(const QString& yamlPath) {
     return true;
 }
 
+bool MainWindow::autoLoadReplaySession(const QString& path) {
+    if (replayModeManager_ == nullptr || playbackController_ == nullptr || path.isEmpty()) {
+        return false;
+    }
+    if (!replayModeManager_->enterReplay()) {
+        SF_LOG_ERROR("MainWindow::autoLoadReplaySession: enterReplay failed");
+        return false;
+    }
+    if (!playbackController_->loadSession(path)) {
+        SF_LOG_ERROR("MainWindow::autoLoadReplaySession: loadSession failed for '{}': {}", path.toStdString(),
+                     playbackController_->lastError().toStdString());
+        (void)replayModeManager_->exitReplay(false);
+        return false;
+    }
+    if (replayToolbar_ != nullptr) {
+        replayToolbar_->setVisible(true);
+    }
+    if (replaySeekSlider_ != nullptr) {
+        replaySeekSlider_->setRange(0, static_cast<int>(playbackController_->totalRecords()));
+    }
+    if (replayStatusLabel_ != nullptr) {
+        replayStatusLabel_->setText(tr("Replay: %1").arg(QFileInfo(path).fileName()));
+    }
+    SF_LOG_INFO("MainWindow::autoLoadReplaySession: loaded '{}'", path.toStdString());
+    return true;
+}
+
+bool MainWindow::autoReplayPlay() {
+    if (playbackController_ == nullptr) {
+        return false;
+    }
+    return playbackController_->play();
+}
+
+bool MainWindow::autoReplayPause() {
+    if (playbackController_ == nullptr) {
+        return false;
+    }
+    return playbackController_->pause();
+}
+
+bool MainWindow::autoReplaySeekPercent(int percent) {
+    if (playbackController_ == nullptr || percent < 0 || percent > 100) {
+        return false;
+    }
+    const auto duration = playbackController_->durationNs();
+    const auto target = (duration * percent) / 100;
+    return playbackController_->seek(target);
+}
+
 std::size_t MainWindow::autoAddCharts(int extra) {
     if (chartManager_ == nullptr || extra <= 0) {
         return chartManager_ != nullptr ? static_cast<std::size_t>(chartManager_->chartIds().size()) : 0;

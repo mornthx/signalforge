@@ -17,7 +17,7 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 | S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | done | `2fe5034` | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
 | S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | done | `d82d630` | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
 | S2 | Vision-LLM integration | done | `ae2e453` (+ S2 fixes `f5db33f`, `1b7db01`, `671c865`) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
-| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress (HALT) | Round 1 `e94a656`, Round 2 (this commit) | Round 1: 6 mechanism-C captures (00, 04, 05, 14, 15, 33). Round 2: + autoLoadFixtureNoConnect + autoAddCharts primitives + multi-driver fixtures → 3 more captures (02 PASS, 12 PASS, 13 FLAKY 0.999 %). Multi-chart states (01, 36, 37) HALTed at trigger #2 — `rebuildChartWidgets()` segfault under headless tight-loop chart-add timing (`HALT-20260510T172100Z-m15-s3-rebuildcharts-segfault.md`). Pre-existing GUI rebuild fragility surfaced; spec §2.2 #1 forbids UX fixes during M15. **9 / 38 captured**, ~17 still feasible via Round 3+ (replay) and Round 4 (mechanism B for menus/dialogs), 12 genuinely operator-manual. Awaiting operator decision on A (defer to V0.3) / B (in-scope rebuild redesign) / C (timing workaround). |
+| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress | Round 1 `e94a656`, Round 2 `03d929d`, V0.3 hand-off `8266e4c`, Round 3 (this commit) | Round 1: 6 captures (00, 04, 05, 14, 15, 33). Round 2: 3 more (02 PASS, 12 PASS, 13 FLAKY 0.999 %). Multi-chart 01/36/37 deferred to V0.3 per operator decision A (HALT-20260510T172100Z; rebuild segfault is V1 production code, spec §2.2 #1 forbids UX fixes during M15). Round 3: 4 replay captures (17, 18, 19, 20) PASS via autoLoadReplaySession + autoReplayPlay/Pause/SeekPercent primitives + a bootstrap helper that records a 849 B session fixture from m14_smoke + udp_fixture_sender. **13 / 38 captured (12 PASS + 1 FLAKY)**, 10 still feasible via Round 4 (mech B for menus/dialogs), 12 operator-manual. Round 4 in flight. |
 | S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |
 | S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | done | `b55203e` | `.github/workflows/ci.yml` uploads `tests/screenshots/**` as `visual-screenshots-<preset>` artifact (14 day retention) on every run via `if: always()`. `tests/visual/README.md` documents add-test workflow, baseline accept loop, local-only vision-LLM hybrid. Pixel-diff gate validated locally: absent baseline → matched, identical → 0%, regressions caught at strict thresholds. C7 verified: zero `secrets.*` references, no API key in CI. `accept-baseline.sh` already shipped in S1. CI run `25634337073` green (11m25s, all 3 presets). **Order-violation note**: S5 was executed before S3 post-compaction; per operator feedback (`feedback_plan_ordering.md`), plan ordering is the source of truth — re-read M15-plan before picking next subtask. |
 | S6 | CC autonomy demonstration | not started | — | End-to-end self-test |
@@ -137,10 +137,10 @@ tolerance.
 | 14 | recording-active | C | 1 | PASS | 0.002 % |
 | 15 | recording-stopped | C | 1 | PASS | 0.002 % |
 | 16 | replay-open-dialog | B | 4 | PENDING | modal QFileDialog; needs full-screen grab + slot trigger |
-| 17 | replay-loaded | C | 3 | PENDING | needs `autoLoadReplaySession(path)` primitive + session-file fixture |
-| 18 | replay-playing | C | 3 | PENDING | needs replay-load + auto-play flag |
-| 19 | replay-scrubber-mid | C | 3 | PENDING | needs replay-load + seek-to-percent flag |
-| 20 | replay-end | C | 3 | PENDING | needs replay-load + seek-to-end flag |
+| 17 | replay-loaded | C | 3 | PASS | 0.000 % — `autoLoadReplaySession` primitive + bootstrapped fixture (`m15-replay-fixture.sfreplay`, 849 B) |
+| 18 | replay-playing | C | 3 | PASS | 0.000 % — `autoReplayPlay` primitive; play fires 500 ms post-load |
+| 19 | replay-scrubber-mid | C | 3 | PASS | 0.002 % — `autoReplaySeekPercent(50)` primitive |
+| 20 | replay-end | C | 3 | PASS | 0.002 % — `autoReplaySeekPercent(100)` primitive |
 | 21 | replay-speed-5x | B | 3+4 | PENDING | needs replay-load + speed flag + B-mech for combo dropdown |
 | 22 | mode-live-to-replay | B | 4 | PENDING | modal confirm; needs sequence trigger |
 | 23 | mode-replay-to-live | B | 4 | PENDING | modal 3-option; needs replay-loaded prerequisite + sequence trigger |
@@ -159,9 +159,9 @@ tolerance.
 | 36 | multi-chart-2 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01; HALT-20260510T172100Z |
 | 37 | multi-chart-5 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01 / 36 |
 
-**Round 2 summary** (cumulative): PASS 8 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING-rounds 14 / SKIP-operator-manual 12 of 38.
+**Round 3 summary** (cumulative): PASS 12 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING-rounds 10 / SKIP-operator-manual 12 of 38.
 
-(Round 1 alone: PASS 6 / SKIP-pending-rounds 21 / SKIP-operator-manual 11.)
+(Round 2 alone: PASS 8 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING-rounds 14 / SKIP-operator-manual 12. Round 1 alone: PASS 6 / SKIP-pending-rounds 21 / SKIP-operator-manual 11.)
 
 ### S3 HALT — multi-chart capture deferred to V0.3
 

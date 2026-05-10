@@ -120,6 +120,29 @@ public:
     /// Returns the chart count after the operation; 0 on failure.
     std::size_t autoAddCharts(int extra);
 
+    /// M15 S3 Round 3: programmatically enter Replay mode + load a
+    /// session file at ``path``. Mirrors the GUI ``onOpenSessionRequested``
+    /// flow minus the QFileDialog + connection-pause confirmation
+    /// dialog. Returns false if either ``replayModeManager_`` or
+    /// ``playbackController_`` is null, the path is empty, the
+    /// replay-mode transition fails, or the session-load fails.
+    /// Used to capture replay-state visual baselines
+    /// (M15-concerns C3 §17–§20).
+    [[nodiscard]] bool autoLoadReplaySession(const QString& path);
+
+    /// M15 S3 Round 3: start replay playback. Returns false if
+    /// ``playbackController_`` is null or no session is loaded.
+    [[nodiscard]] bool autoReplayPlay();
+
+    /// M15 S3 Round 3: pause replay playback. Returns false on the
+    /// same conditions as ``autoReplayPlay``.
+    [[nodiscard]] bool autoReplayPause();
+
+    /// M15 S3 Round 3: seek replay to ``percent`` of the loaded
+    /// session's duration (0–100). Returns false on out-of-range
+    /// input or null playback controller.
+    [[nodiscard]] bool autoReplaySeekPercent(int percent);
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

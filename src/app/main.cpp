@@ -129,6 +129,17 @@ int main(int argc, char** argv) {
     const QString fixtureNoConnectPath = flagValue(argc, argv, "--auto-no-connect");
     const QString autoAddChartsArg = flagValue(argc, argv, "--auto-add-charts");
 
+    // M15 S3 Round 3 replay-state baseline-capture flags. Mirror the
+    // GUI Open-Session / Play / Pause / Scrub flow without the modal
+    // QFileDialog or the connection-pause confirmation, so replay
+    // visual baselines (C3 §17–§20) can be captured deterministically
+    // under xvfb. `--auto-replay-play-after-ms` schedules a play()
+    // call once the load has settled; `--auto-replay-seek-percent`
+    // jumps to a specific position before capture.
+    const QString autoReplayLoadPath = flagValue(argc, argv, "--auto-load-replay");
+    const QString autoReplayPlayAfterArg = flagValue(argc, argv, "--auto-replay-play-after-ms");
+    const QString autoReplaySeekPercentArg = flagValue(argc, argv, "--auto-replay-seek-percent");
+
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
     window.show();
@@ -157,6 +168,46 @@ int main(int argc, char** argv) {
             // scene-graph init. Subsequent `--capture-screenshot`
             // QTimer fires after the rebuilt widgets settle.
             (void)window.autoAddCharts(extra);
+        }
+    }
+    if (!autoReplayLoadPath.isEmpty()) {
+        // Defer the replay-load past show() + initial chart QML
+        // init so the Replay toolbar overlay + signal-selector
+        // tree are populated when the screenshot QTimer fires.
+        QTimer::singleShot(200, &app, [&window, autoReplayLoadPath]() {
+            if (!window.autoLoadReplaySession(autoReplayLoadPath)) {
+                SF_LOG_ERROR("SignalForge: --auto-load-replay failed for '{}'", autoReplayLoadPath.toStdString());
+            }
+        });
+    }
+    if (!autoReplayPlayAfterArg.isEmpty()) {
+        bool ok = false;
+        const int playMs = autoReplayPlayAfterArg.toInt(&ok);
+        if (!ok || playMs < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-play-after-ms requires non-negative integer; got '{}'",
+                         autoReplayPlayAfterArg.toStdString());
+        } else {
+            QTimer::singleShot(playMs, &app, [&window]() {
+                if (!window.autoReplayPlay()) {
+                    SF_LOG_ERROR("SignalForge: autoReplayPlay() returned false");
+                }
+            });
+        }
+    }
+    if (!autoReplaySeekPercentArg.isEmpty()) {
+        bool ok = false;
+        const int percent = autoReplaySeekPercentArg.toInt(&ok);
+        if (!ok || percent < 0 || percent > 100) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-seek-percent requires 0-100; got '{}'",
+                         autoReplaySeekPercentArg.toStdString());
+        } else {
+            // Seek runs after load + any play. 700ms covers the
+            // 200ms load defer + a 500ms post-load settle window.
+            QTimer::singleShot(700, &app, [&window, percent]() {
+                if (!window.autoReplaySeekPercent(percent)) {
+                    SF_LOG_ERROR("SignalForge: autoReplaySeekPercent({}) returned false", percent);
+                }
+            });
         }
     }
     if (!autoSignalId.isEmpty()) {

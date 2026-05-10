@@ -31,11 +31,76 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests" / "visual"))
 
-from lib.capture import capture_signalforge_state  # noqa: E402
+from lib.capture import _resolve_binary, capture_signalforge_state  # noqa: E402
 from lib.compare import compare_baseline  # noqa: E402
 
 CAND_DIR = REPO_ROOT / "tests" / "screenshots" / "baseline-candidate"
 TMP_RUN_DIR = REPO_ROOT / "tests" / "screenshots" / "_runs"
+REPLAY_FIXTURE = TMP_RUN_DIR / "m15-replay-fixture.sfreplay"
+
+
+def ensure_replay_fixture() -> Path:
+    """Generate a small session-file fixture for replay-state captures.
+
+    Records a ~1 s slice of the M14 smoke UDP fixture (50 Hz
+    temperature_sensor frames) into a `.sfreplay` under
+    ``TMP_RUN_DIR``. Cached across capture runs; regenerate by
+    deleting the file.
+
+    Mirrors the M14 S1 release-binary smoke harness pattern: the
+    binary records via ``--auto-record-to``; in parallel a
+    helper Python script feeds UDP frames into the listener.
+    """
+    if REPLAY_FIXTURE.is_file() and REPLAY_FIXTURE.stat().st_size > 64:
+        return REPLAY_FIXTURE
+
+    TMP_RUN_DIR.mkdir(parents=True, exist_ok=True)
+    REPLAY_FIXTURE.unlink(missing_ok=True)
+    binary = _resolve_binary()
+
+    import os
+    import subprocess
+
+    env = os.environ.copy()
+    env["QSG_RHI_BACKEND"] = "software"
+    env["XDG_CONFIG_HOME"] = str(TMP_RUN_DIR / "replay-fixture-cfg")
+    env["XDG_STATE_HOME"] = str(TMP_RUN_DIR / "replay-fixture-state")
+    Path(env["XDG_CONFIG_HOME"]).mkdir(parents=True, exist_ok=True)
+    Path(env["XDG_STATE_HOME"]).mkdir(parents=True, exist_ok=True)
+
+    sf_cmd = [
+        "xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24",
+        "timeout", "--signal=TERM", "--kill-after=5", "10s",
+        str(binary),
+        "--auto-load-test-fixture", "tests/integration/gui/fixtures/m14_smoke.yaml",
+        "--auto-record-to", str(REPLAY_FIXTURE),
+        "--auto-stop-recording-after-ms", "1500",
+        "--exit-after-ms", "2200",
+    ]
+
+    sf_proc = subprocess.Popen(sf_cmd, env=env, cwd=REPO_ROOT,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    # Brief wait for the UDP listener to bind.
+    time.sleep(0.6)
+
+    sender_cmd = [
+        "python3", "tests/integration/gui/helpers/udp_fixture_sender.py",
+        "--host", "127.0.0.1", "--port", "9998",
+        "--frames", "50", "--rate-hz", "50",
+        "--initial-delay-s", "0",
+    ]
+    subprocess.run(sender_cmd, cwd=REPO_ROOT, check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    sf_proc.wait(timeout=15)
+
+    if not REPLAY_FIXTURE.is_file() or REPLAY_FIXTURE.stat().st_size <= 64:
+        stderr = sf_proc.stderr.read().decode(errors="replace")[-800:] if sf_proc.stderr else ""
+        raise RuntimeError(
+            f"replay-fixture generation produced no usable session file at {REPLAY_FIXTURE}\n"
+            f"signalforge stderr tail:\n{stderr}"
+        )
+    return REPLAY_FIXTURE
 
 
 @dataclass
@@ -236,26 +301,56 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="17-replay-loaded",
             description="Replay session loaded, paused at start",
-            mechanism="manual",
-            note="Needs --auto-replay-load <path> flag + a session-file fixture. V0.3 work.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-replay",
+                "tests/screenshots/_runs/m15-replay-fixture.sfreplay",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            note="Round 3 primitive `autoLoadReplaySession`; paused after load (no auto-play).",
         ),
         StateSpec(
             name="18-replay-playing",
             description="Replay actively playing",
-            mechanism="manual",
-            note="Needs --auto-replay-load + --auto-replay-play flags.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-replay",
+                "tests/screenshots/_runs/m15-replay-fixture.sfreplay",
+                "--auto-replay-play-after-ms",
+                "500",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            note="Round 3 primitive `autoReplayPlay`; play fires 500ms post-load. Capture sees toolbar in Playing state.",
         ),
         StateSpec(
             name="19-replay-scrubber-mid",
             description="Replay paused at 50% position",
-            mechanism="manual",
-            note="Needs replay-load + seek flag.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-replay",
+                "tests/screenshots/_runs/m15-replay-fixture.sfreplay",
+                "--auto-replay-seek-percent",
+                "50",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            note="Round 3 primitive `autoReplaySeekPercent(50)`; seek fires at 700ms.",
         ),
         StateSpec(
             name="20-replay-end",
             description="Replay finished, scrubber at end",
-            mechanism="manual",
-            note="Needs replay-load + auto-play-to-end timing.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-replay",
+                "tests/screenshots/_runs/m15-replay-fixture.sfreplay",
+                "--auto-replay-seek-percent",
+                "100",
+            ],
+            capture_after_ms=2500,
+            exit_after_ms=3500,
+            note="Round 3 primitive; seek-to-100% places scrubber at end.",
         ),
         StateSpec(
             name="21-replay-speed-5x",
@@ -454,6 +549,17 @@ def main() -> int:
 
     print(f"M15 S3 — capturing {len(specs)} state(s) (filter={filter_substr!r})")
     print(f"  output dir: {CAND_DIR.relative_to(REPO_ROOT)}")
+
+    # Bootstrap the replay session-file fixture if any spec needs it.
+    if any("--auto-load-replay" in s.launch_args for s in specs):
+        try:
+            print(f"  bootstrapping replay fixture at {REPLAY_FIXTURE.relative_to(REPO_ROOT)} ...", end=" ")
+            sys.stdout.flush()
+            ensure_replay_fixture()
+            print(f"OK ({REPLAY_FIXTURE.stat().st_size} bytes)")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAIL: {type(exc).__name__}: {exc}")
+            print("  → replay-state captures (17–20) will ERROR; continuing with non-replay states.")
     print()
 
     pad = max(len(s.name) for s in specs)
