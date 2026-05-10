@@ -104,6 +104,22 @@ public:
     /// (M15-concerns C3).
     [[nodiscard]] bool captureScreenshot(const QString& path);
 
+    /// M15 S3 Round 2: load a connection-config YAML *without*
+    /// auto-connecting any connection. Mirrors `autoLoadTestFixture`
+    /// minus the ``connectAll()`` call, so visual baselines for
+    /// `Idle` connection states (M15-concerns C3 §02) can be captured
+    /// before any driver binds. Returns false on the same conditions
+    /// as `autoLoadTestFixture`.
+    [[nodiscard]] bool autoLoadFixtureNoConnect(const QString& yamlPath);
+
+    /// M15 S3 Round 2: programmatically add ``extra`` charts beyond
+    /// the default chart created during `buildChartUi`. Each call
+    /// invokes ``ChartManager::createChart`` + ``rebuildChartWidgets``
+    /// like the toolbar `+ Chart` action does. Used to capture
+    /// multi-chart visual baselines (M15-concerns C3 §36, §37).
+    /// Returns the chart count after the operation; 0 on failure.
+    std::size_t autoAddCharts(int extra);
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

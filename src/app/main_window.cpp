@@ -366,6 +366,35 @@ std::size_t MainWindow::autoStopRecording() {
     return bytes;
 }
 
+bool MainWindow::autoLoadFixtureNoConnect(const QString& yamlPath) {
+    if (connectionManager_ == nullptr || yamlPath.isEmpty()) {
+        return false;
+    }
+    if (!connectionManager_->loadConfigFile(yamlPath)) {
+        SF_LOG_ERROR("MainWindow: autoLoadFixtureNoConnect: failed to load '{}'", yamlPath.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("MainWindow: autoLoadFixtureNoConnect: loaded (no connect) for '{}'", yamlPath.toStdString());
+    return true;
+}
+
+std::size_t MainWindow::autoAddCharts(int extra) {
+    if (chartManager_ == nullptr || extra <= 0) {
+        return chartManager_ != nullptr ? static_cast<std::size_t>(chartManager_->chartIds().size()) : 0;
+    }
+    // Bulk-add: createChart() N times then rebuildChartWidgets()
+    // ONCE. Calling onAddChart() in a loop tears down + rebuilds
+    // all chart QQuickWidgets per iteration which races against
+    // QML scene-graph init under headless timing.
+    for (int i = 0; i < extra; ++i) {
+        (void)chartManager_->createChart();
+    }
+    rebuildChartWidgets();
+    const auto count = static_cast<std::size_t>(chartManager_->chartIds().size());
+    SF_LOG_INFO("MainWindow: autoAddCharts: +{} -> total {}", extra, count);
+    return count;
+}
+
 bool MainWindow::captureScreenshot(const QString& path) {
     if (path.isEmpty()) {
         SF_LOG_WARN("MainWindow::captureScreenshot: empty path");

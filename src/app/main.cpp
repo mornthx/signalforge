@@ -120,6 +120,15 @@ int main(int argc, char** argv) {
     const QString captureMsArg = flagValue(argc, argv, "--capture-screenshot-after-ms");
     const QString capturePathArg = flagValue(argc, argv, "--capture-screenshot-path");
 
+    // M15 S3 Round 2 baseline-capture flags. `--auto-no-connect` is a
+    // sibling to `--auto-load-test-fixture`; both load a YAML, but the
+    // no-connect variant skips connectAll() so Idle states (C3 §02)
+    // are observable. `--auto-add-charts <n>` invokes the same
+    // `+ Chart` action `n` extra times for multi-chart baselines
+    // (C3 §36, §37). Both are non-frozen MainWindow surfaces.
+    const QString fixtureNoConnectPath = flagValue(argc, argv, "--auto-no-connect");
+    const QString autoAddChartsArg = flagValue(argc, argv, "--auto-add-charts");
+
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
     window.show();
@@ -127,6 +136,27 @@ int main(int argc, char** argv) {
     if (!fixturePath.isEmpty()) {
         if (!window.autoLoadTestFixture(fixturePath)) {
             SF_LOG_ERROR("SignalForge: --auto-load-test-fixture failed for '{}'", fixturePath.toStdString());
+        }
+    }
+    if (!fixtureNoConnectPath.isEmpty()) {
+        if (!window.autoLoadFixtureNoConnect(fixtureNoConnectPath)) {
+            SF_LOG_ERROR("SignalForge: --auto-no-connect failed for '{}'", fixtureNoConnectPath.toStdString());
+        }
+    }
+    if (!autoAddChartsArg.isEmpty()) {
+        bool ok = false;
+        const int extra = autoAddChartsArg.toInt(&ok);
+        if (!ok || extra < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-add-charts requires non-negative integer; got '{}'",
+                         autoAddChartsArg.toStdString());
+        } else if (extra > 0) {
+            // Synchronous invocation BEFORE the event loop spins:
+            // the initial chart's QQuickWidget hasn't begun its
+            // setSource path yet, so rebuildChartWidgets() can
+            // tear down + rebuild without racing against QML
+            // scene-graph init. Subsequent `--capture-screenshot`
+            // QTimer fires after the rebuilt widgets settle.
+            (void)window.autoAddCharts(extra);
         }
     }
     if (!autoSignalId.isEmpty()) {

@@ -117,15 +117,19 @@ def specs_phase_b_skipped() -> list[StateSpec]:
     return [
         StateSpec(
             name="01-empty-with-chart",
-            description="No fixture, default chart pane (chart auto-added on launch)",
+            description="Two charts coexisting (default + 1 added via --auto-add-charts)",
             mechanism="manual",
-            note="MainWindow already creates a default chart on init; this overlaps with 00-empty-launch under current UI. Re-investigate after S4.",
+            note="Round 2 primitive `autoAddCharts` was added (see main_window.hpp:106-130, main.cpp `--auto-add-charts` flag), but `rebuildChartWidgets()` segfaults under headless capture when chart count goes 1→2+ (verified on release build; consistent across timing variants — sync, deferred 0/400 ms). Pre-existing GUI rebuild bug; logged for V0.3 fix per spec §2.2 #1 (no UI/UX fixes during M15).",
         ),
         StateSpec(
             name="02-conn-udp-idle",
-            description="UDP connection loaded but NOT connected",
-            mechanism="manual",
-            note="autoLoadTestFixture unconditionally calls connectAll. Needs a new --auto-no-connect flag OR fixture-honour autoConnectOnStartup=false. V0.3 work.",
+            description="UDP connection loaded via no-connect path; no driver bound",
+            mechanism="C",
+            launch_args=[
+                "--auto-no-connect",
+                "tests/integration/gui/fixtures/m14_smoke.yaml",
+            ],
+            note="Round 2 primitive `autoLoadFixtureNoConnect` skips connectAll(); connection-list shows entry in Idle state.",
         ),
         StateSpec(
             name="03-conn-udp-connecting",
@@ -171,15 +175,23 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         ),
         StateSpec(
             name="12-multi-2-drivers",
-            description="2 UDP drivers, both Connected",
-            mechanism="manual",
-            note="Needs new fixture m15_multi_2.yaml + matching fixture sender. Operator manual or S4 work.",
+            description="2 UDP drivers via m15_multi_2.yaml, both Connected",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-test-fixture",
+                "tests/integration/gui/fixtures/m15_multi_2.yaml",
+            ],
+            note="Round 2 fixture; connectAll() binds both UDP listeners on disjoint ports.",
         ),
         StateSpec(
             name="13-multi-5-drivers",
-            description="5 UDP drivers, all Connected (signal-selector full)",
-            mechanism="manual",
-            note="Needs fixture + 5 sender ports. Operator manual or S4 work.",
+            description="5 UDP drivers via m15_multi_5.yaml, all Connected",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-test-fixture",
+                "tests/integration/gui/fixtures/m15_multi_5.yaml",
+            ],
+            note="Round 2 fixture; signal-selector tree exposes 5 driver subtrees.",
         ),
         StateSpec(
             name="14-recording-active",
@@ -345,15 +357,15 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         ),
         StateSpec(
             name="36-multi-chart-2",
-            description="2 charts coexisting",
+            description="2 charts (default + 1 via --auto-add-charts)",
             mechanism="manual",
-            note="Needs --auto-add-chart=2 flag (new MainWindow primitive). V0.3 work.",
+            note="Same rebuildChartWidgets() segfault as 01 — multi-chart capture blocked on V0.3 fix.",
         ),
         StateSpec(
             name="37-multi-chart-5",
-            description="5 charts (vertical stack)",
+            description="5 charts (default + 4 via --auto-add-charts)",
             mechanism="manual",
-            note="Same as 36 with count=5.",
+            note="Same rebuildChartWidgets() segfault as 01 / 36.",
         ),
     ]
 

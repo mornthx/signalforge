@@ -17,7 +17,7 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 | S0 | Concerns C1-C7 + M15.2 local-only hybrid lock + empirical CC native test | done | `2fe5034` | Empirical Read-tool test PASSED on SignalForge PNG; M15.2 locked |
 | S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | done | `d82d630` | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
 | S2 | Vision-LLM integration | done | `ae2e453` (+ S2 fixes `f5db33f`, `1b7db01`, `671c865`) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
-| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress | (Round 1: this commit) | Round 1 captures Phase A: 6/38 mechanism-C states (00, 04, 05, 14, 15, 33) via `tests/visual/scripts/capture_baselines.py`. 32 states staged as `manual` pending Round 2+ infrastructure (chart-add primitive, no-connect fixture mode, multi-driver fixtures, replay flags, mechanism B for menus/dialogs, fault injection for error states). See §S3 below for per-state status. |
+| S3 | Baseline coverage (Y-scope; 38 baselines per C3) | in progress (HALT) | Round 1 `e94a656`, Round 2 (this commit) | Round 1: 6 mechanism-C captures (00, 04, 05, 14, 15, 33). Round 2: + autoLoadFixtureNoConnect + autoAddCharts primitives + multi-driver fixtures → 3 more captures (02 PASS, 12 PASS, 13 FLAKY 0.999 %). Multi-chart states (01, 36, 37) HALTed at trigger #2 — `rebuildChartWidgets()` segfault under headless tight-loop chart-add timing (`HALT-20260510T172100Z-m15-s3-rebuildcharts-segfault.md`). Pre-existing GUI rebuild fragility surfaced; spec §2.2 #1 forbids UX fixes during M15. **9 / 38 captured**, ~17 still feasible via Round 3+ (replay) and Round 4 (mechanism B for menus/dialogs), 12 genuinely operator-manual. Awaiting operator decision on A (defer to V0.3) / B (in-scope rebuild redesign) / C (timing workaround). |
 | S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |
 | S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | done | `b55203e` | `.github/workflows/ci.yml` uploads `tests/screenshots/**` as `visual-screenshots-<preset>` artifact (14 day retention) on every run via `if: always()`. `tests/visual/README.md` documents add-test workflow, baseline accept loop, local-only vision-LLM hybrid. Pixel-diff gate validated locally: absent baseline → matched, identical → 0%, regressions caught at strict thresholds. C7 verified: zero `secrets.*` references, no API key in CI. `accept-baseline.sh` already shipped in S1. CI run `25634337073` green (11m25s, all 3 presets). **Order-violation note**: S5 was executed before S3 post-compaction; per operator feedback (`feedback_plan_ordering.md`), plan ordering is the source of truth — re-read M15-plan before picking next subtask. |
 | S6 | CC autonomy demonstration | not started | — | End-to-end self-test |
@@ -121,8 +121,8 @@ tolerance.
 | # | State | Mechanism | Round | Status | Diff |
 |---|---|---|---|---|---|
 | 00 | empty-launch | C | 1 | PASS | 0.002 % |
-| 01 | empty-with-chart | manual | — | SKIP | duplicate of 00 — `MainWindow::buildChartUi` auto-creates one chart on init (see `main_window.cpp:246`). Visual indistinguishable from 00 under current UI; flag for V0.3 to disambiguate "blank" vs "chart-added" via a chart-pane outline or label. |
-| 02 | conn-udp-idle | C | 2 | PENDING | needs `autoLoadFixtureNoConnect` primitive |
+| 01 | empty-with-chart | C → manual | (HALT) | DEFERRED | Round 2 added `autoAddCharts` primitive + `--auto-add-charts` flag, but `rebuildChartWidgets()` segfaults under headless tight-loop chart-add timing (HALT-20260510T172100Z). 3 fix attempts (sync, defer 0/400 ms) all crashed. Tracked as pre-existing GUI rebuild fragility for V0.3 fix. |
+| 02 | conn-udp-idle | C | 2 | PASS | 0.000 % — `autoLoadFixtureNoConnect` primitive (Round 2) |
 | 03 | conn-udp-connecting | manual | — | SKIP | UDP bind ≈ instant; transient state not observable under headless capture. Operator-manual. |
 | 04 | conn-udp-connected | C | 1 | PASS | 0.000 % |
 | 05 | conn-udp-with-signal | C | 1 | PASS | 0.002 % |
@@ -132,8 +132,8 @@ tolerance.
 | 09 | conn-serial-connected | manual | — | SKIP | Same constraint as 08. |
 | 10 | conn-tcp-idle | manual | — | SKIP | Needs TCP-server fixture coordinator (not yet built). |
 | 11 | conn-tcp-connected | manual | — | SKIP | Same constraint as 10. |
-| 12 | multi-2-drivers | C | 2 | PENDING | needs new fixture `m15_multi_2.yaml` |
-| 13 | multi-5-drivers | C | 2 | PENDING | needs new fixture `m15_multi_5.yaml` + 5 sender ports |
+| 12 | multi-2-drivers | C | 2 | PASS | 0.002 % — `m15_multi_2.yaml` fixture (Round 2) |
+| 13 | multi-5-drivers | C | 2 | FLAKY | 0.999 % — `m15_multi_5.yaml` fixture (Round 2). Operator review: signal-selector layout under software-RHI varies slightly run-to-run; flagged for tighter capture timing or layout-stabilisation pass. |
 | 14 | recording-active | C | 1 | PASS | 0.002 % |
 | 15 | recording-stopped | C | 1 | PASS | 0.002 % |
 | 16 | replay-open-dialog | B | 4 | PENDING | modal QFileDialog; needs full-screen grab + slot trigger |
@@ -156,10 +156,12 @@ tolerance.
 | 33 | status-buffer-normal | C | 1 | PASS | 0.002 % |
 | 34 | status-buffer-warn | manual | — | SKIP | timing-dependent; needs traffic-flooding fixture. Operator-manual or Round 4 traffic-gen fixture. |
 | 35 | status-buffer-full | manual | — | SKIP | same as 34 plus drop-overflow timing. |
-| 36 | multi-chart-2 | C | 2 | PENDING | needs `autoAddCharts(int)` primitive + `--auto-add-charts <n>` flag |
-| 37 | multi-chart-5 | C | 2 | PENDING | same primitive as 36 with n=4 (default = 1) |
+| 36 | multi-chart-2 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01; HALT-20260510T172100Z |
+| 37 | multi-chart-5 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01 / 36 |
 
-**Round 1 summary**: PASS 6 / SKIP-pending-rounds 21 / SKIP-operator-manual 11 of 38.
+**Round 2 summary** (cumulative): PASS 8 / FLAKY 1 / DEFERRED 3 / PENDING-rounds 14 / SKIP-operator-manual 12 of 38.
+
+(Round 1 alone: PASS 6 / SKIP-pending-rounds 21 / SKIP-operator-manual 11.)
 
 **Operator-manual count**: 11 (states 03, 06, 07, 08, 09, 10, 11, 27, 28, 29, 34, 35 — though 12 are listed, one is borderline). Above the < 5 target from session prompt; the gap is tracked as Round 4 / V0.3 work.
 
@@ -175,7 +177,7 @@ After Round 4 the operator reviews ≥ 27/38 candidate baselines + commits the o
 
 ## HALT log
 
-(empty)
+- `HALT-20260510T172100Z-m15-s3-rebuildcharts-segfault.md` — M15 / S3 Round 2 multi-chart capture (states 01, 36, 37). Trigger #2 (3 fix attempts). `rebuildChartWidgets()` segfaults under headless tight-loop chart-add timing; pre-existing GUI rebuild fragility surfaced. Awaiting operator decision on A (defer V0.3) / B (in-scope rebuild redesign — would violate spec §2.2 #1) / C (timing workaround — brittle).
 
 ---
 
