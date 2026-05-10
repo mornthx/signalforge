@@ -25,3 +25,17 @@ Thumbs.db
 
 # Claude Code: ignore in-progress HALT files; resolved ones are committed
 .claude/halt/*.inprogress
+
+# M15 V0.2 — local-only secrets + ephemeral test output
+# Per M15-concerns.md C7 (public-repo security): vision-LLM API keys
+# (Xiaomi MiMo or any other) live in operator-local environment only;
+# never in the repo. Any .env file is ignored.
+.env
+.env.local
+.env.*
+.env.*.local
+
+# Per M15-concerns.md C4: tests/screenshots/ is ephemeral test output
+# (per-CI-run captures); committed baselines live in
+# tests/visual/baselines/.
+tests/screenshots/
