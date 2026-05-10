@@ -159,9 +159,55 @@ tolerance.
 | 36 | multi-chart-2 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01; HALT-20260510T172100Z |
 | 37 | multi-chart-5 | C → manual | (HALT) | DEFERRED | same `rebuildChartWidgets()` segfault as 01 / 36 |
 
-**Round 2 summary** (cumulative): PASS 8 / FLAKY 1 / DEFERRED 3 / PENDING-rounds 14 / SKIP-operator-manual 12 of 38.
+**Round 2 summary** (cumulative): PASS 8 / FLAKY 1 / DEFERRED-V0.3 3 / PENDING-rounds 14 / SKIP-operator-manual 12 of 38.
 
 (Round 1 alone: PASS 6 / SKIP-pending-rounds 21 / SKIP-operator-manual 11.)
+
+### S3 HALT — multi-chart capture deferred to V0.3
+
+3 baseline states deferred to V0.3 due to V1 GUI rebuild fragility:
+
+- `01-empty-with-chart`
+- `36-multi-chart-2`
+- `37-multi-chart-5`
+
+**Root cause**: `MainWindow::rebuildChartWidgets()` (`src/app/main_window.cpp:561`) tears down existing chart `QQuickWidget` host(s) via `deleteLater()` and synchronously constructs new hosts + re-parents the existing `Chart` `QQuickItem*` children. Under headless tight-loop chart-add timing (`--auto-add-charts <n>` invoking `autoAddCharts`), the deleted host's QML scene-graph teardown races against the new host's `setSource()` init on the same thread, terminating the process with SIGSEGV before the screenshot QTimer fires. Cf. ADR-010 §"Implementation lesson" — chart QQuickWidget hosting was identified as fragile early in M13.
+
+**Three fix attempts** (all crashed identically):
+
+1. Synchronous invocation post `window.show()`, before `app.exec()`.
+2. `QTimer::singleShot(0, ...)` (event loop fires immediately).
+3. `QTimer::singleShot(400, ...)` after a refactored bulk `createChart()` loop + single `rebuildChartWidgets()` call.
+
+**Reproducer for V0.3**:
+
+```sh
+cmake --build --preset release
+xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+    timeout 8 ./build/release/src/app/signalforge \
+        --auto-add-charts 1 --exit-after-ms 4000
+# expected: clean exit at ~4s with 2 chart panes
+# actual:   SIGSEGV before exit-after-ms, no screenshot saved
+```
+
+**Why deferred not fixed**: spec §2.2 #1 forbids UX fixes during M15. The crash is in V1 production GUI rebuild logic; real-user click cadence does not trigger it (M0–M14 operator usage + M14 audit run-1..run-7 dogfood — no chart-rebuild crash reported). V0.2 vision infrastructure correctly surfaced the V1 reliability gap that V0.2 cannot fix per scope; this is exactly the M15-charter intent (infrastructure exposes UX/reliability gaps; V0.3 fixes them).
+
+**V0.3 hand-off**: V0.3 chart layout redesign (M17 widget rebuild per preliminary roadmap) will refactor or replace `rebuildChartWidgets()` to be safe under any chart-add timing. Recommended approach for V0.3 (CC's read; not binding):
+
+- Append-only multi-chart: never tear down existing host widgets; create a new `QQuickWidget` per newly-added `Chart`, leave existing host/Chart pairs untouched.
+- OR migrate to QML-driven multi-chart layout where `Chart` items are children of a single QML repeater bound to `chartManager_->chartIds()`, eliminating the C++-side teardown loop entirely.
+
+After V0.3 chart redesign lands, capture states 01 / 36 / 37 by running `tests/visual/scripts/capture_baselines.py 01 / 36 / 37` (no script change needed — the manual mark in `capture_baselines.py:specs_phase_b_skipped()` is the only gate).
+
+**Infrastructure preserved for V0.3** (committed in `03d929d`):
+
+- `MainWindow::autoAddCharts(int extra)` primitive (`main_window.cpp:autoAddCharts`).
+- `--auto-add-charts <n>` CLI flag (`main.cpp` `autoAddChartsArg` block).
+- Capture mechanism C tested + working for single-chart + connection states.
+
+These are no-harm to production paths (`--auto-add-charts` is a test-only flag; the production toolbar `+ Chart` action remains unchanged at `onAddChart()`). V0.3 chart redesign re-tests the same flag once the rebuild logic is safe.
+
+
 
 **Operator-manual count**: 11 (states 03, 06, 07, 08, 09, 10, 11, 27, 28, 29, 34, 35 — though 12 are listed, one is borderline). Above the < 5 target from session prompt; the gap is tracked as Round 4 / V0.3 work.
 
