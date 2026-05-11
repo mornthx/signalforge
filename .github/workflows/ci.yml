@@ -45,12 +45,29 @@ jobs:
       - name: Test
         run: xvfb-run --auto-servernum ctest --preset ${{ matrix.preset }} --output-on-failure
 
+      # M16 S0.5 R13 minimal-determinism spike capture.
+      # Ephemeral: only runs on release preset to keep matrix CI
+      # cheap, captures 00-empty-launch + 24-dialog-add-serial under
+      # `--m16-spike-stack` (Fusion + bundled Inter Regular 12pt +
+      # 6-role minimal palette) for cross-environment determinism
+      # measurement vs operator-local capture. Per M16-concerns.md
+      # §C7. Removable when S4 lands `SignalForgeStyle` (S0.5
+      # infrastructure is throwaway by R13 design).
+      - name: M16 S0.5 spike capture
+        if: matrix.preset == 'release'
+        run: |
+          bash tests/visual/scripts/setup_m16_spike.sh
+          python3 tests/visual/scripts/capture_m16_spike.py
+        env:
+          SIGNALFORGE_BINARY: ${{ github.workspace }}/build/release/src/app/signalforge
+
       # M15 S5 — visual-test screenshot artifact upload (per
       # M15-concerns C5 + C7). Uploads any captures produced
       # under tests/screenshots/** so reviewers can compare
       # actual vs committed baseline locally on a CI failure.
       # `if: always()` so artifacts upload even when ctest fails.
       # No vision-LLM in CI (C7); pixel-diff is the only gate.
+      # Includes M16 S0.5 spike captures under tests/screenshots/m16-spike/.
       - name: Upload visual-test screenshots
         if: always()
         uses: actions/upload-artifact@v4
