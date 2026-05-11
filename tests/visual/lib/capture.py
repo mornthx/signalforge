@@ -179,6 +179,19 @@ def _run_capture(
     # Software RHI keeps tests deterministic across hosts (avoids
     # GPU-driver variation in baseline pixel counts).
     env["QSG_RHI_BACKEND"] = "software"
+    # M16 S6 / R14: pin locale to C.UTF-8 so the S5 env sidecar's
+    # tier_3_geometry.locale field is deterministic across hosts
+    # (operator dev: en_US.UTF-8 default; CI Azure runner: C
+    # default → previously fired H10 env_drift even when pixels
+    # were 0.000%). C.UTF-8 chosen per
+    # docs/v0.3/rendering-environment-lock.md §4.1 line 146
+    # ("C.UTF-8 preferred for CI portability"). Setting all three
+    # LC_ALL/LANG/LANGUAGE is required: Qt's QLocale::system() on
+    # Ubuntu 24.04 prefers LANG when both LC_ALL and LANG are set
+    # to different values (verified empirically at S6).
+    env["LC_ALL"] = "C.UTF-8"
+    env["LANG"] = "C.UTF-8"
+    env["LANGUAGE"] = "C"
 
     if mechanism == "C":
         # M15 S3 Round 4: when fullscreen=True, pass the
