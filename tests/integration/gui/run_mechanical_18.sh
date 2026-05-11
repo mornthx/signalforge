@@ -29,6 +29,17 @@
 # This harness is a thin wrapper around `release_binary_smoke.sh`
 # so the V1+ regression net stays in one place.
 #
+# M15 S4 Phase 3 — full-window screenshot capture: since the
+# only currently-routed test (T3) invokes release_binary_smoke.sh,
+# the Phase 2 Tier C screenshot capture (full MainWindow PNG
+# written to tests/screenshots/m14-s1-smoke.png + optional
+# pixel-diff against tests/visual/baselines/m14-s1-smoke.png)
+# is inherited automatically. T1/T2/T5/T7/T8/T10/T11 V1.0.1
+# follow-up automation should call release_binary_smoke.sh with
+# `--window-png-out <test-specific.png>` so each routed test
+# produces its own captured screenshot for the S5 artifact
+# upload + optional baseline-acceptance.
+#
 # Usage:
 #   run_mechanical_18.sh --binary <path> --repo-root <path> \\
 #                        [--test T3|all] [--timeout 30]

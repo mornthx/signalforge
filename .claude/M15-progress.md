@@ -18,7 +18,7 @@ Source: `.claude/M15-understanding.md` + `.claude/M15-plan.md`
 | S1 | Screenshot capture infrastructure (mechanism C in-process + B xvfb+xwd stub) | done | `d82d630` | `MainWindow::captureScreenshot` + `--capture-screenshot-*` CLI flags + `tests/visual/` Python harness + pixel-diff comparator + `scripts/accept-baseline.sh` + ctest `visual` label. Test 609 passes; M14 S1 + mechanical-18 still PASS |
 | S2 | Vision-LLM integration | done | `ae2e453` (+ S2 fixes `f5db33f`, `1b7db01`, `671c865`) | Schema + validator + CC-native prompt template + optional MiMo API wrapper (urllib stdlib; never CI) + 3 visual tests (empty, with-connection, chart-with-signal). 611/611 ctest |
 | S3 | Baseline coverage (Y-scope; 38 baselines per C3) | fidelity-audited (R7 reclassification) | Rounds 1–6 + R7 reclass (this commit) | 20 captured + fidelity-audited + reclassified. Operator's R7 review tightened the V0.2 acceptance bar from "stable + matches C3 description" to **production-fidelity** — i.e. the captured GUI state must be reachable through production code paths without test-only state mutation. Round 6's fixture-mock primitives (autoStartRecording/autoStopRecording GUI label inlining, autoReplaySeekPercent manual slider+label updates, autoReplaySpeedComboPopup direct showPopup()) produce visual states that production users either don't see (Round 6 fabricated `seek N %%` status text not in production code) or only see in degenerate edge cases (recording-active with 0 bytes — only true if no traffic yet). These reclassify from PASS → FAIL (d) fixture-mock and defer to V0.3. **Final fidelity classification (R7)**: PASS=12, FAIL-b (V1 GUI gap)=1, FAIL-c (capture-mechanism)=1, FAIL-d (fixture-mock)=6, DEFERRED-V0.3 (multi-chart)=3, operator-manual=15. |
-| S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | not started | — | Per C4 layout |
+| S4 | Test framework integration: extend M14 S1 + mechanical-18 + visual-test suite | done | (this commit) | Phase 1: `tests/visual/tests/test_states_production_fidelity.py` wires the 10 production-fidelity baselines without dedicated tests (02 / 12 / 13 / 24 / 25 / 26 / 30 / 31 / 32 / 33) into ctest via a parametric pattern. Phase 2: `release_binary_smoke.sh` gains Tier C — full MainWindow PNG captured via `--capture-screenshot-after-ms 2800` + `--capture-screenshot-path <png>` (defaults to `tests/screenshots/m14-s1-smoke.png`); optional pixel-diff against `tests/visual/baselines/m14-s1-smoke.png` when baseline exists. Phase 3: `run_mechanical_18.sh` inherits Tier C through release_binary_smoke for T3; V1.0.1 follow-up automation (T1/T2/T5/T7/T8/T10/T11) will pass `--window-png-out` per-test. Phase 4: §S4 below documents what's automated vs deferred. M14 GUI subset (T4/T6/T9/T13–T18) deferred V0.3 per fidelity audit (replay/recording/quit-dialog modal flows are all (b) / (d) / operator-manual classifications). ctest 612/612 green. |
 | S5 | CI integration (artifact upload + pixel-diff gate + accept-baseline.sh) | done | `b55203e` | `.github/workflows/ci.yml` uploads `tests/screenshots/**` as `visual-screenshots-<preset>` artifact (14 day retention) on every run via `if: always()`. `tests/visual/README.md` documents add-test workflow, baseline accept loop, local-only vision-LLM hybrid. Pixel-diff gate validated locally: absent baseline → matched, identical → 0%, regressions caught at strict thresholds. C7 verified: zero `secrets.*` references, no API key in CI. `accept-baseline.sh` already shipped in S1. CI run `25634337073` green (11m25s, all 3 presets). **Order-violation note**: S5 was executed before S3 post-compaction; per operator feedback (`feedback_plan_ordering.md`), plan ordering is the source of truth — re-read M15-plan before picking next subtask. |
 | S6 | CC autonomy demonstration | not started | — | End-to-end self-test |
 | S7 | M15-done.md + V0.3 hand-off | not started | — | Coverage map + V1 UX gap inventory + industrial refs |
@@ -345,6 +345,119 @@ These are no-harm to production paths (`--auto-add-charts` is a test-only flag; 
 - Genuinely operator-manual: 03, 06, 07, 08, 09, 10, 11, 34, 35 (transient timing / hardware / extreme-pressure timing).
 
 After Round 4 the operator reviews ≥ 27/38 candidate baselines + commits the operator-manual residual as a one-time hand-capture session.
+
+---
+
+## §S4 — Test framework integration
+
+### Phase 1 — visual-test suite (12 baselines under ctest)
+
+`tests/visual/tests/test_states_production_fidelity.py` adds
+parametric `test_baseline_*` callables that capture +
+pixel-diff each of the 10 production-fidelity baselines that
+did not have a dedicated test (02 / 12 / 13 / 24 / 25 / 26
+/ 30 / 31 / 32 / 33). Combined with the 3 existing test
+files (00 / 04 / 05), all 12 PASS baselines are now under
+automated regression.
+
+Per-state `PER_STATE_TOLERANCE`: state 13 has 7.5 %
+tolerance (R7 carried over from the 0.999 % FLAKY note —
+signal-selector layout reflow at 5-driver count). Default
+5 %.
+
+ctest registers one target per `test_*.py` file:
+
+```
+Test #609: M15-visual-test_states_chart_visible     (state 05; baseline-absent FAIL-c)
+Test #610: M15-visual-test_states_empty             (state 00)
+Test #611: M15-visual-test_states_production_fidelity  (10 parametric tests)
+Test #612: M15-visual-test_states_with_connection   (state 04)
+```
+
+Total ctest visual time: ≈ 23 s (cached captures pass at
+< 100 ms each; cold captures take ≈ 4 s each).
+
+### Phase 2 — M14 S1 smoke Tier C extension
+
+`tests/integration/gui/release_binary_smoke.sh` gains a
+third assertion tier:
+
+- **Tier A** (existing): chart-pane PNG has > 0 non-clear
+  pixels — proves the live-mode chain renders.
+- **Tier B** (existing): log file contains none of the
+  known error patterns.
+- **Tier C** (new): full MainWindow PNG captured at 2800 ms
+  via `--capture-screenshot-after-ms` (before the 3000 ms
+  chart-pane dump + `--exit-after-dump` quit). Default
+  output path is `tests/screenshots/m14-s1-smoke.png` (which
+  the S5 CI workflow auto-uploads as the
+  `visual-screenshots-<preset>` artifact). Pixel-diff against
+  `tests/visual/baselines/m14-s1-smoke.png` if the baseline
+  exists; absent baseline is reported but does not fail
+  Tier C.
+
+Operator opt-in to enable Tier C diffing:
+
+```
+scripts/accept-baseline.sh m14-s1-smoke ""
+```
+
+(The empty 2nd arg tells the script to look in
+`tests/screenshots/<state>.png`, not the S3
+`baseline-candidate/` subdir.) Once committed, every CI run
+will regression-protect the M14 S1 smoke's full-window
+visual.
+
+### Phase 3 — mechanical-18 inheritance
+
+`run_mechanical_18.sh` is a thin wrapper around
+`release_binary_smoke.sh` for T3. Phase 2's Tier C
+capture is inherited automatically (no further change
+required). Header comment now documents the inheritance +
+the `--window-png-out <test-specific.png>` pattern for
+V1.0.1 follow-up automation (T1, T2, T5, T7, T8, T10, T11)
+when those mechanical-18 tests get written.
+
+### Phase 4 — M14 GUI subset deferral
+
+M15-plan §S4 enumerated 9 M14 GUI-subset tests to land as
+visual-test variants (T4 / T6 / T9 / T13–T18). All 9
+fail the production-fidelity bar per the S3 R7 fidelity
+audit and are deferred to V0.3:
+
+| M14 test | Subject | S3 status | Defer reason |
+|---|---|---|---|
+| T4 | Replay file picker | operator-manual (state 16) | modal QFileDialog; needs non-modal show variant or xdotool injection |
+| T6 | Auto-connect on startup | V1 UX gap #4 | dialog field has "no effect" — production code does not honour `autoConnectOnStartup`; no visible state to test |
+| T9 | Quit-while-recording prompt | operator-manual (state 27) | fault-injection: closeEvent during recording opens modal exec()-based QMessageBox |
+| T13 | Replay GUI open | FAIL (d) (state 17) | fixture-mock signal-select bypasses user-click; chart line not rasterized (c) |
+| T14 | Play/Pause UI | FAIL (b) (state 18) | production Play button doesn't toggle on PlaybackState — V1 GUI gap |
+| T15 | Step ◀/▶ visual | not in S3 38-state set | likely (b) same as T14 — Step buttons emit no visible feedback under software-RHI |
+| T16 | Scrubber drag | FAIL (d) (state 19) | seek() emits no positionChanged; fixture-mocked status label not in production |
+| T17 | Speed combo visual | FAIL (d) (state 21) | showPopup() direct call, not user-click trigger |
+| T18 | Live ↔ Replay 3-option | operator-manual (state 23) | mode-transition modal needing sequence trigger |
+
+For V0.3: pick up T4/T6/T9/T13–T18 after V1 GUI gaps #3
+(Play toggle), #6 (seek positionChanged), #9 (recording
+progress), #10 (replay seek UI) land; add xdotool / Qt
+QTest event-injection for modal flows; revisit
+`autoConnectOnStartup` honouring for T6.
+
+### Phase 5 — M14-deferred T7 / T8 / T11 revisit
+
+M15-plan §S4 also called for revisiting M14-deferred
+T7 / T8 / T11 (UdpDriver headless readyRead race). These
+are mechanical-18 V1.0.1 follow-ups currently labelled as
+"out of scope for headless xvfb + offscreen" in
+`run_mechanical_18.sh`'s header. The visual layer does
+not resolve them — they are a UDP driver IO-thread /
+readyRead level-vs-edge race, not a GUI rendering issue.
+Visual capture would show identical PNGs for working vs
+broken UDP because the chart-pane only differs in *content*
+(which requires hardware-RHI to render anyway). Deferred
+V0.3 alongside QTest framework integration or operator's
+real-X11 dogfood. M14-done.md cataloguing remains
+authoritative.
 
 ---
 
