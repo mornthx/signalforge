@@ -42,6 +42,16 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
 
+      # M16 S2 token-freshness gate (R15 / H12 enforcement). Re-runs
+      # the token generator in --check mode; fails CI if any committed
+      # generated consumer (tokens.qss / generated_style_tokens.hpp /
+      # generated_tokens.py) drifts from tokens.json canonical source.
+      # Only runs once per matrix (cheap; tokens.json edits should be
+      # rare). Per CLAUDE.md §1: stdlib-only Python, no new deps.
+      - name: M16 token-freshness gate
+        if: matrix.preset == 'release'
+        run: python3 tools/generate_style_assets.py --check
+
       - name: Test
         run: xvfb-run --auto-servernum ctest --preset ${{ matrix.preset }} --output-on-failure
 
