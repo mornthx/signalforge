@@ -1,0 +1,41 @@
+schema_version: 1
+description: |
+  M15 S3 Round 2 — multi-driver visual baseline fixture.
+
+  Defines two UDP listeners on disjoint local ports so the
+  signal-selector tree + connection-list panel show 2 connected
+  drivers (state 12-multi-2-drivers from M15-concerns C3).
+
+  Each driver decodes via the temperature_sensor schema (same
+  as m14_smoke); no real traffic is required for the baseline
+  capture — autoLoadTestFixture's connectAll() is enough to
+  reach the Connected state under software-RHI for UDP.
+
+connections:
+  - id: m15-multi-2-a
+    displayName: "M15 multi-2 A"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9990
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []
+
+  - id: m15-multi-2-b
+    displayName: "M15 multi-2 B"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9991
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []

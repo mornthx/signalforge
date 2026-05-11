@@ -91,6 +91,104 @@ public:
     /// count written (0 if no active recording).
     std::size_t autoStopRecording();
 
+    /// M15 S1: capture the full MainWindow as a PNG at `path`. Uses
+    /// `QWidget::grab()` (mechanism C per M15-concerns C1) which is
+    /// in-process, headless-compatible, and reuses MainWindow's
+    /// existing render path (no extra Qt event-loop spin required
+    /// when called from a QTimer slot). Returns false if the path
+    /// is empty or the save fails.
+    ///
+    /// Distinct from `grabChartImage()` (M14 S1 chart-pane-only) —
+    /// `captureScreenshot` produces full-window state captures
+    /// suitable for state-machine-complete baseline coverage
+    /// (M15-concerns C3).
+    [[nodiscard]] bool captureScreenshot(const QString& path);
+
+    /// M15 S3 Round 2: load a connection-config YAML *without*
+    /// auto-connecting any connection. Mirrors `autoLoadTestFixture`
+    /// minus the ``connectAll()`` call, so visual baselines for
+    /// `Idle` connection states (M15-concerns C3 §02) can be captured
+    /// before any driver binds. Returns false on the same conditions
+    /// as `autoLoadTestFixture`.
+    [[nodiscard]] bool autoLoadFixtureNoConnect(const QString& yamlPath);
+
+    /// M15 S3 Round 2: programmatically add ``extra`` charts beyond
+    /// the default chart created during `buildChartUi`. Each call
+    /// invokes ``ChartManager::createChart`` + ``rebuildChartWidgets``
+    /// like the toolbar `+ Chart` action does. Used to capture
+    /// multi-chart visual baselines (M15-concerns C3 §36, §37).
+    /// Returns the chart count after the operation; 0 on failure.
+    std::size_t autoAddCharts(int extra);
+
+    /// M15 S3 Round 3: programmatically enter Replay mode + load a
+    /// session file at ``path``. Mirrors the GUI ``onOpenSessionRequested``
+    /// flow minus the QFileDialog + connection-pause confirmation
+    /// dialog. Returns false if either ``replayModeManager_`` or
+    /// ``playbackController_`` is null, the path is empty, the
+    /// replay-mode transition fails, or the session-load fails.
+    /// Used to capture replay-state visual baselines
+    /// (M15-concerns C3 §17–§20).
+    [[nodiscard]] bool autoLoadReplaySession(const QString& path);
+
+    /// M15 S3 Round 3: start replay playback. Returns false if
+    /// ``playbackController_`` is null or no session is loaded.
+    [[nodiscard]] bool autoReplayPlay();
+
+    /// M15 S3 Round 3: pause replay playback. Returns false on the
+    /// same conditions as ``autoReplayPlay``.
+    [[nodiscard]] bool autoReplayPause();
+
+    /// M15 S3 Round 3: seek replay to ``percent`` of the loaded
+    /// session's duration (0–100). Returns false on out-of-range
+    /// input or null playback controller.
+    [[nodiscard]] bool autoReplaySeekPercent(int percent);
+
+    /// M15 S3 Round 4: capture the full primary screen (xvfb
+    /// framebuffer in CI; user's monitor when run directly) as
+    /// a PNG at ``path``. Uses ``QScreen::grabWindow(0)`` so the
+    /// capture includes top-level windows that are not children
+    /// of MainWindow (e.g. open menus, modal dialogs). Distinct
+    /// from ``captureScreenshot`` which grabs MainWindow only.
+    /// Returns false if the path is empty, no primary screen is
+    /// available, or the save fails.
+    [[nodiscard]] bool captureFullScreen(const QString& path);
+
+    /// M15 S3 Round 4: programmatically open one of the
+    /// MainWindow's menu-bar menus by display name (e.g.
+    /// ``"File"``, ``"Connections"``, ``"Session"``). Match is
+    /// case-insensitive, ignoring ``&`` mnemonics. Returns false
+    /// if the menu cannot be located or has no associated QMenu.
+    /// Used to capture menu-open visual baselines (M15-concerns
+    /// C3 §30–§32). Pairs with ``captureFullScreen`` since the
+    /// menu popup is a separate top-level window.
+    [[nodiscard]] bool autoOpenMenu(const QString& name);
+
+    /// M15 S3 Round 4: programmatically show the connection-add
+    /// dialog non-modally so it can be captured under
+    /// mechanism-B. Differs from the production
+    /// ``onAddConnectionRequested`` slot which uses ``exec()``
+    /// (blocks the event loop) — this path uses ``show()``
+    /// + ``WA_DeleteOnClose`` so the screenshot QTimer can fire
+    /// in the regular event loop. Used for M15-concerns C3
+    /// §24–§25. ``driverType`` accepts ``"serial"`` / ``"udp"``
+    /// / ``"tcp"`` / ``"replay"`` (case-insensitive); empty
+    /// string leaves the driver-type combo at its default.
+    /// Returns false if the dialog cannot be created.
+    [[nodiscard]] bool autoShowAddConnectionDialog(const QString& driverType = QString());
+
+    /// M15 S3 Round 4: same as ``autoShowAddConnectionDialog``
+    /// but for the connection-edit flow. Picks the first
+    /// connection in the registry; returns false if there is no
+    /// connection to edit. Pairs with M15-concerns C3 §26.
+    [[nodiscard]] bool autoShowEditConnectionDialog();
+
+    /// M15 S3 Round 5: select the replay-speed combo entry at
+    /// ``index`` (0=0.5×, 1=1×, 2=2×, 3=5×, 4=10×) and pop the
+    /// dropdown so the popup is visible at capture time. Pairs
+    /// with M15-concerns C3 §21. Returns false if no replay
+    /// session is loaded or the index is out of range.
+    [[nodiscard]] bool autoReplaySpeedComboPopup(int index);
+
 protected:
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;

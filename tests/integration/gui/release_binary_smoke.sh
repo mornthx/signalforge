@@ -35,15 +35,17 @@ FIXTURE=""
 TIMEOUT_S=30
 LOG_DIR=""
 PNG_OUT=""
+WINDOW_PNG_OUT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --binary)    BINARY="$2"; shift 2 ;;
-        --repo-root) REPO_ROOT="$2"; shift 2 ;;
-        --fixture)   FIXTURE="$2"; shift 2 ;;
-        --timeout)   TIMEOUT_S="$2"; shift 2 ;;
-        --log-dir)   LOG_DIR="$2"; shift 2 ;;
-        --png-out)   PNG_OUT="$2"; shift 2 ;;
+        --binary)        BINARY="$2"; shift 2 ;;
+        --repo-root)     REPO_ROOT="$2"; shift 2 ;;
+        --fixture)       FIXTURE="$2"; shift 2 ;;
+        --timeout)       TIMEOUT_S="$2"; shift 2 ;;
+        --log-dir)       LOG_DIR="$2"; shift 2 ;;
+        --png-out)       PNG_OUT="$2"; shift 2 ;;
+        --window-png-out) WINDOW_PNG_OUT="$2"; shift 2 ;;
         *) echo "release_binary_smoke: unknown arg '$1'" >&2; exit 2 ;;
     esac
 done
@@ -77,6 +79,21 @@ mkdir -p "$LOG_DIR"
 if [ -z "$PNG_OUT" ]; then
     PNG_OUT="$RUNDIR/chart.png"
 fi
+
+# M15 S4 Phase 2: also capture a full-MainWindow PNG for visual
+# regression archive. The path defaults to the gitignored
+# tests/screenshots/ dir so CI's upload-artifact step (S5) picks
+# it up automatically. A committed baseline at
+# tests/visual/baselines/m14-s1-smoke.png is OPTIONAL; if present,
+# Tier C runs a pixel-diff. If absent, Tier C surfaces
+# "baseline-absent" without failing (matches the visual-test
+# harness convention).
+if [ -z "$WINDOW_PNG_OUT" ]; then
+    WINDOW_PNG_OUT="$REPO_ROOT/tests/screenshots/m14-s1-smoke.png"
+fi
+mkdir -p "$(dirname "$WINDOW_PNG_OUT")"
+# Clean any stale capture so Tier C reads a fresh PNG.
+rm -f "$WINDOW_PNG_OUT"
 
 # Schema lookup is CWD-relative (V1.0 known limitation). Launch from
 # the repo root so `examples/schemas/temperature_sensor.yaml` resolves.
@@ -149,6 +166,8 @@ xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
         "$BINARY" \
             --auto-load-test-fixture "$FIXTURE" \
             --auto-select-signal "udp:m14-smoke-udp/temperature" \
+            --capture-screenshot-after-ms 2800 \
+            --capture-screenshot-path "$WINDOW_PNG_OUT" \
             --dump-chart-png-after-ms 3000 \
             --dump-chart-png-path "$PNG_OUT" \
             --exit-after-dump \
@@ -206,6 +225,48 @@ for pattern in "${TIER_B_PATTERNS[@]}"; do
     fi
 done
 echo "PASS Tier B: no known error pattern in log"
+
+# ---- Tier C: full-window screenshot capture (M15 S4 Phase 2) ----------
+#
+# The binary's `--capture-screenshot-path` writes a full MainWindow
+# PNG at 3200 ms (200 ms after the Tier A chart-pane dump). The
+# capture provides a richer regression surface than the chart-pane
+# alone — connection list, signal-selector tree, status bar, etc.
+#
+# If `tests/visual/baselines/m14-s1-smoke.png` exists, run a
+# pixel-diff against it (5 % tolerance, matching the visual-test
+# default). Absent baseline → "baseline-absent" reported but Tier C
+# still passes (operator opts in via `scripts/accept-baseline.sh
+# m14-s1-smoke "" `→ promotes from `tests/screenshots/<state>.png`).
+if [ ! -f "$WINDOW_PNG_OUT" ] || [ "$(stat -c%s "$WINDOW_PNG_OUT" 2>/dev/null || echo 0)" -eq 0 ]; then
+    echo "FAIL Tier C: full-window screenshot at $WINDOW_PNG_OUT missing or empty" >&2
+    exit 1
+fi
+echo "Tier C capture: $WINDOW_PNG_OUT ($(stat -c%s "$WINDOW_PNG_OUT") bytes)"
+
+TIER_C_BASELINE="$REPO_ROOT/tests/visual/baselines/m14-s1-smoke.png"
+if [ -f "$TIER_C_BASELINE" ]; then
+    TIER_C_PYTHON="$REPO_ROOT/tests/visual"
+    TIER_C_OUTPUT=$(PYTHONPATH="$TIER_C_PYTHON" python3 - "$WINDOW_PNG_OUT" "$TIER_C_BASELINE" <<'PY'
+import sys
+from lib.compare import compare_baseline
+actual, baseline = sys.argv[1], sys.argv[2]
+cmp = compare_baseline(actual, baseline, max_diff_percent=5.0)
+print(f"diff_percent={cmp.diff_percent:.4f}", f"matched={cmp.matched}", f"note={cmp.note}", sep="|")
+sys.exit(0 if cmp.matched else 1)
+PY
+    ) && TIER_C_RC=0 || TIER_C_RC=$?
+    echo "Tier C diff: $TIER_C_OUTPUT"
+    if [ "$TIER_C_RC" -ne 0 ]; then
+        echo "FAIL Tier C: pixel-diff against $TIER_C_BASELINE exceeded 5 % threshold" >&2
+        exit 1
+    fi
+    echo "PASS Tier C: pixel-diff within tolerance"
+else
+    echo "SKIP Tier C: no baseline at $TIER_C_BASELINE (operator may accept via"
+    echo "             scripts/accept-baseline.sh m14-s1-smoke \"\""
+    echo "             to promote tests/screenshots/m14-s1-smoke.png)"
+fi
 
 echo "=== M14 S1 smoke PASS (rc=$APP_RC) ==="
 exit 0

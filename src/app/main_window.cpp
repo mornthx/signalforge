@@ -25,12 +25,15 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QScreen>
 #include <QSlider>
 #include <QSplitter>
 #include <QStatusBar>
@@ -348,6 +351,16 @@ bool MainWindow::autoStartRecording(const QString& path) {
         return false;
     }
     currentRecordingPath_ = path;
+    // M15 S3 Round 6: mirror the production onRecordToggle UI updates
+    // so the GUI reflects the recording state in headless capture (the
+    // S3 fidelity audit found state-14 / state-15 captures looked
+    // identical to state-05 because these UI updates were skipped).
+    if (recordingStatusLabel_ != nullptr) {
+        recordingStatusLabel_->setText(tr("● Recording: %1 (0 bytes)").arg(QFileInfo(path).fileName()));
+    }
+    if (recordAction_ != nullptr) {
+        recordAction_->setText(tr("&Stop recording"));
+    }
     SF_LOG_INFO("MainWindow::autoStartRecording: -> {} (schemaId='{}')", path.toStdString(),
                 recordingSchemaId.toStdString());
     return true;
@@ -360,10 +373,253 @@ std::size_t MainWindow::autoStopRecording() {
     const std::size_t eventsBeforeStop = sessionWriter_->eventsRecorded();
     const std::size_t droppedBeforeStop = sessionWriter_->droppedEvents();
     const std::size_t bytes = sessionWriter_->stop();
+    // M15 S3 Round 6: mirror the production onRecordToggle UI updates.
+    if (recordingStatusLabel_ != nullptr) {
+        recordingStatusLabel_->setText(tr("Stopped (%1 bytes)").arg(bytes));
+    }
+    if (recordAction_ != nullptr) {
+        recordAction_->setText(tr("&Record…"));
+    }
     SF_LOG_INFO("MainWindow::autoStopRecording: stopped ({} bytes -> {}); events={} dropped={}", bytes,
                 currentRecordingPath_.toStdString(), eventsBeforeStop, droppedBeforeStop);
     currentRecordingPath_.clear();
     return bytes;
+}
+
+bool MainWindow::autoLoadFixtureNoConnect(const QString& yamlPath) {
+    if (connectionManager_ == nullptr || yamlPath.isEmpty()) {
+        return false;
+    }
+    if (!connectionManager_->loadConfigFile(yamlPath)) {
+        SF_LOG_ERROR("MainWindow: autoLoadFixtureNoConnect: failed to load '{}'", yamlPath.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("MainWindow: autoLoadFixtureNoConnect: loaded (no connect) for '{}'", yamlPath.toStdString());
+    return true;
+}
+
+bool MainWindow::captureFullScreen(const QString& path) {
+    if (path.isEmpty()) {
+        SF_LOG_WARN("MainWindow::captureFullScreen: empty path");
+        return false;
+    }
+    auto* screen = QGuiApplication::primaryScreen();
+    if (screen == nullptr) {
+        SF_LOG_ERROR("MainWindow::captureFullScreen: no primary screen");
+        return false;
+    }
+    const QPixmap pm = screen->grabWindow(0);
+    if (pm.isNull()) {
+        SF_LOG_ERROR("MainWindow::captureFullScreen: grabWindow(0) returned null pixmap");
+        return false;
+    }
+    if (!pm.save(path, "PNG")) {
+        SF_LOG_ERROR("MainWindow::captureFullScreen: failed to save PNG to '{}'", path.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("MainWindow::captureFullScreen: {}x{} -> {}", pm.width(), pm.height(), path.toStdString());
+    return true;
+}
+
+bool MainWindow::autoOpenMenu(const QString& name) {
+    auto* bar = menuBar();
+    if (bar == nullptr || name.isEmpty()) {
+        return false;
+    }
+    for (auto* action : bar->actions()) {
+        QString text = action->text();
+        text.remove(QLatin1Char('&'));
+        if (text.compare(name, Qt::CaseInsensitive) == 0) {
+            auto* menu = action->menu();
+            if (menu == nullptr) {
+                SF_LOG_WARN("MainWindow::autoOpenMenu: '{}' action has no menu", name.toStdString());
+                return false;
+            }
+            const QPoint pos = bar->mapToGlobal(bar->actionGeometry(action).bottomLeft());
+            menu->popup(pos);
+            SF_LOG_INFO("MainWindow::autoOpenMenu: '{}' popped at ({},{})", name.toStdString(), pos.x(), pos.y());
+            return true;
+        }
+    }
+    SF_LOG_WARN("MainWindow::autoOpenMenu: no menu named '{}'", name.toStdString());
+    return false;
+}
+
+bool MainWindow::autoShowAddConnectionDialog(const QString& driverType) {
+    auto* dlg = new signalforge::connection::ConnectionDialog(enumerateAvailableSchemaIds(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowModality(Qt::NonModal);
+    if (!driverType.isEmpty()) {
+        const QString d = driverType.toLower();
+        using DT = signalforge::connection::DriverType;
+        if (d == "serial") {
+            dlg->setDriverType(DT::Serial);
+        } else if (d == "tcp") {
+            dlg->setDriverType(DT::Tcp);
+        } else if (d == "udp") {
+            dlg->setDriverType(DT::Udp);
+        } else if (d == "replay") {
+            dlg->setDriverType(DT::Replay);
+        } else {
+            SF_LOG_WARN("autoShowAddConnectionDialog: unknown driverType '{}', leaving default",
+                        driverType.toStdString());
+        }
+    }
+    dlg->show();
+    SF_LOG_INFO("MainWindow::autoShowAddConnectionDialog: shown non-modal (driverType='{}')", driverType.toStdString());
+    return true;
+}
+
+bool MainWindow::autoShowEditConnectionDialog() {
+    if (connectionManager_ == nullptr) {
+        return false;
+    }
+    const auto ids = connectionManager_->connectionIds();
+    if (ids.isEmpty()) {
+        SF_LOG_WARN("MainWindow::autoShowEditConnectionDialog: no connection to edit");
+        return false;
+    }
+    auto* conn = connectionManager_->connection(ids.first());
+    if (conn == nullptr) {
+        return false;
+    }
+    auto* dlg = new signalforge::connection::ConnectionDialog(enumerateAvailableSchemaIds(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowModality(Qt::NonModal);
+    dlg->setConfig(conn->config());
+    dlg->show();
+    SF_LOG_INFO("MainWindow::autoShowEditConnectionDialog: shown non-modal for '{}'", ids.first().toStdString());
+    return true;
+}
+
+bool MainWindow::autoReplaySpeedComboPopup(int index) {
+    if (replaySpeedCombo_ == nullptr || index < 0 || index >= replaySpeedCombo_->count()) {
+        return false;
+    }
+    replaySpeedCombo_->setCurrentIndex(index);
+    replaySpeedCombo_->showPopup();
+    SF_LOG_INFO("MainWindow::autoReplaySpeedComboPopup: index={} ({}×)", index,
+                replaySpeedCombo_->itemData(index).toDouble());
+    return true;
+}
+
+bool MainWindow::autoLoadReplaySession(const QString& path) {
+    if (replayModeManager_ == nullptr || playbackController_ == nullptr || path.isEmpty()) {
+        return false;
+    }
+    if (!replayModeManager_->enterReplay()) {
+        SF_LOG_ERROR("MainWindow::autoLoadReplaySession: enterReplay failed");
+        return false;
+    }
+    if (!playbackController_->loadSession(path)) {
+        SF_LOG_ERROR("MainWindow::autoLoadReplaySession: loadSession failed for '{}': {}", path.toStdString(),
+                     playbackController_->lastError().toStdString());
+        (void)replayModeManager_->exitReplay(false);
+        return false;
+    }
+    if (replayToolbar_ != nullptr) {
+        replayToolbar_->setVisible(true);
+    }
+    if (replaySeekSlider_ != nullptr) {
+        replaySeekSlider_->setRange(0, static_cast<int>(playbackController_->totalRecords()));
+    }
+    if (replayStatusLabel_ != nullptr) {
+        replayStatusLabel_->setText(tr("Replay: %1").arg(QFileInfo(path).fileName()));
+    }
+    SF_LOG_INFO("MainWindow::autoLoadReplaySession: loaded '{}'", path.toStdString());
+    return true;
+}
+
+bool MainWindow::autoReplayPlay() {
+    if (playbackController_ == nullptr) {
+        return false;
+    }
+    return playbackController_->play();
+}
+
+bool MainWindow::autoReplayPause() {
+    if (playbackController_ == nullptr) {
+        return false;
+    }
+    return playbackController_->pause();
+}
+
+bool MainWindow::autoReplaySeekPercent(int percent) {
+    if (playbackController_ == nullptr || percent < 0 || percent > 100) {
+        return false;
+    }
+    const auto duration = playbackController_->durationNs();
+    const auto target = (duration * percent) / 100;
+    if (!playbackController_->seek(target)) {
+        return false;
+    }
+    // M15 S3 Round 6: PlaybackController::seek() does not emit
+    // positionChanged on its own (positionChanged fires only from
+    // dispatched records during play / step). Without an explicit
+    // GUI update, the seek slider stays at 0 and the replay status
+    // label shows only the filename — making seek-state captures
+    // (states 19, 20) visually indistinguishable from the loaded
+    // state. Mirror what onReplayPositionChanged does so the
+    // headless screenshot reflects the seeked position.
+    if (replaySeekSlider_ != nullptr) {
+        const auto totalRecords = static_cast<int>(playbackController_->totalRecords());
+        if (totalRecords > 0) {
+            const int sliderValue = (totalRecords * percent) / 100;
+            replaySliderUserDriven_ = false;
+            replaySeekSlider_->setValue(sliderValue);
+            replaySliderUserDriven_ = true;
+        }
+    }
+    if (replayStatusLabel_ != nullptr) {
+        const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
+        const auto recordIndex = (playbackController_->totalRecords() * static_cast<std::size_t>(percent)) / 100;
+        replayStatusLabel_->setText(tr("Replay: %1 | seek %2 %% | %3 / %4 records")
+                                        .arg(filename)
+                                        .arg(percent)
+                                        .arg(recordIndex)
+                                        .arg(playbackController_->totalRecords()));
+    }
+    return true;
+}
+
+std::size_t MainWindow::autoAddCharts(int extra) {
+    if (chartManager_ == nullptr || extra <= 0) {
+        return chartManager_ != nullptr ? static_cast<std::size_t>(chartManager_->chartIds().size()) : 0;
+    }
+    // Bulk-add: createChart() N times then rebuildChartWidgets()
+    // ONCE. Calling onAddChart() in a loop tears down + rebuilds
+    // all chart QQuickWidgets per iteration which races against
+    // QML scene-graph init under headless timing.
+    for (int i = 0; i < extra; ++i) {
+        (void)chartManager_->createChart();
+    }
+    rebuildChartWidgets();
+    const auto count = static_cast<std::size_t>(chartManager_->chartIds().size());
+    SF_LOG_INFO("MainWindow: autoAddCharts: +{} -> total {}", extra, count);
+    return count;
+}
+
+bool MainWindow::captureScreenshot(const QString& path) {
+    if (path.isEmpty()) {
+        SF_LOG_WARN("MainWindow::captureScreenshot: empty path");
+        return false;
+    }
+    // M15 S1 mechanism C: full-window in-process grab. Distinct from
+    // M14 S1's grabChartImage() which captures the chart QQuickWidget
+    // framebuffer only. Mechanism B (xvfb + xwd) for full-X-server
+    // captures (e.g. menu open) lives in tests/visual/lib/capture.py
+    // helpers and does NOT touch this binary.
+    const QPixmap pm = grab();
+    if (pm.isNull()) {
+        SF_LOG_ERROR("MainWindow::captureScreenshot: QWidget::grab() returned null pixmap");
+        return false;
+    }
+    if (!pm.save(path, "PNG")) {
+        SF_LOG_ERROR("MainWindow::captureScreenshot: failed to save PNG to '{}'", path.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("MainWindow::captureScreenshot: {}x{} -> {}", pm.width(), pm.height(), path.toStdString());
+    return true;
 }
 
 QImage MainWindow::grabChartImage() const {

@@ -1,0 +1,79 @@
+schema_version: 1
+description: |
+  M15 S3 Round 2 — five-driver visual baseline fixture.
+
+  Defines five UDP listeners on disjoint local ports for the
+  full-signal-selector baseline (state 13-multi-5-drivers from
+  M15-concerns C3). Each driver decodes via temperature_sensor
+  to populate the signal-selector tree.
+
+connections:
+  - id: m15-multi-5-a
+    displayName: "M15 multi-5 A"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9980
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []
+
+  - id: m15-multi-5-b
+    displayName: "M15 multi-5 B"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9981
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []
+
+  - id: m15-multi-5-c
+    displayName: "M15 multi-5 C"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9982
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []
+
+  - id: m15-multi-5-d
+    displayName: "M15 multi-5 D"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9983
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []
+
+  - id: m15-multi-5-e
+    displayName: "M15 multi-5 E"
+    driverType: udp
+    driverConfig:
+      localBindAddress: "127.0.0.1"
+      localBindPort: 9984
+      remoteHost: ""
+      remotePort: 0
+      multicastGroup: ""
+      multicastTtl: 1
+    decoderSchemaId: temperature_sensor
+    autoConnectOnStartup: false
+    autoConnectCommands: []

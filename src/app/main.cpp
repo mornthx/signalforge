@@ -112,6 +112,47 @@ int main(int argc, char** argv) {
     const QString autoStopRecordingArg = flagValue(argc, argv, "--auto-stop-recording-after-ms");
     const QString exitAfterMsArg = flagValue(argc, argv, "--exit-after-ms");
 
+    // M15 S1 full-window screenshot capture (mechanism C per
+    // M15-concerns C1). Distinct from --dump-chart-png-* which
+    // captures the QQuickWidget framebuffer only. Used by
+    // tests/visual/ harness for state-machine-complete baseline
+    // coverage (M15-concerns C3).
+    const QString captureMsArg = flagValue(argc, argv, "--capture-screenshot-after-ms");
+    const QString capturePathArg = flagValue(argc, argv, "--capture-screenshot-path");
+
+    // M15 S3 Round 2 baseline-capture flags. `--auto-no-connect` is a
+    // sibling to `--auto-load-test-fixture`; both load a YAML, but the
+    // no-connect variant skips connectAll() so Idle states (C3 §02)
+    // are observable. `--auto-add-charts <n>` invokes the same
+    // `+ Chart` action `n` extra times for multi-chart baselines
+    // (C3 §36, §37). Both are non-frozen MainWindow surfaces.
+    const QString fixtureNoConnectPath = flagValue(argc, argv, "--auto-no-connect");
+    const QString autoAddChartsArg = flagValue(argc, argv, "--auto-add-charts");
+
+    // M15 S3 Round 3 replay-state baseline-capture flags. Mirror the
+    // GUI Open-Session / Play / Pause / Scrub flow without the modal
+    // QFileDialog or the connection-pause confirmation, so replay
+    // visual baselines (C3 §17–§20) can be captured deterministically
+    // under xvfb. `--auto-replay-play-after-ms` schedules a play()
+    // call once the load has settled; `--auto-replay-seek-percent`
+    // jumps to a specific position before capture.
+    const QString autoReplayLoadPath = flagValue(argc, argv, "--auto-load-replay");
+    const QString autoReplayPlayAfterArg = flagValue(argc, argv, "--auto-replay-play-after-ms");
+    const QString autoReplaySeekPercentArg = flagValue(argc, argv, "--auto-replay-seek-percent");
+
+    // M15 S3 Round 4 menu/dialog baseline-capture flags. Full-screen
+    // capture (`--capture-fullscreen-*`) captures top-level windows
+    // outside MainWindow (open menu popups, modal dialogs); pairs
+    // with `--auto-open-menu`, `--auto-open-dialog` to put the GUI
+    // into the target state before capture. Used for C3 §24–§26
+    // (connection dialogs) and §30–§32 (menu open).
+    const QString captureFsMsArg = flagValue(argc, argv, "--capture-fullscreen-after-ms");
+    const QString captureFsPathArg = flagValue(argc, argv, "--capture-fullscreen-path");
+    const QString autoOpenMenuArg = flagValue(argc, argv, "--auto-open-menu");
+    const QString autoOpenDialogArg = flagValue(argc, argv, "--auto-open-dialog");
+    const QString autoOpenDialogDriverArg = flagValue(argc, argv, "--auto-open-dialog-driver");
+    const QString autoReplaySpeedPopupIndexArg = flagValue(argc, argv, "--auto-replay-speed-popup-index");
+
     QApplication app(argc, argv);
     signalforge::app::MainWindow window;
     window.show();
@@ -119,6 +160,128 @@ int main(int argc, char** argv) {
     if (!fixturePath.isEmpty()) {
         if (!window.autoLoadTestFixture(fixturePath)) {
             SF_LOG_ERROR("SignalForge: --auto-load-test-fixture failed for '{}'", fixturePath.toStdString());
+        }
+    }
+    if (!fixtureNoConnectPath.isEmpty()) {
+        if (!window.autoLoadFixtureNoConnect(fixtureNoConnectPath)) {
+            SF_LOG_ERROR("SignalForge: --auto-no-connect failed for '{}'", fixtureNoConnectPath.toStdString());
+        }
+    }
+    if (!autoAddChartsArg.isEmpty()) {
+        bool ok = false;
+        const int extra = autoAddChartsArg.toInt(&ok);
+        if (!ok || extra < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-add-charts requires non-negative integer; got '{}'",
+                         autoAddChartsArg.toStdString());
+        } else if (extra > 0) {
+            // Synchronous invocation BEFORE the event loop spins:
+            // the initial chart's QQuickWidget hasn't begun its
+            // setSource path yet, so rebuildChartWidgets() can
+            // tear down + rebuild without racing against QML
+            // scene-graph init. Subsequent `--capture-screenshot`
+            // QTimer fires after the rebuilt widgets settle.
+            (void)window.autoAddCharts(extra);
+        }
+    }
+    if (!autoReplayLoadPath.isEmpty()) {
+        // Defer the replay-load past show() + initial chart QML
+        // init so the Replay toolbar overlay + signal-selector
+        // tree are populated when the screenshot QTimer fires.
+        QTimer::singleShot(200, &app, [&window, autoReplayLoadPath]() {
+            if (!window.autoLoadReplaySession(autoReplayLoadPath)) {
+                SF_LOG_ERROR("SignalForge: --auto-load-replay failed for '{}'", autoReplayLoadPath.toStdString());
+            }
+        });
+    }
+    if (!autoReplayPlayAfterArg.isEmpty()) {
+        bool ok = false;
+        const int playMs = autoReplayPlayAfterArg.toInt(&ok);
+        if (!ok || playMs < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-play-after-ms requires non-negative integer; got '{}'",
+                         autoReplayPlayAfterArg.toStdString());
+        } else {
+            QTimer::singleShot(playMs, &app, [&window]() {
+                if (!window.autoReplayPlay()) {
+                    SF_LOG_ERROR("SignalForge: autoReplayPlay() returned false");
+                }
+            });
+        }
+    }
+    if (!autoReplaySeekPercentArg.isEmpty()) {
+        bool ok = false;
+        const int percent = autoReplaySeekPercentArg.toInt(&ok);
+        if (!ok || percent < 0 || percent > 100) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-seek-percent requires 0-100; got '{}'",
+                         autoReplaySeekPercentArg.toStdString());
+        } else {
+            // Seek runs after load + any play. 700ms covers the
+            // 200ms load defer + a 500ms post-load settle window.
+            QTimer::singleShot(700, &app, [&window, percent]() {
+                if (!window.autoReplaySeekPercent(percent)) {
+                    SF_LOG_ERROR("SignalForge: autoReplaySeekPercent({}) returned false", percent);
+                }
+            });
+        }
+    }
+    if (!autoOpenMenuArg.isEmpty()) {
+        // Menu pops up at 2000 ms; captures schedule for 2500 ms
+        // so the menu is fully drawn at capture time.
+        QTimer::singleShot(2000, &app, [&window, autoOpenMenuArg]() {
+            if (!window.autoOpenMenu(autoOpenMenuArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-open-menu '{}' failed", autoOpenMenuArg.toStdString());
+            }
+        });
+    }
+    if (!autoOpenDialogArg.isEmpty()) {
+        // Dialog shows at 2000 ms (non-modal show()); captures
+        // schedule for 2500 ms.
+        QTimer::singleShot(2000, &app, [&window, autoOpenDialogArg, autoOpenDialogDriverArg]() {
+            const QString d = autoOpenDialogArg.toLower();
+            bool ok = false;
+            if (d == "add" || d == "add-conn") {
+                ok = window.autoShowAddConnectionDialog(autoOpenDialogDriverArg);
+            } else if (d == "edit" || d == "edit-conn") {
+                ok = window.autoShowEditConnectionDialog();
+            } else {
+                SF_LOG_ERROR("SignalForge: --auto-open-dialog '{}' unknown (expected add|edit)",
+                             autoOpenDialogArg.toStdString());
+            }
+            if (!ok) {
+                SF_LOG_ERROR("SignalForge: --auto-open-dialog '{}' failed", autoOpenDialogArg.toStdString());
+            }
+        });
+    }
+    if (!autoReplaySpeedPopupIndexArg.isEmpty()) {
+        bool ok = false;
+        const int idx = autoReplaySpeedPopupIndexArg.toInt(&ok);
+        if (!ok || idx < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-speed-popup-index requires non-negative integer; got '{}'",
+                         autoReplaySpeedPopupIndexArg.toStdString());
+        } else {
+            // Speed-combo popup runs after replay-load (200 ms)
+            // + a settle window. 1500 ms gives the toolbar time
+            // to lay out before we pop the combo.
+            QTimer::singleShot(1500, &app, [&window, idx]() {
+                if (!window.autoReplaySpeedComboPopup(idx)) {
+                    SF_LOG_ERROR("SignalForge: autoReplaySpeedComboPopup({}) returned false", idx);
+                }
+            });
+        }
+    }
+    if (!captureFsMsArg.isEmpty()) {
+        bool ok = false;
+        const int captureMs = captureFsMsArg.toInt(&ok);
+        if (!ok || captureMs < 0) {
+            SF_LOG_ERROR("SignalForge: --capture-fullscreen-after-ms requires non-negative integer; got '{}'",
+                         captureFsMsArg.toStdString());
+        } else if (captureFsPathArg.isEmpty()) {
+            SF_LOG_ERROR("SignalForge: --capture-fullscreen-after-ms requires --capture-fullscreen-path");
+        } else {
+            QTimer::singleShot(captureMs, &app, [&window, captureFsPathArg]() {
+                if (!window.captureFullScreen(captureFsPathArg)) {
+                    SF_LOG_ERROR("SignalForge: --capture-fullscreen-path '{}' failed", captureFsPathArg.toStdString());
+                }
+            });
         }
     }
     if (!autoSignalId.isEmpty()) {
@@ -164,6 +327,22 @@ int main(int argc, char** argv) {
             QTimer::singleShot(exitMs, &app, []() {
                 SF_LOG_INFO("SignalForge: --exit-after-ms reached; quitting");
                 QApplication::quit();
+            });
+        }
+    }
+    if (!captureMsArg.isEmpty()) {
+        bool ok = false;
+        const int captureMs = captureMsArg.toInt(&ok);
+        if (!ok || captureMs < 0) {
+            SF_LOG_ERROR("SignalForge: --capture-screenshot-after-ms requires non-negative integer; got '{}'",
+                         captureMsArg.toStdString());
+        } else if (capturePathArg.isEmpty()) {
+            SF_LOG_ERROR("SignalForge: --capture-screenshot-after-ms requires --capture-screenshot-path");
+        } else {
+            QTimer::singleShot(captureMs, &app, [&window, capturePathArg]() {
+                if (!window.captureScreenshot(capturePathArg)) {
+                    SF_LOG_ERROR("SignalForge: --capture-screenshot-path '{}' failed", capturePathArg.toStdString());
+                }
             });
         }
     }
