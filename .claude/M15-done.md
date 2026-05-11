@@ -102,8 +102,10 @@ V0.3 hand-off backlog (26 states): see §5 below.
 
 ## 4. V1 UX gap inventory (V0.3 design input)
 
-Surfaced during S3 R7 fidelity audit + S6 demo. 10 entries
-catalogued in `M15-progress.md` §S3:
+Surfaced during S3 R7 fidelity audit, S6 demo, and S7 R9
+cross-environment measurement-coupling investigation. 11
+entries catalogued (1–10 already in `M15-progress.md` §S3;
+#11 added at S7):
 
 1. **`buffer 0%%` / `seek N %%` double-percent encoding** — trivial fix (`%1%%` → `%1 %`).
 2. **Buffer pressure not color-coded** — V0.3: green / yellow / red thresholds + visual indicator.
@@ -115,6 +117,9 @@ catalogued in `M15-progress.md` §S3:
 8. **`Auto-connect commands` UI is busy-by-default** — V0.3: collapse behind "Advanced" disclosure.
 9. **Recording-active status lacks live progress without traffic** — V0.3: heartbeat indicator + elapsed-time independent of byte count.
 10. **Production replay seek emits no UI feedback** — V0.3: status label + slider both reflect seek target.
+11. **Visual identity not owned by application** — SignalForge V1 defers all Qt styling to the OS cascade (Qt theme + fonts + display config + desktop session state). Same SignalForge binary on operator dev (Ubuntu + Yaru theme + Cantarell fonts inherited from the desktop session) vs CI runner (xvfb + Fusion fallback + base fonts, no desktop session) produces 14–33 % pixel diff with semantically identical content. This makes pixel-diff regression detection unreliable across environments and means SignalForge has no consistent visual identity — compare LabVIEW / MATLAB / Tektronix / Saleae / NI / Yokogawa, which all own their look cross-platform regardless of host OS theme.
+
+    **V0.3 required deliverable**: take ownership of visual identity via `QT_STYLE_OVERRIDE` + custom `QPalette` + bundled fonts (`QFontDatabase::addApplicationFont`) + stylesheets (QSS or Qt-themes). Same binary, any OS, identical render. **First M16 priority** — without it, all subsequent V0.3 redesign work has environment-dependent fragility and any pixel-diff regression check is meaningless outside an exactly-reproduced CI environment.
 
 ---
 
@@ -155,7 +160,20 @@ SignalForge embedded-bring-up workflow.
 Per `docs/V0-series-charter.md` §2.3, V0.3 = industrial UI/UX
 rebuild. Provisional M16+ scope:
 
-- **M16 — Design tokens + theming foundation**: pin Qt style (Fusion or custom); define color palette + typography scale + spacing tokens; align CI + local rendering via fontconfig pin (closes M15's cross-environment baseline drift); reference document `docs/v0.3-design-tokens.md`.
+- **M16 — Design tokens + Visual identity ownership**
+
+  First V0.3 milestone. Takes SignalForge from "OS-styled" to "self-styled". Without it, M17–M20+ baseline regression is environment-coupled (per UX gap #11 / R9 lesson at V0.2 close).
+
+  Deliverables:
+
+  1. **Qt rendering pipeline ownership** — `QT_STYLE_OVERRIDE=Fusion` (or a custom `QStyle` subclass); `QApplication::setPalette(...)` driven by the M16 color tokens; evaluate QSS vs Qt-themes for stylesheet authoring.
+  2. **Font management** — bundle a fixed set of fonts via CMake installer payload + `QFontDatabase::addApplicationFont` at startup, so the same SignalForge binary on any OS picks the same fonts.
+  3. **Color tokens** — light + dark palettes targeting industrial aesthetics (high-contrast, low-saturation, accessible for instrument-panel viewing contexts).
+  4. **Typography tokens** — sans-serif system + monospace system + sizes / weights / line-heights.
+  5. **Spacing + layout tokens** — 4 px / 8 px / 16 px grid; consistent panel padding, control padding, dialog margins.
+  6. **Cross-environment baseline verification** — the same binary must produce identical render across dev (operator's Ubuntu + Yaru) + CI (Ubuntu-24.04 xvfb + Fusion fallback) + arbitrary user-install OS variations. M16 close gate: re-capture all V0.2 baselines under M16 tokens; pixel-diff < 1 % across all three environments.
+
+  Industrial software references (LabVIEW / MATLAB Instrument Control / Tektronix / Saleae Logic / NI VeriStand / Yokogawa IS-Series) all do this; V0.3 closes the gap. Without M16, V0.3 design pass cannot use pixel-diff as a regression gate, and SignalForge cannot be evaluated as "industrial-software-grade visual quality" in any objective sense.
 - **M17 — Core widget rebuild**: rebuild ChartManager + Chart QQuickWidget hosting to fix `rebuildChartWidgets()` segfault (M15 §S3 §HALT) AND lift Play-button-toggle gap (UX gap #3); make `PlaybackController::seek()` emit `positionChanged` (UX gap #6); production seek UI feedback (UX gap #10).
 - **M18 — Workflow rebuild**: connection-add / connection-edit dialog redesign (UX gaps #4, #7, #8); status-bar redesign (UX gaps #1, #2, #5, #9); replay-toolbar overhaul (UX gaps #3, #6); buffer-pressure visualisation (#2).
 - **M19+ — Hardware fixture suite**: Serial (socat virtual pty), TCP server fixture, UDP traffic flood fixture, replay session file generators; closes 8+ operator-manual S3 states.
@@ -267,6 +285,35 @@ when CI semantically matched local). V0.3 inherits this:
 baseline acceptance remains explicit, per-state, operator-
 driven; CC stages candidates, operator accepts.
 
+**R9 — Cross-environment measurement coupling (V0.2 close).**
+Pixel-diff vs CI failed for the 12 operator-approved baselines:
+14–33 % diff with semantically identical content. Investigation
+revealed SignalForge has no owned visual identity — Qt defaults
+inherited from the OS desktop session (operator dev: Ubuntu +
+Yaru theme + Cantarell fonts; CI: xvfb + Fusion fallback +
+base fonts).
+
+Path A (re-baseline against CI captures) accepted for V0.2
+close because the V0.2 charter §1 promise (vision
+infrastructure) is delivered; visual identity is out of V0.2
+scope and rolls into V0.3 M16 (UX gap #11).
+
+Implication: V0.2 baselines are CI-environment-specific
+snapshots. Will fail when operator re-runs visual tests
+locally — same binary, different rendering. Operator must
+either accept noise on local runs (CI is authoritative gate)
+or pin local environment to match CI manually until M16
+closes the gap.
+
+V0.3 M16 must close this gap. Otherwise pixel-diff is
+meaningless for V0.3+ regression detection in any setting
+other than CI exact reproduction. **V0.2's vision-loop
+demo (S6) still works cross-environment** because the
+loop is CC-Read-tool-based semantic comparison, not
+pixel-level; the lesson R9 carries forward is specifically
+about pixel-diff's cross-environment limit, not about the
+V0.2 perception loop itself.
+
 ---
 
 ## 11. PR + merge state
@@ -312,3 +359,42 @@ When the operator returns to merge M15:
    CLAUDE.md authorization phrase).
 6. **Phase 3 (CC autonomous)**: merge PR, tag `v0.2.0`, push
    tag, bootstrap `milestone/M16`.
+
+---
+
+## 14. V1.0 ship-gate framing (cross-environment visual determinism)
+
+The V0.2 → V0.3 transition surfaces a structural V1.0 ship-
+gate requirement not previously documented in `docs/V0-series-charter.md`:
+
+**SignalForge V1.0 ship requires deterministic Qt rendering
+across supported OS / Qt version / display config.** The
+operator's dev machine, CI runners, and arbitrary end-user
+installs must produce identical pixel output for the same
+application state. Without this:
+
+- pixel-diff regression detection is meaningless beyond
+  exact-CI-reproduction (R9 lesson);
+- bug reports referencing visual state cannot be reproduced
+  across environments (operator sees X, user sees Y, CC sees Z
+  on a third);
+- documentation screenshots become environment-specific
+  (the M15 baselines are already split across two distinct
+  renderings);
+- SignalForge cannot claim "production-ready visual quality"
+  in the industrial software sense — LabVIEW / MATLAB /
+  Tektronix / Saleae / NI / Yokogawa all guarantee
+  cross-platform pixel-determinism.
+
+V0.3 M16 (UX gap #11) is the path to closing this gap.
+After M16: same SignalForge binary, any supported OS, any
+desktop session state → identical pixel output for the same
+application state. That deterministic-rendering invariant
+becomes a V1.0 ship-gate prerequisite alongside the existing
+charter §1 functional gates.
+
+Documentation hand-off to V0 charter authors: when the
+operator updates `docs/V0-series-charter.md` between V0.2
+close and V0.3 bootstrap, the V1.0 readiness section should
+note this prerequisite explicitly (or §14 here is the
+authoritative reference until then).
