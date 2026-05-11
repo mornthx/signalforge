@@ -127,7 +127,7 @@ def test_compare_with_contract_env_sidecar_matched():
             "gpu_rasterization_disallowed": True,
         },
         "tier_3_geometry": {
-            "device_pixel_ratio": 1.0,
+            "device_pixel_ratio": "1.0",
             "screen_geometry": "1280x800",
             "locale": "C.UTF-8",
         },

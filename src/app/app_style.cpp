@@ -15,12 +15,19 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLocale>
 #include <QPalette>
+#include <QProcessEnvironment>
 #include <QScreen>
 #include <QString>
 #include <QStringList>
 #include <QStyle>
 #include <QStyleFactory>
+#include <QSysInfo>
+#include <QtVersion>
 
 namespace signalforge::app {
 
@@ -253,6 +260,160 @@ void SignalForgeStyle::applyGlobalStylesheet(QApplication* app) {
     qss.close();
     app->setStyleSheet(QString::fromUtf8(content));
     SF_LOG_INFO("SignalForgeStyle: applied stylesheet ({} bytes)", content.size());
+}
+
+namespace {
+
+// Major.minor extracted from Qt's QT_VERSION_STR macro (e.g. "6.10.2" → "6.10").
+QString qtVersionMajorMinor() {
+    const QString full = QString::fromLatin1(QT_VERSION_STR);
+    const int second_dot = full.indexOf('.', full.indexOf('.') + 1);
+    return second_dot > 0 ? full.left(second_dot) : full;
+}
+
+// Format primary-screen geometry as "WxH" string (DPR=1.0 expected).
+QString screenGeometry() {
+    if (QGuiApplication::primaryScreen() == nullptr) {
+        return QString();
+    }
+    const auto sz = QGuiApplication::primaryScreen()->size();
+    return QStringLiteral("%1x%2").arg(sz.width()).arg(sz.height());
+}
+
+// Read disallowed env vars (per rendering-environment-lock.md §3.2)
+// + emit a JSON array of any that are SET at capture time. Empty
+// array = clean env per contract.
+QJsonArray disallowedEnvOverridesPresent() {
+    const QStringList disallowed = {
+        QStringLiteral("QT_SCALE_FACTOR"),           QStringLiteral("QT_AUTO_SCREEN_SCALE_FACTOR"),
+        QStringLiteral("QT_ENABLE_HIGHDPI_SCALING"), QStringLiteral("QT_FONT_DPI"),
+        QStringLiteral("QT_STYLE_OVERRIDE"),
+    };
+    QJsonArray present;
+    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    for (const QString& key : disallowed) {
+        if (!env.contains(key)) {
+            continue;
+        }
+        const QString val = env.value(key);
+        // QT_ENABLE_HIGHDPI_SCALING = "0" or unset is OK; flag only when set non-zero
+        if (key == QStringLiteral("QT_ENABLE_HIGHDPI_SCALING") && val == QStringLiteral("0")) {
+            continue;
+        }
+        // QT_STYLE_OVERRIDE: signed-off only when SignalForgeStyle is the setter;
+        // external presence at runtime is flagged but the field exists for traceability.
+        present.append(QStringLiteral("%1=%2").arg(key, val));
+    }
+    return present;
+}
+
+// Tier 4 advisory observability — record but never gate.
+QJsonObject tier4Advisory(const QProcessEnvironment& env) {
+    QJsonObject t4;
+    t4.insert(QStringLiteral("os"), QSysInfo::prettyProductName());
+    t4.insert(QStringLiteral("kernel"), QSysInfo::kernelVersion());
+    t4.insert(QStringLiteral("kernel_type"), QSysInfo::kernelType());
+    t4.insert(QStringLiteral("machine_arch"), QSysInfo::currentCpuArchitecture());
+    t4.insert(QStringLiteral("xdg_current_desktop"), env.value(QStringLiteral("XDG_CURRENT_DESKTOP")));
+    t4.insert(QStringLiteral("desktop_session"), env.value(QStringLiteral("DESKTOP_SESSION")));
+    t4.insert(QStringLiteral("gtk_theme_env"), env.value(QStringLiteral("GTK_THEME")));
+    t4.insert(QStringLiteral("qt_im_module_env"), env.value(QStringLiteral("QT_IM_MODULE")));
+    t4.insert(QStringLiteral("qt_accessibility_env"), env.value(QStringLiteral("QT_ACCESSIBILITY")));
+    t4.insert(QStringLiteral("qt_plugin_path_env"), env.value(QStringLiteral("QT_PLUGIN_PATH")));
+    t4.insert(QStringLiteral("qt_root_dir_env"), env.value(QStringLiteral("QT_ROOT_DIR")));
+    t4.insert(QStringLiteral("qsg_rhi_backend_env"), env.value(QStringLiteral("QSG_RHI_BACKEND")));
+    return t4;
+}
+
+}  // namespace
+
+bool SignalForgeStyle::dumpEnvironmentJson(const QString& outPath) {
+    if (outPath.isEmpty()) {
+        SF_LOG_WARN("SignalForgeStyle::dumpEnvironmentJson: empty path");
+        return false;
+    }
+    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+
+    // ── Tier 1 — Font cascade (the determinism keystone per S0.5) ────────
+    QJsonObject tier1;
+    tier1.insert(QStringLiteral("app_default_family"), QString::fromLatin1(tokens::light::kFontFamilySans));
+    tier1.insert(QStringLiteral("app_default_size_pt"), tokens::light::kFontSizeBody);
+    tier1.insert(QStringLiteral("app_mono_family"), QString::fromLatin1(tokens::light::kFontFamilyMono));
+    // Observed (post-applyAtStartup) — verify the running QApplication font matches.
+    tier1.insert(QStringLiteral("observed_default_family"), QApplication::font().family());
+    tier1.insert(QStringLiteral("observed_default_size_pt"), QApplication::font().pointSize());
+
+    // ── Tier 2 — Qt rendering stack ──────────────────────────────────────
+    QJsonObject tier2;
+    tier2.insert(QStringLiteral("qt_version_major_minor"), qtVersionMajorMinor());
+    tier2.insert(QStringLiteral("qt_version_full"), QString::fromLatin1(QT_VERSION_STR));
+    tier2.insert(QStringLiteral("qpa_platform"), QGuiApplication::platformName());
+    // style_object_introspection: record "Fusion" as the SignalForgeStyle-
+    // enforced value, NOT QApplication::style()->objectName() (which is
+    // empty after setStyleSheet wraps Fusion in QStyleSheetStyle, per
+    // S4 Phase-4 operator caveat).
+    tier2.insert(QStringLiteral("style_object_introspection"), QStringLiteral("Fusion"));
+    tier2.insert(QStringLiteral("style_recording_note"),
+                 QStringLiteral("set-as-applied by SignalForgeStyle::applyAtStartup; "
+                                "not post-QSS-wrap introspected (Qt's QStyleSheetStyle "
+                                "wraps QFusionStyle when setStyleSheet runs, hiding "
+                                "objectName)."));
+    tier2.insert(QStringLiteral("wayland_disallowed"),
+                 !QGuiApplication::platformName().contains(QStringLiteral("wayland"), Qt::CaseInsensitive));
+    // gpu_rasterization_disallowed: SignalForgeStyle does not enforce
+    // QSG_RHI_BACKEND directly; per ADR-010 the capture script sets it.
+    // We record whether QSG_RHI_BACKEND is `software` or unset (both OK
+    // for the contract); only explicit non-software values fail.
+    const QString rhi = env.value(QStringLiteral("QSG_RHI_BACKEND"));
+    tier2.insert(QStringLiteral("gpu_rasterization_disallowed"),
+                 rhi.isEmpty() || rhi.compare(QStringLiteral("software"), Qt::CaseInsensitive) == 0);
+    tier2.insert(QStringLiteral("qt_env_overrides_present"), disallowedEnvOverridesPresent());
+
+    // ── Tier 3 — Display geometry ────────────────────────────────────────
+    QJsonObject tier3;
+    const qreal dpr =
+        QGuiApplication::primaryScreen() != nullptr ? QGuiApplication::primaryScreen()->devicePixelRatio() : 1.0;
+    // Store as a string with 1-decimal precision so JSON serialisation
+    // is stable across hosts (Qt's QJsonValue may emit `1` vs `1.0`
+    // depending on the underlying integral-vs-float representation;
+    // string form sidesteps that drift for the contract pre-check).
+    tier3.insert(QStringLiteral("device_pixel_ratio"), QString::number(dpr, 'f', 1));
+    tier3.insert(QStringLiteral("logical_dpi"),
+                 QString::number(QGuiApplication::primaryScreen() != nullptr
+                                     ? QGuiApplication::primaryScreen()->logicalDotsPerInch()
+                                     : 96.0,
+                                 'f', 0));
+    tier3.insert(QStringLiteral("physical_dpi_observed"),
+                 QString::number(QGuiApplication::primaryScreen() != nullptr
+                                     ? QGuiApplication::primaryScreen()->physicalDotsPerInch()
+                                     : 96.0,
+                                 'f', 1));
+    tier3.insert(QStringLiteral("screen_geometry"), screenGeometry());
+    tier3.insert(QStringLiteral("xvfb_screen_depth"),
+                 QGuiApplication::primaryScreen() != nullptr ? QGuiApplication::primaryScreen()->depth() : 24);
+    tier3.insert(QStringLiteral("locale"), QLocale().name());
+
+    // ── Top-level sidecar shape ──────────────────────────────────────────
+    QJsonObject root;
+    root.insert(QStringLiteral("spike"), QStringLiteral(""));  // M16 S5: no longer spike runs
+    root.insert(QStringLiteral("captured_by"), QStringLiteral("SignalForgeStyle::dumpEnvironmentJson"));
+    root.insert(QStringLiteral("contract_version"),
+                QStringLiteral("M16 S5; matches tests/visual/lib/compare.py ENV_CONTRACT_REQUIRED_KEYS"));
+    root.insert(QStringLiteral("tier_1_font_cascade"), tier1);
+    root.insert(QStringLiteral("tier_2_qt_rendering"), tier2);
+    root.insert(QStringLiteral("tier_3_geometry"), tier3);
+    root.insert(QStringLiteral("tier_4_advisory"), tier4Advisory(env));
+
+    const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    QFile out(outPath);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        SF_LOG_ERROR("SignalForgeStyle::dumpEnvironmentJson: cannot open '{}' for write", outPath.toStdString());
+        return false;
+    }
+    out.write(json);
+    out.close();
+    SF_LOG_INFO("SignalForgeStyle::dumpEnvironmentJson: wrote {} bytes to '{}'", json.size(), outPath.toStdString());
+    return true;
 }
 
 }  // namespace signalforge::app

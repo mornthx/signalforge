@@ -105,6 +105,28 @@ public:
     /// Internal — loads `:/styles/tokens.qss` and applies via
     /// `QApplication::setStyleSheet`.
     static void applyGlobalStylesheet(QApplication* app);
+
+    /// M16 S5 — emit env-sidecar JSON for the current
+    /// `QApplication` state per
+    /// `docs/v0.3/rendering-environment-lock.md` §6. Schema is
+    /// Tier 1 (font cascade) + Tier 2 (Qt rendering stack;
+    /// `style_object_introspection` recorded as the
+    /// SignalForgeStyle-enforced value, not post-`setStyleSheet`-
+    /// wrap-introspected — per operator's S4 Phase-4 caveat) +
+    /// Tier 3 (display geometry) + Tier 4 (advisory observability).
+    ///
+    /// Required nested keys exactly match
+    /// `tests/visual/lib/compare.py:ENV_CONTRACT_REQUIRED_KEYS`
+    /// (the S3 contract). Sidecar mismatch on any required field
+    /// in `compare_with_contract` Step 1 → INVALID per R14 / H10.
+    ///
+    /// Returns true on successful write; false on I/O error.
+    /// Invoked from `main.cpp`:
+    ///   - automatically alongside `--capture-screenshot-path` or
+    ///     `--capture-fullscreen-path` (sidecar at `<png stem>.env.json`);
+    ///   - explicitly via `--dump-render-env <path>` flag for
+    ///     standalone use (CI smoke + operator forensic).
+    [[nodiscard]] static bool dumpEnvironmentJson(const QString& outPath);
 };
 
 }  // namespace signalforge::app
