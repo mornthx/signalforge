@@ -62,6 +62,35 @@ Capture flow (mechanism C, per `M15-concerns.md` C1):
 Baselines live at `tests/visual/baselines/<state>.png`
 (committed; reviewed once by the operator at S3).
 
+## Production-fidelity criterion (R7)
+
+Operator's M15 S3 R7 review tightened the V0.2 acceptance bar:
+**a baseline is acceptable only if the captured GUI state is
+reachable through production code paths without test-only state
+mutation**. Captures produced by injecting state via test-only
+primitives (fabricated status strings, direct `showPopup()`
+calls without user-click triggers, GUI-label `setText` from
+inside test-only helpers) are catalogued as **(d) fixture-mock**
+and deferred V0.3 — they cannot serve as measurement references
+for V0.3's redesign A/B comparisons.
+
+When adding a new visual test:
+
+- Use existing CLI flags that call production-equivalent
+  primitives (`autoLoadTestFixture` ≡ Connect-all toolbar
+  action; `autoLoadFixtureNoConnect` ≡ load-config-but-don't-
+  connect; `autoOpenMenu` ≡ Qt's menu-bar-click handling
+  popping the same `QMenu`; `autoSelectSignal` ≡ signal-
+  selector checkbox click).
+- Avoid injecting status strings, slider positions, or other
+  UI state that production code doesn't emit naturally.
+- If a state can only be captured via test-only primitives,
+  classify as (d) and defer to V0.3 — do not commit as a
+  V0.2 production-fidelity baseline.
+
+See `.claude/M15-progress.md` §S3 for the per-state R7
+classification table + Reasoning per (d)-flagged state.
+
 ## Adding a new visual test
 
 1. Pick a state name `NN-short-description` (e.g.
