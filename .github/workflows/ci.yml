@@ -55,16 +55,22 @@ jobs:
       - name: Test
         run: xvfb-run --auto-servernum ctest --preset ${{ matrix.preset }} --output-on-failure
 
-      # M16 S0.5 R13 minimal-determinism spike capture.
-      # Ephemeral: only runs on release preset to keep matrix CI
-      # cheap, captures 00-empty-launch + 24-dialog-add-serial under
-      # `--m16-spike-stack` (Fusion + bundled Inter Regular 12pt +
-      # 6-role minimal palette) for cross-environment determinism
-      # measurement vs operator-local capture. Per M16-concerns.md
-      # §C7. Removable when S4 lands `SignalForgeStyle` (S0.5
-      # infrastructure is throwaway by R13 design).
-      - name: M16 S0.5 spike capture
-        if: matrix.preset == 'release'
+      # M16 S0.5 R13 → S4 cross-env continuity capture.
+      # `if: always()` so this runs even when the Test step fails;
+      # under M16 S4–S6 the V0.2 visual tests fail against V0.2
+      # baselines because S4 SignalForgeStyle changed the rendering
+      # stack (V0.2 baselines archive + re-baseline at M16 S7 per
+      # M16-plan). The spike-style captures here remain the
+      # cross-environment determinism measurement for 00 +
+      # 24-dialog-add-serial.
+      #
+      # Post-S4: the binary ignores `--m16-spike-stack` (flag removed
+      # at S4 in favor of unconditional SignalForgeStyle::applyAtStartup).
+      # The script still passes the flag (harmless no-op); the captures
+      # produced now reflect S4 SignalForgeStyle rendering, which is
+      # what the cross-env continuity gate needs anyway.
+      - name: M16 cross-env continuity capture (S0.5 + S4)
+        if: always() && matrix.preset == 'release'
         run: |
           bash tests/visual/scripts/setup_m16_spike.sh
           python3 tests/visual/scripts/capture_m16_spike.py
