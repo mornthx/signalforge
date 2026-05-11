@@ -77,6 +77,21 @@ jobs:
         env:
           SIGNALFORGE_BINARY: ${{ github.workspace }}/build/release/src/app/signalforge
 
+      # M16 S6 — full-baseline-set cross-environment determinism
+      # capture. Captures all 12 V0.2 production-fidelity baselines
+      # under M16 SignalForgeStyle (always-active production path
+      # since S4) plus the S5 auto-emitted env-sidecar per state.
+      # `if: always()` so the capture lands even when the (V0.2-
+      # baseline) Test step is red during the M16 S4–S6 transitional
+      # window. Output `tests/screenshots/m16-s6/*` is included in
+      # the visual-screenshots artifact for cross-env diff against
+      # the operator-local capture set.
+      - name: M16 S6 cross-env baseline capture (12 V0.2 baselines)
+        if: always() && matrix.preset == 'release'
+        run: python3 tests/visual/scripts/capture_m16_s6.py
+        env:
+          SIGNALFORGE_BINARY: ${{ github.workspace }}/build/release/src/app/signalforge
+
       # M15 S5 — visual-test screenshot artifact upload (per
       # M15-concerns C5 + C7). Uploads any captures produced
       # under tests/screenshots/** so reviewers can compare
