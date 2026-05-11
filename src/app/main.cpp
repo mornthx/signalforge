@@ -1,4 +1,5 @@
 // src/app/main.cpp
+#include "app_style.hpp"
 #include "drivers/driver_interface.hpp"
 #include "frame/raw_frame.hpp"
 #include "main_window.hpp"
@@ -7,14 +8,9 @@
 #include "platform/crash_reporting.hpp"
 
 #include <QApplication>
-#include <QFile>
-#include <QFont>
-#include <QFontDatabase>
 #include <QImage>
-#include <QPalette>
 #include <QString>
 #include <QStringList>
-#include <QStyleFactory>
 #include <QTimer>
 #include <cstdint>
 #include <string_view>
@@ -158,60 +154,24 @@ int main(int argc, char** argv) {
     const QString autoOpenDialogDriverArg = flagValue(argc, argv, "--auto-open-dialog-driver");
     const QString autoReplaySpeedPopupIndexArg = flagValue(argc, argv, "--auto-replay-speed-popup-index");
 
-    // M16 S0.5 R13 spike-stack flag. Ephemeral: enables a minimal
-    // owned rendering pipeline (Fusion + bundled Inter Regular 12pt +
-    // 6-role minimal palette) to measure cross-environment determinism
-    // BEFORE M16 S1+ manifesto / tokens / generator investment. Per
-    // M16-concerns.md §C7: NO QSS, NO full palette, NO generator at
-    // S0.5 — that's the R13 point. Replaced by SignalForgeStyle at S4.
-    const bool m16SpikeStack = hasFlag(argc, argv, "--m16-spike-stack");
-    const QString m16SpikeFontPath =
-        flagValue(argc, argv, "--m16-spike-font-path", QStringLiteral(".m16-spike/fonts/Inter-Regular.otf"));
+    // M16 S4 — load qrc resources containing bundled fonts +
+    // tokens.qss BEFORE constructing QApplication so the resources
+    // are registered when SignalForgeStyle queries them.
+    Q_INIT_RESOURCE(fonts);
+    Q_INIT_RESOURCE(styles);
 
     QApplication app(argc, argv);
 
-    if (m16SpikeStack) {
-        // 1. Force Fusion style regardless of OS theme inheritance.
-        auto* fusion = QStyleFactory::create(QStringLiteral("Fusion"));
-        if (fusion == nullptr) {
-            qFatal("M16 S0.5 spike: Fusion QStyle unavailable");
-        }
-        QApplication::setStyle(fusion);
-
-        // 2. Load bundled Inter Regular OTF from per-spike workdir.
-        // Fail-fast if missing — the spike measures M16's "bundled
-        // fonts" path, not OS-inherited Inter.
-        if (!QFile::exists(m16SpikeFontPath)) {
-            qFatal("M16 S0.5 spike: Inter Regular OTF missing at '%s' — "
-                   "run tests/visual/scripts/setup_m16_spike.sh first",
-                   qUtf8Printable(m16SpikeFontPath));
-        }
-        const int fontId = QFontDatabase::addApplicationFont(m16SpikeFontPath);
-        if (fontId < 0) {
-            qFatal("M16 S0.5 spike: QFontDatabase::addApplicationFont failed for '%s'",
-                   qUtf8Printable(m16SpikeFontPath));
-        }
-        SF_LOG_INFO("M16 spike: loaded Inter Regular from '{}'", m16SpikeFontPath.toStdString());
-
-        // 3. Apply 6-role minimal palette (Window / WindowText / Base /
-        // Text / Button / ButtonText). Manifesto-anticipated colours
-        // from M16 spec §4.3 sketch — values may shift at S1 + S2; R13
-        // spike measures the determinism gain from owning these, not
-        // the specific values.
-        QPalette pal;
-        pal.setColor(QPalette::Window, QColor(QStringLiteral("#fbfbfa")));
-        pal.setColor(QPalette::WindowText, QColor(QStringLiteral("#1a1d23")));
-        pal.setColor(QPalette::Base, QColor(QStringLiteral("#ffffff")));
-        pal.setColor(QPalette::Text, QColor(QStringLiteral("#1a1d23")));
-        pal.setColor(QPalette::Button, QColor(QStringLiteral("#f5f5f4")));
-        pal.setColor(QPalette::ButtonText, QColor(QStringLiteral("#1a1d23")));
-        QApplication::setPalette(pal);
-
-        // 4. Default application font: Inter 12pt.
-        QApplication::setFont(QFont(QStringLiteral("Inter"), 12));
-
-        SF_LOG_INFO("M16 spike: Fusion + Inter 12pt + 6-role palette applied");
-    }
+    // M16 S4 — Establish the M16 visual-identity contract on
+    // `app` BEFORE constructing MainWindow. Force Fusion +
+    // bundled fonts + 18-role palette + tokens.qss. Replaces
+    // the M16 S0.5 R13 `--m16-spike-stack` ephemeral path.
+    // Spike artifact (.m16-spike/fonts/Inter-Regular.otf,
+    // sha256 be6d709d...) is now resources/fonts/Inter-Regular.otf
+    // (byte-identical) so the empirical S0.5 cross-env determinism
+    // (0.12 % / 0.30 %) carries through. See
+    // docs/v0.3/spike-result.md §6 for the design path.
+    signalforge::app::SignalForgeStyle::applyAtStartup(&app);
 
     signalforge::app::MainWindow window;
     window.show();

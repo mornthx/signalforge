@@ -103,3 +103,28 @@ install(FILES installer/signalforge.png
     DESTINATION /usr/share/pixmaps
     COMPONENT Runtime
 )
+
+# M16 S4: bundled fonts (advisory filesystem copy per
+# M16-concerns §C6 hybrid). SignalForge always uses the
+# resource-compiled fonts (in-binary; lockstep). The
+# filesystem copy at /usr/share/fonts/signalforge/ exists
+# for documentation + system-wide font availability for
+# tools OUTSIDE SignalForge that want consistent rendering.
+# postinst does NOT register these in fontconfig — they're
+# advisory, not system fonts.
+install(FILES
+    resources/fonts/Inter-Regular.otf
+    resources/fonts/Inter-Medium.otf
+    resources/fonts/Inter-Bold.otf
+    resources/fonts/Inter-Italic.otf
+    resources/fonts/JetBrainsMono-Regular.ttf
+    resources/fonts/JetBrainsMono-Medium.ttf
+    DESTINATION /usr/share/fonts/signalforge
+    COMPONENT Runtime
+)
+install(FILES
+    resources/fonts/LICENSE-Inter.txt
+    resources/fonts/LICENSE-JetBrainsMono.txt
+    DESTINATION /usr/share/doc/signalforge/fonts
+    COMPONENT Documentation
+)

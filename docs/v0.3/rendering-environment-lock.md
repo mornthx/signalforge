@@ -49,13 +49,17 @@ to a byte-identical bundled set.
 
 | Field | Required value | Notes |
 |---|---|---|
-| `loaded_fonts.inter_regular_sha256` | `be6d709dcb730ddaf050cbdae6fe89bd56d5d14dc66885639bbf6f06bd03521b` | rsms/inter v4.0 release. Will become `resources/fonts/Inter-Regular.otf` at M16 S4. |
+| `loaded_fonts.inter_regular_sha256` | `be6d709dcb730ddaf050cbdae6fe89bd56d5d14dc66885639bbf6f06bd03521b` | rsms/inter v4.0 release. `resources/fonts/Inter-Regular.otf` at M16 S4 (byte-identical to S0.5 spike artifact). |
 | `loaded_fonts.inter_regular_size_bytes` | `605092` | Byte-exact match to spike artifact. |
-| `loaded_fonts.jetbrains_mono_regular_sha256` | (TBD at S2 — bundled at S4) | JetBrains Mono Apache 2.0; sha256 fixed when committed. |
-| `loaded_fonts.jetbrains_mono_regular_size_bytes` | (TBD at S2) | Byte-exact. |
-| `loaded_fonts.app_default_family` | `Inter` | Set by `QApplication::setFont(QFont("Inter", 12))`. |
+| `loaded_fonts.inter_medium_sha256` | `1e65171fccd6f445b7742728454620ec2867356c849af78e71bf2c4f0e3d97ba` | rsms/inter v4.0; `resources/fonts/Inter-Medium.otf`. Advisory variant (M17+ widget emphasis). |
+| `loaded_fonts.inter_bold_sha256` | `00fd6f4691ee8884a33b46bf45851b341927c37c30064f558e1befb242971c49` | rsms/inter v4.0; `resources/fonts/Inter-Bold.otf`. Advisory variant. |
+| `loaded_fonts.inter_italic_sha256` | `f065eb148431a276995ba88b79e9225e4aa05f05b3bfeb857cf0457dcc1064a9` | rsms/inter v4.0; `resources/fonts/Inter-Italic.otf`. Advisory variant. |
+| `loaded_fonts.jetbrains_mono_regular_sha256` | `a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f` | JetBrains/JetBrainsMono v2.304; `resources/fonts/JetBrainsMono-Regular.ttf`. Required for measurement readouts per manifesto §2.2. **License: SIL Open Font License 1.1** (pre-S4 documentation referred to Apache 2.0; corrected at S4 after license verification of the actual bundled file). |
+| `loaded_fonts.jetbrains_mono_regular_size_bytes` | `274612` | Byte-exact. |
+| `loaded_fonts.jetbrains_mono_medium_sha256` | `31c92d01a8a08528b718a43addf0ad3df0af2ca4b7b3290a452f70f358e14d3d` | JBM v2.304; `resources/fonts/JetBrainsMono-Medium.ttf`. Advisory variant (M17+ active-mono emphasis). |
+| `loaded_fonts.app_default_family` | `Inter` | Set by `QApplication::setFont(QFont("Inter", 12))` in `SignalForgeStyle::applyAtStartup`. |
 | `loaded_fonts.app_default_size_pt` | `12` | Body text scale. |
-| `loaded_fonts.app_mono_family` | `JetBrains Mono` | Set explicitly on widgets requiring monospace (status-bar numerics, etc.). |
+| `loaded_fonts.app_mono_family` | `JetBrains Mono` | Available for widgets requiring monospace (status-bar numerics, etc.); not set as app-default. |
 
 ### 2.2 Disallowed at Tier 1
 

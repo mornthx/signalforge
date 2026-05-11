@@ -1,0 +1,11 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/styles">
+    <!-- M16 S4 generated bundled stylesheet. Per R15 single-source
+         discipline tokens.qss is generated from tokens.json via
+         tools/generate_style_assets.py. Resource-compiled into the
+         signalforge binary (lockstep with build); loaded at
+         QApplication init by SignalForgeStyle. -->
+    <file>tokens.qss</file>
+  </qresource>
+</RCC>
