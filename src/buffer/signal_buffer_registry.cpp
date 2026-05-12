@@ -254,6 +254,14 @@ QStringList SignalBufferRegistry::signalIds() const {
     for (const auto& [id, _] : buffersBySignalId_) {
         out.append(id);
     }
+    // M16 S6.5 / ADR-014: sort for cross-environment determinism.
+    // buffersBySignalId_ is std::unordered_map; raw iteration order
+    // is hash-seed-dependent and varies across hosts (Linux glibc /
+    // Qt build pair), producing non-deterministic signal-tree
+    // display in chart/signal_selector.cpp. R12 baseline regression
+    // discipline (caught at M16 S6 cross-env verification, states
+    // 12-multi-2-drivers + 13-multi-5-drivers).
+    out.sort();
     return out;
 }
 
