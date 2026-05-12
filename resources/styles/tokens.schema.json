@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signalforge.dev/schemas/tokens.schema.json",
+  "title": "SignalForge design tokens",
+  "description": "Canonical source of design tokens per M16-concerns §C4. Generator (tools/generate_style_assets.py) consumes this + emits 3 consumers (QSS / C++ / Python). CI --check enforces freshness (R15 / H12).",
+  "type": "object",
+  "required": ["$schema", "version", "themes"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "Pointer to this schema file for IDE validation.",
+      "type": "string"
+    },
+    "version": {
+      "description": "MAJOR.MINOR per M16-concerns §C4. Bump MINOR on additive token additions (e.g. M20 adds dark theme → v1.1); bump MAJOR on breaking changes (avoid in V0.3).",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "themes": {
+      "description": "Theme variants. `light` required (M16 default); `dark` optional slot for M20.",
+      "type": "object",
+      "required": ["light"],
+      "additionalProperties": false,
+      "properties": {
+        "light": { "$ref": "#/$defs/theme" },
+        "dark":  { "$ref": "#/$defs/theme" }
+      }
+    },
+    "_manifesto_refs": {
+      "description": "Per-token traceability to manifesto principles. Parallel to themes.<theme>.<group>.<key> structure. Generator skips this section. R11 enforcement audit trail.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "_notes": {
+      "description": "Free-form notes from token authors. Generator skips.",
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "theme": {
+      "type": "object",
+      "required": ["color", "font", "spacing", "icon"],
+      "additionalProperties": false,
+      "properties": {
+        "color":   { "$ref": "#/$defs/colorMap" },
+        "font":    { "$ref": "#/$defs/fontMap" },
+        "spacing": { "$ref": "#/$defs/spacingMap" },
+        "icon":    { "$ref": "#/$defs/iconMap" }
+      }
+    },
+    "colorMap": {
+      "description": "Color tokens. Hex-only (#RRGGBB or #RRGGBBAA). Semantic key naming (group.subkey).",
+      "type": "object",
+      "patternProperties": {
+        "^[a-z]+(\\.[a-z0-9_]+)*$": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fontMap": {
+      "type": "object",
+      "required": ["family.sans", "family.mono", "size.body", "weight.regular"],
+      "additionalProperties": false,
+      "properties": {
+        "family.sans":    { "type": "string", "minLength": 1 },
+        "family.mono":    { "type": "string", "minLength": 1 },
+        "size.display":   { "type": "integer", "minimum": 8, "maximum": 72 },
+        "size.heading":   { "type": "integer", "minimum": 8, "maximum": 72 },
+        "size.body":      { "type": "integer", "minimum": 8, "maximum": 72 },
+        "size.caption":   { "type": "integer", "minimum": 8, "maximum": 72 },
+        "size.mono":      { "type": "integer", "minimum": 8, "maximum": 72 },
+        "weight.regular": { "type": "integer", "minimum": 100, "maximum": 900 },
+        "weight.medium":  { "type": "integer", "minimum": 100, "maximum": 900 },
+        "weight.bold":    { "type": "integer", "minimum": 100, "maximum": 900 }
+      }
+    },
+    "spacingMap": {
+      "description": "Spacing scale. Integer multiples of 4 (industrial UI density convention).",
+      "type": "object",
+      "required": ["xs", "sm", "md", "lg", "xl"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(xs|sm|md|lg|xl|2xl|3xl)$": {
+          "type": "integer",
+          "minimum": 0,
+          "multipleOf": 4
+        }
+      }
+    },
+    "iconMap": {
+      "type": "object",
+      "required": ["size.sm", "size.md", "size.lg"],
+      "additionalProperties": false,
+      "properties": {
+        "size.sm": { "type": "integer", "minimum": 8, "maximum": 64 },
+        "size.md": { "type": "integer", "minimum": 8, "maximum": 64 },
+        "size.lg": { "type": "integer", "minimum": 8, "maximum": 64 }
+      }
+    }
+  }
+}

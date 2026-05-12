@@ -43,3 +43,8 @@ tests/screenshots/
 # Python bytecode caches (M15 visual harness)
 __pycache__/
 *.pyc
+
+# M16 S0.5 spike workdir (per M16-concerns.md §C7). Inter-Regular.otf
+# fetched via tests/visual/scripts/setup_m16_spike.sh; ephemeral until
+# S4 lands proper resources/fonts/ + Qt resource compile.
+.m16-spike/

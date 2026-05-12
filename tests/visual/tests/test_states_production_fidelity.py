@@ -44,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.capture import capture_signalforge_state  # noqa: E402
-from lib.compare import compare_baseline  # noqa: E402
+from lib.compare import compare_with_contract  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 BASELINES = REPO_ROOT / "tests" / "visual" / "baselines"
@@ -134,13 +134,14 @@ SPECS: list[FidelitySpec] = [
     ),
 ]
 
-# State 13 captured with FLAKY note (0.999 % consecutive-run diff
-# from signal-selector layout reflow). Allow a wider tolerance for
-# the baseline match to absorb the same reflow jitter.
-PER_STATE_TOLERANCE: dict[str, float] = {
-    "13-multi-5-drivers": 7.5,
-}
-DEFAULT_TOLERANCE = 5.0
+# M16 S7: per-state tolerance hack removed. V0.2 needed it because
+# state 13 (5-driver signal-selector) reflowed non-deterministically
+# under V0.2's `std::unordered_map` iteration order (root cause of
+# the FLAKY 0.999 % consecutive-run diff documented at M15 S3 close).
+# ADR-014 (M16 S6.5) sorted the iteration order and the universal
+# status-bar mask (M16 S6.6) absorbs the remaining cross-host
+# live-counter drift. State 13 now diffs at 0.011 % / cluster 68 vs
+# the M16 baseline, well under both M16 close-gate thresholds.
 
 
 def _ensure_capture(spec: FidelitySpec) -> Path:
@@ -158,7 +159,12 @@ def _ensure_capture(spec: FidelitySpec) -> Path:
 
 
 def _make_match_test(spec: FidelitySpec):
-    """Build a closure that captures + diffs one state."""
+    """Build a closure that captures + diffs one state under the
+    M16 `compare_with_contract` algorithm. Defaults apply:
+    `pixel_threshold = 4`, `cluster_threshold = 200 px`,
+    `percent_threshold = 1.0 %`, `require_env_sidecar = True`
+    (full R14 enforcement). Mask files at `<baseline>.mask.json`
+    are auto-discovered."""
 
     def test_fn() -> None:
         actual = _ensure_capture(spec)
@@ -166,11 +172,10 @@ def _make_match_test(spec: FidelitySpec):
             f"capture failed: no PNG at {actual}"
         )
         baseline = BASELINES / f"{spec.name}.png"
-        tolerance = PER_STATE_TOLERANCE.get(spec.name, DEFAULT_TOLERANCE)
-        cmp = compare_baseline(actual, baseline, max_diff_percent=tolerance)
+        cmp = compare_with_contract(actual, baseline, require_env_sidecar=True)
         assert cmp.matched, (
             f"visual regression: state='{spec.name}' "
-            f"diff={cmp.diff_percent:.2f}% threshold={tolerance:.1f}% "
+            f"diff={cmp.diff_percent:.3f}% max_cluster={cmp.max_cluster_size}px "
             f"note={cmp.note}"
         )
 

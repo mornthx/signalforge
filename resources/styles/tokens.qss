@@ -1,0 +1,82 @@
+/*
+ * GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY
+ * Generator: tools/generate_style_assets.py
+ * Run `--check` to verify freshness (M16 R15 / H12)
+ * tokens.json version 1.0
+ *
+ * M16 S2: token snippet scaffold. S4 SignalForgeStyle loads this
+ * via QApplication::setStyleSheet after Fusion + palette init.
+ * QSS discipline (per manifesto + spec §3 M16.4): objectName /
+ * class-name / dynamic-property selectors only; no `*` or deep
+ * descendants; no hot-path setStyleSheet.
+ */
+
+/* ===== Top-level surfaces ===== */
+QMainWindow {
+    background-color: #fbfbfa;
+    color: #1a1d23;
+}
+
+QDockWidget {
+    background-color: #ffffff;
+    color: #1a1d23;
+}
+
+QStatusBar {
+    background-color: #fbfbfa;
+    color: #5a5d63;
+    border-top: 1px solid #d6d6d4;
+}
+
+/* ===== Controls ===== */
+QPushButton {
+    background-color: #f5f5f4;
+    color: #1a1d23;
+    border: 1px solid #d6d6d4;
+    padding: 4px 8px;
+}
+QPushButton:focus {
+    border: 1px solid #3b7ddd;
+}
+QPushButton:disabled {
+    color: #9ea1a7;
+}
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #ffffff;
+    color: #1a1d23;
+    border: 1px solid #d6d6d4;
+    padding: 4px 8px;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid #3b7ddd;
+}
+
+/* ===== Panel chrome ===== */
+QHeaderView::section, QFrame#panelHeader {
+    background-color: #f5f5f4;
+    color: #5a5d63;
+    border: none;
+    border-bottom: 1px solid #d6d6d4;
+    padding: 4px 8px;
+}
+
+/* ===== Status-bar semantic classes (consumed by M17 widgets) ===== */
+QLabel[class="status-idle"]         { color: #5a5d63; }
+QLabel[class="status-connecting"]   { color: #d4a72c; }
+QLabel[class="status-connected"]    { color: #2d8a3e; }
+QLabel[class="status-disconnecting"]{ color: #d4a72c; }
+QLabel[class="status-error"]        { color: #c8392a; }
+QLabel[class="mode-live"]           { color: #2d8a3e; }
+QLabel[class="mode-recording"]      { color: #c8392a; }
+QLabel[class="mode-replay"]         { color: #3b7ddd; }
+QLabel[class="severity-info"]       { color: #5a5d63; }
+QLabel[class="severity-warning"]    { color: #d4a72c; }
+QLabel[class="severity-error"]      { color: #c8392a; }
+
+/* ===== Typography hooks ===== */
+QLabel[class="display"]  { font-size: 18px; font-weight: 500; }
+QLabel[class="heading"]  { font-size: 14px; font-weight: 500; }
+QLabel[class="caption"]  { font-size: 11px; color: #5a5d63; }
+QLabel[class="mono"]     { font-family: "JetBrains Mono"; font-size: 12px; }
+

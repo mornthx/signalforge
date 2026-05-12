@@ -1,7 +1,14 @@
 add_library(signalforge_app_ui STATIC
     main_window.cpp
     main_window.hpp
+    app_style.cpp
+    app_style.hpp
     ${CMAKE_SOURCE_DIR}/resources/qml.qrc
+    # M16 S4: bundled fonts + generated tokens.qss resource-
+    # compiled into binary (R15 lockstep discipline; no on-disk
+    # drift). Loaded at QApplication init by SignalForgeStyle.
+    ${CMAKE_SOURCE_DIR}/resources/fonts/fonts.qrc
+    ${CMAKE_SOURCE_DIR}/resources/styles/styles.qrc
 )
 target_include_directories(signalforge_app_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(signalforge_app_ui

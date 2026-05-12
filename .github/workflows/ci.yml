@@ -42,8 +42,55 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
 
+      # M16 S2 token-freshness gate (R15 / H12 enforcement). Re-runs
+      # the token generator in --check mode; fails CI if any committed
+      # generated consumer (tokens.qss / generated_style_tokens.hpp /
+      # generated_tokens.py) drifts from tokens.json canonical source.
+      # Only runs once per matrix (cheap; tokens.json edits should be
+      # rare). Per CLAUDE.md §1: stdlib-only Python, no new deps.
+      - name: M16 token-freshness gate
+        if: matrix.preset == 'release'
+        run: python3 tools/generate_style_assets.py --check
+
       - name: Test
         run: xvfb-run --auto-servernum ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      # M16 S0.5 R13 → S4 cross-env continuity capture.
+      # `if: always()` so this runs even when the Test step fails;
+      # under M16 S4–S6 the V0.2 visual tests fail against V0.2
+      # baselines because S4 SignalForgeStyle changed the rendering
+      # stack (V0.2 baselines archive + re-baseline at M16 S7 per
+      # M16-plan). The spike-style captures here remain the
+      # cross-environment determinism measurement for 00 +
+      # 24-dialog-add-serial.
+      #
+      # Post-S4: the binary ignores `--m16-spike-stack` (flag removed
+      # at S4 in favor of unconditional SignalForgeStyle::applyAtStartup).
+      # The script still passes the flag (harmless no-op); the captures
+      # produced now reflect S4 SignalForgeStyle rendering, which is
+      # what the cross-env continuity gate needs anyway.
+      - name: M16 cross-env continuity capture (S0.5 + S4)
+        if: always() && matrix.preset == 'release'
+        run: |
+          bash tests/visual/scripts/setup_m16_spike.sh
+          python3 tests/visual/scripts/capture_m16_spike.py
+        env:
+          SIGNALFORGE_BINARY: ${{ github.workspace }}/build/release/src/app/signalforge
+
+      # M16 S6 — full-baseline-set cross-environment determinism
+      # capture. Captures all 12 V0.2 production-fidelity baselines
+      # under M16 SignalForgeStyle (always-active production path
+      # since S4) plus the S5 auto-emitted env-sidecar per state.
+      # `if: always()` so the capture lands even when the (V0.2-
+      # baseline) Test step is red during the M16 S4–S6 transitional
+      # window. Output `tests/screenshots/m16-s6/*` is included in
+      # the visual-screenshots artifact for cross-env diff against
+      # the operator-local capture set.
+      - name: M16 S6 cross-env baseline capture (12 V0.2 baselines)
+        if: always() && matrix.preset == 'release'
+        run: python3 tests/visual/scripts/capture_m16_s6.py
+        env:
+          SIGNALFORGE_BINARY: ${{ github.workspace }}/build/release/src/app/signalforge
 
       # M15 S5 — visual-test screenshot artifact upload (per
       # M15-concerns C5 + C7). Uploads any captures produced
@@ -51,6 +98,7 @@ jobs:
       # actual vs committed baseline locally on a CI failure.
       # `if: always()` so artifacts upload even when ctest fails.
       # No vision-LLM in CI (C7); pixel-diff is the only gate.
+      # Includes M16 S0.5 spike captures under tests/screenshots/m16-spike/.
       - name: Upload visual-test screenshots
         if: always()
         uses: actions/upload-artifact@v4

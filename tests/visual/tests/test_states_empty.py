@@ -11,8 +11,9 @@ Usage from ctest:
 Pixel-diff comparison runs once a baseline is committed under
 `tests/visual/baselines/00-empty-launch.png`. Until then the
 test passes with `note="baseline-absent"` per
-`compare_baseline()` semantics — operator approves baseline via
-`scripts/accept-baseline.sh 00-empty-launch`.
+`compare_with_contract()` semantics — operator approves baseline
+via `scripts/accept-baseline.sh 00-empty-launch` (which since
+M16 S7 also promotes the env-sidecar + any mask file).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.capture import capture_signalforge_state  # noqa: E402
-from lib.compare import compare_baseline  # noqa: E402
+from lib.compare import compare_with_contract  # noqa: E402
 from lib.describe import describe_screenshot  # noqa: E402
 from lib.validate_description import validate_description  # noqa: E402
 
@@ -45,10 +46,13 @@ def test_empty_launch_captures_full_window():
 
 
 def test_empty_launch_matches_baseline():
-    """Pixel-diff vs baseline (5% tolerance for AA / Qt rendering jitter)."""
+    """Cross-environment pixel-diff vs baseline under the M16
+    `compare_with_contract` algorithm: percent threshold 1 %,
+    cluster threshold 200 px, env-sidecar contract enforced.
+    Baseline-absent → matched (operator approves via
+    accept-baseline.sh)."""
     actual = REPO_ROOT / "tests" / "screenshots" / "00-empty-launch.png"
     if not actual.is_file():
-        # The capture test runs first; if it didn't, capture now
         capture_signalforge_state(
             state_name="00-empty-launch",
             launch_args=[],
@@ -58,13 +62,11 @@ def test_empty_launch_matches_baseline():
         )
 
     baseline = BASELINES / "00-empty-launch.png"
-    cmp = compare_baseline(actual, baseline, max_diff_percent=5.0)
-    # When baseline is absent (first run), `compare_baseline()` returns
-    # matched=True with note="baseline-absent". Operator approves via
-    # accept-baseline.sh.
+    cmp = compare_with_contract(actual, baseline, require_env_sidecar=True)
     assert cmp.matched, (
         f"visual regression: state='00-empty-launch' "
-        f"diff={cmp.diff_percent:.2f}% threshold=5.0% note={cmp.note}"
+        f"diff={cmp.diff_percent:.3f}% max_cluster={cmp.max_cluster_size}px "
+        f"note={cmp.note}"
     )
 
 

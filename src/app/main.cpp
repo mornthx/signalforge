@@ -1,4 +1,5 @@
 // src/app/main.cpp
+#include "app_style.hpp"
 #include "drivers/driver_interface.hpp"
 #include "frame/raw_frame.hpp"
 #include "main_window.hpp"
@@ -153,7 +154,40 @@ int main(int argc, char** argv) {
     const QString autoOpenDialogDriverArg = flagValue(argc, argv, "--auto-open-dialog-driver");
     const QString autoReplaySpeedPopupIndexArg = flagValue(argc, argv, "--auto-replay-speed-popup-index");
 
+    // M16 S5 — `--dump-render-env <path>`: emit env-sidecar JSON
+    // (Tier 1/2/3/4 per `docs/v0.3/rendering-environment-lock.md`)
+    // then exit without constructing MainWindow. Used by
+    // tests/visual/scripts/dump_render_env.py for standalone env
+    // capture (CI smoke / operator forensic).
+    const QString dumpRenderEnvPath = flagValue(argc, argv, "--dump-render-env");
+
+    // M16 S4 — load qrc resources containing bundled fonts +
+    // tokens.qss BEFORE constructing QApplication so the resources
+    // are registered when SignalForgeStyle queries them.
+    Q_INIT_RESOURCE(fonts);
+    Q_INIT_RESOURCE(styles);
+
     QApplication app(argc, argv);
+
+    // M16 S4 — Establish the M16 visual-identity contract on
+    // `app` BEFORE constructing MainWindow. Force Fusion +
+    // bundled fonts + 18-role palette + tokens.qss. Replaces
+    // the M16 S0.5 R13 `--m16-spike-stack` ephemeral path.
+    // Spike artifact (.m16-spike/fonts/Inter-Regular.otf,
+    // sha256 be6d709d...) is now resources/fonts/Inter-Regular.otf
+    // (byte-identical) so the empirical S0.5 cross-env determinism
+    // (0.12 % / 0.30 %) carries through. See
+    // docs/v0.3/spike-result.md §6 for the design path.
+    signalforge::app::SignalForgeStyle::applyAtStartup(&app);
+
+    // M16 S5 — standalone env-dump mode: emit sidecar then exit.
+    // No MainWindow construction (the dump only needs QApplication
+    // + SignalForgeStyle state).
+    if (!dumpRenderEnvPath.isEmpty()) {
+        const bool ok = signalforge::app::SignalForgeStyle::dumpEnvironmentJson(dumpRenderEnvPath);
+        return ok ? 0 : 1;
+    }
+
     signalforge::app::MainWindow window;
     window.show();
 
@@ -281,6 +315,16 @@ int main(int argc, char** argv) {
                 if (!window.captureFullScreen(captureFsPathArg)) {
                     SF_LOG_ERROR("SignalForge: --capture-fullscreen-path '{}' failed", captureFsPathArg.toStdString());
                 }
+                // M16 S5: auto-emit env sidecar alongside the PNG.
+                // R14 / H10 enforcement: every visual baseline ships
+                // with its `.env.json` contract sidecar so
+                // `compare_with_contract` Step-1 pre-check can
+                // distinguish env drift (INVALID) from regression.
+                const QString sidecar =
+                    captureFsPathArg.endsWith(QStringLiteral(".png"))
+                        ? captureFsPathArg.left(captureFsPathArg.size() - 4) + QStringLiteral(".env.json")
+                        : captureFsPathArg + QStringLiteral(".env.json");
+                (void)signalforge::app::SignalForgeStyle::dumpEnvironmentJson(sidecar);
             });
         }
     }
@@ -343,6 +387,14 @@ int main(int argc, char** argv) {
                 if (!window.captureScreenshot(capturePathArg)) {
                     SF_LOG_ERROR("SignalForge: --capture-screenshot-path '{}' failed", capturePathArg.toStdString());
                 }
+                // M16 S5: auto-emit env sidecar alongside the PNG
+                // (parallel with the --capture-fullscreen-path path
+                // above). See that block for R14 / H10 rationale.
+                const QString sidecar =
+                    capturePathArg.endsWith(QStringLiteral(".png"))
+                        ? capturePathArg.left(capturePathArg.size() - 4) + QStringLiteral(".env.json")
+                        : capturePathArg + QStringLiteral(".env.json");
+                (void)signalforge::app::SignalForgeStyle::dumpEnvironmentJson(sidecar);
             });
         }
     }

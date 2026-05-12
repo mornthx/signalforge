@@ -1,0 +1,21 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/fonts">
+    <!-- M16 S4 bundled fonts. SIL Open Font License 1.1 for both
+         font families. Compiled into the signalforge binary
+         (lockstep with build); loaded at QApplication init by
+         SignalForgeStyle via QFontDatabase::addApplicationFont.
+         Continuity: Inter-Regular.otf is byte-identical to the
+         M16 S0.5 spike artifact (sha256
+         be6d709dcb730ddaf050cbdae6fe89bd56d5d14dc66885639bbf6f06bd03521b)
+         per docs/v0.3/rendering-environment-lock.md Tier 1. -->
+    <file>Inter-Regular.otf</file>
+    <file>Inter-Medium.otf</file>
+    <file>Inter-Bold.otf</file>
+    <file>Inter-Italic.otf</file>
+    <file>JetBrainsMono-Regular.ttf</file>
+    <file>JetBrainsMono-Medium.ttf</file>
+    <file>LICENSE-Inter.txt</file>
+    <file>LICENSE-JetBrainsMono.txt</file>
+  </qresource>
+</RCC>
