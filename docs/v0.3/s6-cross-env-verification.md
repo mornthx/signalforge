@@ -429,7 +429,241 @@ byte-identical-deterministic post the signal-tree sort fix
 
 ---
 
-## 10. Cross-references
+## 10. S6.5 amendment — ADR-014 signal-tree sort fix + new finding
+
+**Status**: ADR-014 applied (commit `a500c70`); ADR-014 doc
+authored (this commit). M16 close gate **partial** post-amendment:
+percent-gate satisfied 11/12; combined percent+cluster gate
+satisfied 5/12. New non-determinism source surfaced: status-bar
+live counters.
+
+### 10.1 ADR-014 application
+
+`SignalBufferRegistry::signalIds()` now sorts its returned
+`QStringList` before returning, eliminating hash-bucket-order
+non-determinism. Caller audit covered 4 production + 2 test
+callers (see ADR-014 §Rationale); all order-safe under sorted
+output. Frozen-surface counter remains 0/2 (`.cpp`-only change,
+`.hpp` unchanged at line 109).
+
+Local rebuild + ctest verification:
+- `signal_buffer_registry` unit tests — 6/6 PASS unchanged
+- `signal_selector_tree_population` integration test — PASS
+  unchanged
+- `expression_registrar` callers — PASS unchanged (no
+  order-dependence)
+- Build clean Debug + Release; clang-format clean.
+
+### 10.2 Re-measurement (CI run 25706179871, local re-capture
+under ADR-014 binary)
+
+After ADR-014 binary on both sides:
+
+| Baseline | Phase 2 (pre-fix) | S6.5 (post-fix) | Δ percent | Verdict |
+|---|---:|---:|---:|---|
+| 00-empty-launch         | 0.000 % (sha256 ≡) | 0.000 % (sha256 ≡) | 0 | PASS |
+| 02-conn-udp-idle        | 0.000 % (sha256 ≡) | **0.253 %** / cluster 1067 | **+0.253** | **FAIL (cluster)** |
+| 04-conn-udp-connected   | 0.000 % (sha256 ≡) | **0.254 %** / cluster 1067 | **+0.254** | **FAIL (cluster)** |
+| 12-multi-2-drivers      | 1.005 % / cluster 822 | **0.254 %** / cluster 1067 | **−0.751** | **FAIL (cluster)** |
+| 13-multi-5-drivers      | 1.351 % / cluster 650 | **0.254 %** / cluster 1067 | **−1.097** | **FAIL (cluster)** |
+| 24-dialog-add-serial    | 0.016 % / cluster 160 | 0.016 % / cluster 160 | 0 | PASS |
+| 25-dialog-add-udp       | 0.000 % (sha256 ≡) | 0.000 % (sha256 ≡) | 0 | PASS |
+| 26-dialog-edit          | 0.000 % (sha256 ≡) | 0.000 % (sha256 ≡) | 0 | PASS |
+| 30-menu-file-open       | 0.000 % (sha256 ≡) | **0.253 %** / cluster 1067 | **+0.253** | **FAIL (cluster)** |
+| 31-menu-connections-open| 0.000 % (sha256 ≡) | **0.253 %** / cluster 1067 | **+0.253** | **FAIL (cluster)** |
+| 32-menu-session-open    | 0.000 % (sha256 ≡) | 0.000 % (sha256 ≡) | 0 | PASS |
+| 33-status-buffer-normal | 0.000 % (sha256 ≡) | **0.253 %** / cluster 1067 | **+0.253** | **FAIL (cluster)** |
+
+**Aggregate**:
+- Under M16 close gate § "< 1 % per baseline" (percent-only):
+  **11 / 12 PASS** (only state 24 has any pixel diff at all
+  among the passing 11; state 24 stays at 0.016 % across both
+  measurements).
+- Under `compare_with_contract` combined verdict
+  (percent AND cluster gates both required): **5 / 12 PASS**.
+
+### 10.3 ADR-014 outcome on the originally-failing states
+
+| Baseline | S6 phase 2 diff | S6.5 diff | Effect |
+|---|---:|---:|---|
+| 12-multi-2-drivers | 1.005 % / 822-px cluster (signal-tree) | 0.254 % / 1067-px cluster (status-bar) | Signal-tree diff eliminated; status-bar drift exposed (was masked) |
+| 13-multi-5-drivers | 1.351 % / 650-px cluster (signal-tree) | 0.254 % / 1067-px cluster (status-bar) | Same |
+
+ADR-014 achieved its stated goal: signal-tree iteration is now
+deterministic cross-host. Side-by-side text comparison of the
+post-fix capture shows identical signal ordering on local and CI:
+
+```
+Driver 1 (operator local + Azure CI):
+  crc → padding → pressure → alarm → calibration → reserved
+  → sensor_mo → temperatur → timestamp
+```
+
+This is alphabetical-by-signal-id order, identical on both
+hosts post-fix. The signal-tree cluster diff (650–822 px) is
+eliminated.
+
+### 10.4 New finding — status-bar live-counter drift
+
+A second cross-environment non-determinism source surfaced
+that was apparently masked in S6 phase 2: the **status bar at
+the bottom of MainWindow**.
+
+Visual evidence: diff images for states 02 / 04 / 12 / 13 /
+30 / 31 / 33 all show the same diff pattern — concentrated in
+the status bar region (~620 px wide, ~13 px tall at the
+bottom-right):
+
+```
+Local (operator dev):  "FPS: ~30 / chart Dropped: 1 ⚠ throttled buffer 3%% (8 MiB) 1/1 connected Idle"
+CI (Azure runner):     [different FPS, Dropped, buffer values]
+```
+
+The diffed glyphs occupy ~1067 contiguous pixels (the cluster
+size that fails the M16 cluster gate of 200 px).
+
+Identical diff metrics (~0.253–0.254 % / 2587–2606 px /
+1067 cluster / 9–10 clusters) across qualitatively different
+states (single-driver, multi-driver, no-fixture-menu-open,
+buffer-normal) strongly implicates a SHARED UI component as
+the drift source, not state-specific rendering.
+
+**Status-bar fields**: FPS, Dropped count, throttle indicator,
+buffer percent, buffer MiB. These are **runtime live counters**
+updated each frame from process-local state:
+- FPS is a moving-average updated on each chart frame paint
+- Dropped count accumulates over runtime
+- Buffer percent + MiB reflect real-time memory usage
+- Throttle indicator reflects current chart-pipeline saturation
+
+These values legitimately differ across hosts at the same
+capture wall-clock (`--capture-screenshot-after-ms=2500`):
+the operator dev box reaches 2500 ms with a different
+accumulated frame count than the Azure CI runner.
+
+**Why masked in S6 phase 2**: hypothesis — pre-ADR-014, the
+signal-tree population spent variable time in unordered_map
+hash-bucket iteration, occasionally aligning startup paint
+timing such that both hosts converged on identical
+status-bar readings at 2500 ms. Post-ADR-014, sort is
+deterministic and (slightly) slower-paced than the most-
+cache-friendly bucket order, perturbing the alignment.
+This is speculative; what's empirically verified is that
+intra-host capture stability is sha256-byte-identical
+(verified by 2 back-to-back captures of state 04 on the
+operator host: 0.000 %), so the drift is genuinely
+cross-host.
+
+### 10.5 Intra-host stability cross-check
+
+To rule out per-capture flakiness as the source of the
+S6.5 cluster failures, two back-to-back captures of state 04
+on the same host with the same binary were compared:
+
+```
+local v1 vs local v2 (intra-host, post-ADR-014):
+  04-conn-udp-connected : diff = 0.000 % / cluster 0 (sha256 ≡)
+```
+
+The status-bar drift is **cross-environment**, not
+intra-environment flakiness.
+
+### 10.6 Honest verdict + recommended next step
+
+ADR-014 (signal-tree sort fix) **succeeded in its stated goal**.
+The 2 originally-failing states' percent-diff dropped from
+1.005 % / 1.351 % to 0.254 % / 0.254 % (4–5× improvement).
+
+**But** the M16 close gate is `compare_with_contract`'s
+combined verdict (percent AND cluster), not percent-only.
+Under the combined verdict, **only 5 / 12 baselines PASS**
+post-amendment because 7 states now show status-bar
+cluster-gate violation that was masked at S6 phase 2.
+
+This is **R12 discipline doubling down**: the same framework
+that surfaced the signal-tree non-determinism now surfaces a
+second, qualitatively distinct non-determinism. R12 caught
+both; ADR-014 closes the first; the second remains open.
+
+The status-bar drift is **out of S6.5's authorisation scope**.
+Fixing it requires a separate decision:
+
+**Option A — mask the status-bar region**:
+`compare_with_contract` accepts a `mask` parameter (Path or
+dict) covering pixel regions that should be excluded from
+the diff. A small mask file covering the status-bar
+rectangle (~0,787 – 1280,800) would exclude the live
+counters from the cross-env comparison. Standard practice
+in visual regression testing for runtime-dependent UI
+elements. Mask is per-baseline metadata committed alongside
+the baseline (preserves R12 + R14 contract everywhere
+else).
+
+**Option B — pause/reset live counters during capture**:
+Add a new binary flag `--capture-quiesce-status-bar` (or
+similar) that zeros out the runtime counters before the
+screenshot is taken. Modifies production binary; larger
+blast radius than a mask file. Production users would
+still see the live counters in normal use.
+
+**Option C — accept the cluster-gate failures with caveat**:
+Document that the status-bar region is inherently runtime-
+dependent and accept the 7/12 cluster failures for M16
+close. Weakens R12's cluster discriminator; not recommended
+on principle (R12's whole point is empirical determinism,
+not "deterministic except for status bar").
+
+**Recommendation**: Option A (mask). Per-baseline metadata
++ no production-code change + standard pattern. M16 spec
+contemplates masks (`compare_with_contract(mask=...)`
+parameter exists and is tested at S3).
+
+S7 sequencing under Option A:
+1. Author per-baseline mask files at
+   `tests/visual/baselines/<state>.mask.json` covering the
+   status-bar rectangle for the 7 affected states.
+2. S7 baseline migration commits PNG + env.json + mask.json
+   triples for those states (PNG + env.json only for the 5
+   unaffected).
+3. Re-verify cross-env diff with mask applied;
+   expect 12 / 12 PASS combined verdict.
+
+S7 sequencing under Option C (NOT RECOMMENDED):
+1. Spec amendment to relax the cluster gate or exempt the
+   status-bar region from the cluster discriminator.
+2. Baseline migration as-is.
+
+### 10.7 Stop / await Phase 4 review
+
+Per the S6.5 authorisation prompt:
+
+> 5. Honest measurement: If states 12 + 13 still ≥ 1% after
+>    sort fix, do NOT proceed. Forensic: additional non-
+>    determinism source. Report.
+
+States 12 + 13 are no longer ≥ 1 %; they are 0.254 % under
+the percent gate. **However**, the combined verdict still
+shows FAIL (cluster gate) due to a NEW non-determinism
+source (status-bar live counters). The operator's
+"do NOT proceed" rule was structured around the percent
+gate; this report surfaces the cluster gate amendment
+boundary so the operator can decide explicitly.
+
+This document is the surfacing artefact. Awaiting Phase 4
+review covering:
+
+1. ADR-014 quality + frozen-surface analysis + caller audit
+2. ADR-014 outcome on states 12 + 13 (signal-tree
+   determinism achieved; percent gate satisfied at 0.254 %)
+3. New finding: status-bar live-counter drift on 7 / 12
+   states
+4. Option A / B / C decision for the new finding
+5. Final aggregate verdict for M16 close gate (percent-only
+   or combined; decision depends on Option choice)
+
+---
+
+## 11. Cross-references
 
 - S6 capture infrastructure: `tests/visual/scripts/capture_m16_s6.py`
 - S6 CI workflow extension: `.github/workflows/ci.yml` step
@@ -453,3 +687,14 @@ byte-identical-deterministic post the signal-tree sort fix
 - V0.3 charter R12 (baseline regression discipline): per V0.3
   manifesto §5
 - M16-spec §2.1 #5 (cross-environment determinism close gate)
+- **S6.5 amendment**:
+  - ADR-014 (`docs/architecture/decisions/ADR-014-signal-buffer-registry-deterministic-order.md`)
+  - Sort fix commit: `a500c70`
+  - Post-fix CI run: `25706179871` (release job 75476669039)
+  - Post-fix CI artifact: `visual-screenshots-release`,
+    path `m16-s6/`
+  - New finding diff images:
+    `tests/screenshots/m16-s6/04-conn-udp-connected.diff.png`,
+    `30-menu-file-open.diff.png`,
+    `02-conn-udp-idle.diff.png` (illustrative; identical pattern
+    on all 7 affected states)
