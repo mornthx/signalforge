@@ -577,8 +577,7 @@ Continue the pattern in M17.
 
 ## 10. PR + merge state
 
-- **PR**: opened at S8 close; placeholder `#PR_NUMBER`
-  pending `gh pr create`
+- **PR**: [#30](https://github.com/mornthx/signalforge/pull/30) — opened 2026-05-12 at S8 close
 - **Title**: `M16 — V0.3 keystone — visual identity ownership`
 - **Body**: covers V0.3 keystone delivery + 12 / 12 M16
   close gate + 9 mask states + ADR-014 + R10 – R15
