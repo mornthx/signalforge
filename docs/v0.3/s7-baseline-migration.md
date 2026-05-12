@@ -127,36 +127,48 @@ test_states_*), same parametrization (12 V0.2 state names
 + launch_args + timings). The migration is semantically
 "replace the comparison algorithm; everything else stays."
 
-### 2.5 Per-state migration outcome
+### 2.5 Per-state migration outcome + R8 acceptance log
 
 Same ctest target names as V0.2; same parametrization;
 diff numbers under M16 `compare_with_contract`
 (`PIXEL_THRESHOLD = 4`, `CLUSTER_THRESHOLD = 200 px`,
 `PERCENT_THRESHOLD = 1.0 %`, masks auto-discovered,
-sidecars required):
+sidecars required). Mask column reflects post-S7-follow-up
+(`f8e3403`) coverage: 9 of 12 baselines masked.
 
-| Test | State | Result | Mask? | Note |
-|---|---|---|---|---|
-| `test_empty_launch_matches_baseline` | 00-empty-launch | PASS | no | 0.000 % (sha256 ≡) |
-| `test_connected_state_matches_baseline` | 04-conn-udp-connected | PASS | yes (auto-discovered) | masked |
-| `test_chart_with_signal_matches_baseline` | 05-conn-udp-with-signal | PASS | n/a | baseline-absent (NON-FIDELITY V0.2 R7) |
-| `test_baseline_02_conn_udp_idle` | 02-conn-udp-idle | PASS | yes | masked |
-| `test_baseline_12_multi_2_drivers` | 12-multi-2-drivers | PASS | yes | masked; signal-tree alphabetical per ADR-014 |
-| `test_baseline_13_multi_5_drivers` | 13-multi-5-drivers | PASS | yes | masked; signal-tree alphabetical per ADR-014; V0.2 PER_STATE_TOLERANCE hack removed |
-| `test_baseline_24_dialog_add_serial` | 24-dialog-add-serial | PASS | no | 0.016 % cluster 160 (within both gates; modal occludes status bar) |
-| `test_baseline_25_dialog_add_udp` | 25-dialog-add-udp | PASS | no | sha256 ≡ |
-| `test_baseline_26_dialog_edit` | 26-dialog-edit | PASS | no | sha256 ≡ |
-| `test_baseline_30_menu_file_open` | 30-menu-file-open | PASS | yes | masked |
-| `test_baseline_31_menu_connections_open` | 31-menu-connections-open | PASS | yes | masked |
-| `test_baseline_32_menu_session_open` | 32-menu-session-open | PASS | no | sha256 ≡ (menu occludes status bar) |
-| `test_baseline_33_status_buffer_normal` | 33-status-buffer-normal | PASS | yes | masked |
+| Test | State | Result | Mask? | Note | R8 acceptance |
+|---|---|---|---|---|---|
+| `test_empty_launch_matches_baseline` | 00-empty-launch | PASS | yes (added at S7 follow-up `f8e3403` for ASan-vs-release; intra-host sha256 ≡) | 0.000 % intra-host; 0.000 % masked under ASan | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_02_conn_udp_idle` | 02-conn-udp-idle | PASS | yes (S6.6) | masked | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_connected_state_matches_baseline` | 04-conn-udp-connected | PASS | yes (S6.6, auto-discovered) | masked; 0.002 % residual splitter handle sub-cluster | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_chart_with_signal_matches_baseline` | 05-conn-udp-with-signal | PASS | n/a | baseline-absent (NON-FIDELITY V0.2 R7; chart line not rasterised under software-RHI per ADR-010) | **No M16 baseline — accept-baseline.sh promotion not yet performed; deferred per V0.2 R7 audit** |
+| `test_baseline_12_multi_2_drivers` | 12-multi-2-drivers | PASS | yes (S6.6) | masked; signal-tree alphabetical per ADR-014 | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_13_multi_5_drivers` | 13-multi-5-drivers | PASS | yes (S6.6) | masked; signal-tree alphabetical per ADR-014; V0.2 PER_STATE_TOLERANCE hack removed | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_24_dialog_add_serial` | 24-dialog-add-serial | PASS | no | 0.016 % cluster 160 (within both gates; modal occludes status bar) | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_25_dialog_add_udp` | 25-dialog-add-udp | PASS | no | sha256 ≡ (modal occludes status bar) | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_26_dialog_edit` | 26-dialog-edit | PASS | no | sha256 ≡ (modal occludes status bar) | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_30_menu_file_open` | 30-menu-file-open | PASS | yes (S6.6) | masked | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_31_menu_connections_open` | 31-menu-connections-open | PASS | yes (S6.6) | masked | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_32_menu_session_open` | 32-menu-session-open | PASS | yes (added at S7 follow-up `f8e3403` for ASan-vs-release; intra-host sha256 ≡) | 0.000 % intra-host; 0.000 % masked under ASan | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
+| `test_baseline_33_status_buffer_normal` | 33-status-buffer-normal | PASS | yes (S6.6) | masked | **Accepted by operator@2026-05-12 per S7 Phase 4 review** |
 
-Local intra-host result: 13/13 baseline-comparison tests
-PASS (the 12 M16 baselines + 1 baseline-absent state 05).
-CI cross-host result will be verified by the post-S7 CI
-run; baseline parity demonstrated at S6.6 (operator-local
-vs CI Azure runner under ADR-014 binary), so local PASS
-is strong evidence CI will also PASS.
+R8 discipline: 12 explicit per-state acceptance stamps
+(one per baseline that has an M16 baseline at
+`tests/visual/baselines/<state>.png`). State 05
+(`05-conn-udp-with-signal`) has no M16 baseline — its
+test passes under the baseline-absent path of
+`compare_with_contract`; no R8 acceptance is recorded
+because there is no baseline artefact to accept. M16
+discipline preserves V0.2 R7 audit's NON-FIDELITY
+designation for state 05 (chart line not rasterised
+under software RHI per ADR-010); a hardware-RHI capture
+track is V0.4+ scope.
+
+CI cross-host operational confirmation: CI run
+`25721457177` all 3 jobs green (debug ✓, release ✓,
+debug-asan ✓). This is the M16 close gate empirically
+**and operationally** validated end-to-end in ctest
+across the full preset matrix.
 
 ---
 
