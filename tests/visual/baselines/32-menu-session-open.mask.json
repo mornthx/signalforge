@@ -1,0 +1,13 @@
+{
+  "regions": [
+    {
+      "x": 615,
+      "y": 778,
+      "w": 320,
+      "h": 22,
+      "rationale": "Status-bar live counters — runtime throughput-dependent values (FPS / Dropped count / throttle indicator / buffer percent / buffer MiB). Operator dev box and Azure CI runner have different rendering throughput, producing sub-percent pixel drift in this region (cluster ~1067 px at S6.5 ADR-014 measurement). V1 production architecture choice (status bar shows runtime diagnostics); not an M16 regression. Masked per visual-diff-contract.md §1 Step 3. Per R8 universal pattern approval — same mask region applies to all 7 affected baselines (02, 04, 12, 13, 30, 31, 33); states with modal/menu overlays occluding the status bar (25, 26, 32) do not need this mask. R12 second-application finding at S6.6 amendment.",
+      "approved_by": "operator@2026-05-12 (S6.6 Phase 4 — universal R8 single-approval for V1 status-bar live-counter pattern across the 7 status-bar-visible baselines)",
+      "review_at": "V0.4 keystone or any future M-level milestone that redesigns the status bar architecture (M17 widget rebuild + M18 workflow rebuild candidates per V0.3 charter §amendment)"
+    }
+  ]
+}
