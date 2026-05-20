@@ -3,9 +3,12 @@
 
 #include "connection/connection.hpp"
 
+#include <QColor>
 #include <QStringList>
 #include <QWidget>
 
+class QFrame;
+class QLabel;
 class QListWidget;
 class QListWidgetItem;
 class QPushButton;
@@ -24,6 +27,12 @@ class ConnectionManager;
 /// does. The widget emits `editRequested` / `addRequested` so
 /// the caller (typically `MainWindow`) can pop a
 /// `ConnectionDialog` and feed the result back to the manager.
+///
+/// M17 S2 — adds a `QFrame#panelHeader` title row above the list
+/// (consumes the M16 `tokens.qss` `QFrame#panelHeader` rule) and
+/// renders each row's text colour in the state-appropriate token
+/// (`tokens::light::status*`). See
+/// `docs/v0.3/widget-styling-guide.md` §4 and §6.2.
 class ConnectionListWidget : public QWidget {
     Q_OBJECT
     Q_DISABLE_COPY_MOVE(ConnectionListWidget)
@@ -40,6 +49,17 @@ public:
     [[nodiscard]] QListWidget* listWidget() const noexcept {
         return list_;
     }
+
+    /// Test hook: the panel-header `QFrame`. M17 S2 — asserts on
+    /// `objectName() == "panelHeader"`.
+    [[nodiscard]] QFrame* panelHeader() const noexcept {
+        return header_;
+    }
+
+    /// M17 S2 — map a `Connection::State` to the corresponding
+    /// `tokens::light::status*()` QColor. Public for test parity
+    /// against `generated_style_tokens.hpp`.
+    [[nodiscard]] static QColor colorForState(Connection::State s);
 
 signals:
     /// Emitted when the user clicks "Add" on the toolbar.
@@ -62,11 +82,14 @@ private slots:
 private:
     void rebuild();
     void updateRow(const QString& id);
+    void applyRowColor(QListWidgetItem* item, Connection::State state);
     [[nodiscard]] QListWidgetItem* findItem(const QString& id) const;
     static QString stateLabel(Connection::State s);
     static QString driverTypeLabel(DriverType t);
 
     ConnectionManager* manager_ = nullptr;
+    QFrame* header_ = nullptr;
+    QLabel* headerLabel_ = nullptr;
     QListWidget* list_ = nullptr;
     QPushButton* addBtn_ = nullptr;
     QPushButton* editBtn_ = nullptr;

@@ -2,9 +2,12 @@
 
 #include "connection/connection_list_widget.hpp"
 
+#include "app/generated_style_tokens.hpp"
 #include "connection/connection_manager.hpp"
 
+#include <QFrame>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPushButton>
@@ -25,6 +28,20 @@ QListWidgetItem* makeItem(const QString& id, const QString& label) {
 ConnectionListWidget::ConnectionListWidget(ConnectionManager* manager, QWidget* parent)
     : QWidget(parent), manager_(manager) {
     auto* root = new QVBoxLayout(this);
+
+    // M17 S2 — panel header. The QFrame#panelHeader QSS rule in
+    // tokens.qss (M16 S2) supplies the background + border-bottom
+    // styling automatically.
+    header_ = new QFrame(this);
+    header_->setObjectName(QStringLiteral("panelHeader"));
+    auto* headerLayout = new QHBoxLayout(header_);
+    headerLayout->setContentsMargins(8, 4, 8, 4);
+    headerLabel_ = new QLabel(tr("Connections"), header_);
+    headerLabel_->setProperty("class", QLatin1String("heading"));
+    headerLayout->addWidget(headerLabel_);
+    headerLayout->addStretch();
+    root->addWidget(header_);
+
     list_ = new QListWidget(this);
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     root->addWidget(list_);
@@ -61,6 +78,30 @@ ConnectionListWidget::ConnectionListWidget(ConnectionManager* manager, QWidget* 
 
 ConnectionListWidget::~ConnectionListWidget() = default;
 
+QColor ConnectionListWidget::colorForState(Connection::State s) {
+    using namespace signalforge::tokens::light;
+    switch (s) {
+    case Connection::State::Idle:
+        return statusIdle();
+    case Connection::State::Connecting:
+        return statusConnecting();
+    case Connection::State::Connected:
+        return statusConnected();
+    case Connection::State::Disconnecting:
+        return statusDisconnecting();
+    case Connection::State::Error:
+        return statusError();
+    }
+    return statusIdle();
+}
+
+void ConnectionListWidget::applyRowColor(QListWidgetItem* item, Connection::State state) {
+    if (item == nullptr) {
+        return;
+    }
+    item->setForeground(QBrush(colorForState(state)));
+}
+
 QString ConnectionListWidget::currentId() const {
     auto* item = list_->currentItem();
     if (!item) {
@@ -83,7 +124,9 @@ void ConnectionListWidget::rebuild() {
                                   .arg(c->config().displayName.isEmpty() ? id : c->config().displayName)
                                   .arg(driverTypeLabel(c->config().driverType))
                                   .arg(stateLabel(c->state()));
-        list_->addItem(makeItem(id, label));
+        auto* item = makeItem(id, label);
+        applyRowColor(item, c->state());
+        list_->addItem(item);
     }
 }
 
@@ -100,6 +143,7 @@ void ConnectionListWidget::updateRow(const QString& id) {
                       .arg(c->config().displayName.isEmpty() ? id : c->config().displayName)
                       .arg(driverTypeLabel(c->config().driverType))
                       .arg(stateLabel(c->state())));
+    applyRowColor(item, c->state());
 }
 
 QListWidgetItem* ConnectionListWidget::findItem(const QString& id) const {
@@ -153,7 +197,9 @@ void ConnectionListWidget::onConnectionAdded(const QString& id) {
                               .arg(c->config().displayName.isEmpty() ? id : c->config().displayName)
                               .arg(driverTypeLabel(c->config().driverType))
                               .arg(stateLabel(c->state()));
-    list_->addItem(makeItem(id, label));
+    auto* item = makeItem(id, label);
+    applyRowColor(item, c->state());
+    list_->addItem(item);
 }
 
 void ConnectionListWidget::onConnectionRemoved(const QString& id) {

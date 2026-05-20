@@ -70,35 +70,27 @@ preference for B; if so, flip the precedence in S1 and re-capture
 
 ## C2 — `connection_list_widget.cpp` token mirror is duplication
 
-**Status**: open (carry-forward as known tech debt).
+**Status**: resolved at S2 (2026-05-21).
 **Surfaced at**: S0 (2026-05-20).
 
-Per spec §6.2 Option B, the per-row state colour is set via
-`Qt::ForegroundRole` directly from a `QColor`. The colour values are
-mirrored from `tokens.json` `palette.light.status.*` in C++ code in
-`connection_list_widget.cpp`. This mirror is **not** automatically
-re-generated when `tokens.json` changes.
+**Original concern**: Per spec §6.2 Option B, the per-row state colour
+is set via `Qt::ForegroundRole` directly from a `QColor`. At
+spec-drafting time I assumed the colour values would be mirrored from
+`tokens.json` `palette.light.status.*` in C++ code in
+`connection_list_widget.cpp`, creating drift risk.
 
-**Mitigation**: DEBUG-only one-shot runtime assertion at
-`ConnectionListWidget` construction:
+**Resolution at S2**: M16's `src/app/generated_style_tokens.hpp`
+already exposes per-status QColor accessors
+(`tokens::light::statusConnected()`, `statusError()`, etc.) generated
+from `tokens.json`. The header is `#include`-only — no link
+dependency on `signalforge_app`. `ConnectionListWidget::colorForState`
+consumes the generated accessors directly, so the row colour and the
+QSS class colour share a single source of truth. No mirror, no
+DEBUG assertion needed.
 
-```cpp
-#ifndef NDEBUG
-Q_ASSERT(QString::fromLatin1(tokens::light::kStatusConnectedHex)
-         == kMirrorStatusConnectedHex);
-#endif
-```
-
-This makes drift loud at test time without runtime cost in Release.
-
-**Long-term**: M18 should either (a) extend `generate_style_assets.py`
-to emit per-state QColor constants directly into a generated header
-(eliminating the C++ mirror), or (b) switch ConnectionListWidget to
-`QTreeWidget` + `setItemWidget` so per-row labels are real `QLabel`
-widgets and consume QSS class normally.
-
-**Resolution**: M17 ships the mirror + DEBUG assertion. M18 picks
-the long-term direction.
+The S2 unit test `M17 S2: colorForState returns token-consistent QColors per state`
+locks the binding in place: any token regeneration that changes a
+status hex without updating the test target will fail the assertion.
 
 ---
 
