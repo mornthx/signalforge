@@ -231,11 +231,16 @@ void MainWindow::buildChartUi() {
     connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
 
     fpsLabel_ = new QLabel(tr("FPS: -"));
+    fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
     droppedLabel_ = new QLabel(tr("Dropped: 0"));
+    droppedLabel_->setObjectName(QStringLiteral("droppedLabel"));
     throttledLabel_ = new QLabel;
+    throttledLabel_->setObjectName(QStringLiteral("throttledLabel"));
     // M14 F15: signal_buffer budget indicator (idle / 80% warn / FULL).
     bufferBudgetLabel_ = new QLabel;
+    bufferBudgetLabel_->setObjectName(QStringLiteral("bufferBudgetLabel"));
     bufferBudgetLabel_->setToolTip(tr("Signal buffer memory budget usage"));
+    statusBar()->setObjectName(QStringLiteral("mainStatusBar"));
     statusBar()->addPermanentWidget(fpsLabel_);
     statusBar()->addPermanentWidget(droppedLabel_);
     statusBar()->addPermanentWidget(throttledLabel_);
@@ -964,6 +969,7 @@ void MainWindow::buildSessionUi() {
     connect(recordAction_, &QAction::triggered, this, &MainWindow::onRecordToggle);
 
     recordingStatusLabel_ = new QLabel;
+    recordingStatusLabel_->setObjectName(QStringLiteral("recordingStatusLabel"));
     recordingStatusLabel_->setText(tr("Idle"));
     recordingStatusLabel_->setToolTip(tr("Session recording status"));
     statusBar()->addPermanentWidget(recordingStatusLabel_);
@@ -1123,6 +1129,7 @@ void MainWindow::buildReplayUi() {
 
     // Status-bar replay info.
     replayStatusLabel_ = new QLabel;
+    replayStatusLabel_->setObjectName(QStringLiteral("replayStatusLabel"));
     replayStatusLabel_->setText(tr(""));
     statusBar()->addPermanentWidget(replayStatusLabel_);
 

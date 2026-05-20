@@ -1,0 +1,13 @@
+{
+  "regions": [
+    {
+      "x": 615,
+      "y": 778,
+      "w": 320,
+      "h": 22,
+      "rationale": "Status-bar live counters — runtime throughput-dependent values (FPS / Dropped count / throttle indicator / buffer percent / buffer MiB). The development host and CI runners produce sub-percent pixel drift in this region (cluster ~1067 px observed under ASan timing at M17 S6 PR-#31 run 26176356451 debug-asan job). V1 production architecture choice (status bar shows runtime diagnostics); not an M17 regression — matches the universal mask pattern applied to the M16 baselines (02/04/12/13/30/31/33). Masked per visual-diff-contract.md §1 Step 3. Approved by R8 universal-pattern precedent (M16 S6.6 + S7 follow-up).",
+      "approved_by": "operator@2026-05-21 (M17 S6 follow-up — universal R8 single-approval for V1 status-bar live-counter pattern; mirrors the M16 S6.6 universal mask for the new M17 state 34)",
+      "review_at": "V0.4 keystone or any future M-level milestone that redesigns the status bar architecture (M18 workflow rebuild candidate)"
+    }
+  ]
+}

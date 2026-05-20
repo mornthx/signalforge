@@ -439,3 +439,159 @@ since that breaks accessibility.
   descendants) at CI time
 - **Generated style tokens header**:
   `src/app/generated_style_tokens.hpp`
+
+## 12. M17 lessons (lookback from the first widget-rebuild)
+
+This subsection is **append-only** at M17 close
+(`.claude/M17-done.md` S6). The §1 – §11 patterns held up under the
+first real widget rebuild; the items below record what wasn't
+obvious from §1 – §11 alone.
+
+### 12.1 Status-bar aggregate-state pattern (M17 S1)
+
+The §3 QSS-class pattern documents *per-widget* state — one
+connection's `Idle` / `Connected` / etc. But the status-bar
+`ConnectionStatusWidget` summarises **N** connections in one label.
+The "class" must reflect a single aggregate state derived from the
+per-connection states.
+
+Pattern: **precedence-ordered fold**, with the alarming state highest.
+For `ConnectionStatusWidget` (M17 S1):
+
+```
+1. any Error                                  → status-error
+2. any Connecting OR any Disconnecting        → status-connecting
+3. N ≥ 1 && all Connected                     → status-connected
+4. otherwise                                  → status-idle
+```
+
+The rationale (per M17-concerns C1): in a bring-up workbench, red
+should grab attention the moment something fails, even if 9 of 10
+items are healthy. The alternative (majority-Connected → green with a
+small error indicator) is appropriate for production fleet
+dashboards, not for a bring-up tool.
+
+When a future widget aggregates other state vocabularies
+(`mode-recording` across N recorders, `severity-error` across N
+diagnostics), use the same pattern: define precedence in code,
+document the rationale, exhaustively unit-test all ranks.
+
+### 12.2 Per-row colour without abandoning QListWidget (M17 S2)
+
+The §3 / §4 patterns assume widgets that support `class` / `objectName`
+dynamic properties on real `QLabel` instances. `QListWidget` rows do
+not — `QListWidgetItem` is not a `QObject` and cannot carry a
+`class` property.
+
+Two options (M17 spec §6.2):
+
+- **Option A**: switch to `QTreeWidget` with one column and
+  `setItemWidget()` per row (real `QLabel` per cell).
+- **Option B**: set `Qt::ForegroundRole` per row from a token QColor.
+
+M17 S2 chose Option B because:
+
+1. No layout change → smaller visual-diff impact during the M17
+   rebuild.
+2. No test surface change → existing tests in
+   `connection_widgets_test.cpp` continue to work.
+3. The C++ side consumes `generated_style_tokens.hpp` directly
+   (`tokens::light::statusError()` returns a `QColor`) — single
+   source of truth shared with the QSS-class colour values.
+
+The drawback: per-row colour bypasses the QSS class system, so a
+future theme switch (M20 dark mode) needs to flip both the
+`tokens.qss` selectors AND re-run the per-row colour-set path. M18 +
+M20 should evaluate Option A (switch to `QTreeWidget` with per-row
+real `QLabel`s) if dark-mode adoption proves the dual-path painful.
+
+Recorded as a known M17 → M20 tech-debt item; not a M17 regression.
+
+### 12.3 Deterministic tree population is two passes (M17 S3)
+
+`std::unordered_map` → `std::map` migration alone is **not enough**
+for `QTreeWidget` deterministic order. `QTreeWidget` stores
+top-level items in the order `new QTreeWidgetItem(tree)` is called,
+which depends on the order the data structure is iterated during the
+**first** pass that creates the group items.
+
+In M17 S3, the explicit fix:
+
+```cpp
+QStringList signalIds = registry_->signalIds();
+signalIds.sort();          // pass 1: deterministic input order
+for (const auto& signalId : signalIds) {
+    // ... populate groups and leaves ...
+}
+// pass 2: re-sort top-level items by label so QTreeWidget's
+// insertion-ordered storage doesn't override the deterministic
+// group order.
+if (impl_->tree->topLevelItemCount() > 1) {
+    QList<QTreeWidgetItem*> items;
+    while (impl_->tree->topLevelItemCount() > 0) {
+        items.push_back(impl_->tree->takeTopLevelItem(0));
+    }
+    std::sort(items.begin(), items.end(), ...);
+    for (auto* item : items) {
+        impl_->tree->addTopLevelItem(item);
+        item->setExpanded(true);
+    }
+}
+```
+
+The §9 anti-pattern table row 6 says "sort the result before display
+or use `std::map`". M17 S3 demonstrates both are needed in practice
+when the display widget itself is order-preserving (which
+`QTreeWidget` is).
+
+### 12.4 Outer-widget `objectName` belongs in the widget itself
+
+§4 documents `setObjectName` for layout-stable widget chrome. M17 S4
+extended this with a small refinement: **the outer widget should set
+its own objectName in its constructor**, not rely on the caller.
+
+```cpp
+ConnectionListWidget::ConnectionListWidget(...) {
+    setObjectName(QStringLiteral("connectionListPanel"));
+    // ...
+}
+```
+
+Why: a caller might forget. The widget itself knows what it is, and
+visual-test / AT-SPI tooling target by name. The caller can still
+override if they need a per-instance unique name (M18 could embed two
+ConnectionListWidgets — each instance can call `setObjectName` after
+construction).
+
+### 12.5 Visual-baseline impact of chrome additions is large but
+**linear in pixel-height**
+
+M17 added two ~28 px `QFrame#panelHeader` rows (one per dock). This
+shifted every M16 baseline that captured those docks by **exactly
+28 px vertically**, producing per-state diffs in the 1.3 % – 6.5 %
+range and max clusters of 12 000 – 16 000 px (the panelHeader's worth
+of horizontal pixels × the dock width).
+
+Lesson: a 28 px chrome row crosses the M16 close-gate cluster
+threshold (`< 200 px`) by ~80×. **Any future chrome addition that
+shifts dock contents will require R8 re-acceptance of all baselines
+that capture the affected dock.** This isn't a regression — it's the
+M16 contract working as designed (the visual-diff gate exists to
+catch unintended pixel changes, and a deliberate chrome shift is
+*intended*, so R8 acceptance is the right channel).
+
+For M18's planned dialog rebuild, R8 acceptance impact is smaller:
+dialog states (24/25/26 in M17) shift by less since the dialog itself
+covers most of the diff area. But menu states (30/31/32) shift more
+because the menu popup leaves dock chrome visible.
+
+### 12.6 What was NOT a problem at M17
+
+- **C2 (token mirror drift)**: did not materialise.
+  `generated_style_tokens.hpp` already exposes per-status QColor
+  accessors. Widgets consume those directly; no manual mirror needed.
+- **Class-property re-render**: the `setProperty + unpolish + polish
+  + update` ritual in §3 works correctly. No "polish lost" symptoms.
+- **`std::map<QString, ...>` performance**: the chart's
+  SignalSelector handles 60+ signals without measurable change.
+  Premature optimisation avoided.

@@ -4,6 +4,7 @@
 // Forces QT_QPA_PLATFORM=offscreen so the widgets construct
 // without a display.
 
+#include "app/generated_style_tokens.hpp"
 #include "connection/connection_list_widget.hpp"
 #include "connection/connection_manager.hpp"
 #include "connection/connection_status_widget.hpp"
@@ -11,6 +12,8 @@
 #include "pipeline/pipeline_manager.hpp"
 
 #include <QApplication>
+#include <QBrush>
+#include <QFrame>
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
@@ -165,4 +168,135 @@ TEST_CASE("S6: StatusWidget shows error count when any connection is errored", "
     REQUIRE(fx.manager().disconnectConnection(id));
     REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Idle));
     REQUIRE_FALSE(status.label()->text().contains(QStringLiteral("errors")));
+}
+
+// ── M17 S1 — aggregate-state QSS class assertions ────────────
+// Pattern per docs/v0.3/widget-styling-guide.md §8.2: assert the
+// `class` dynamic property; visual diff verifies the rendered colour.
+
+TEST_CASE("M17 S1: StatusWidget aggregate=Idle and class=status-idle on empty manager", "[connection][m17][status]") {
+    TestFixture fx;
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Idle);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-idle"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class=status-idle with Idle connections", "[connection][m17][status]") {
+    TestFixture fx;
+    (void)fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("idle1"),
+                         QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+
+    conn::ConnectionStatusWidget status(&fx.manager());
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Idle);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-idle"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class=status-connected when all connections connected", "[connection][m17][status]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(makeReplayConfig(
+        QStringLiteral("ok"), QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(fx.manager().connectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Connected));
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Connected);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-connected"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class=status-error when any connection errored "
+          "(precedence rank 1 over connected)",
+          "[connection][m17][status]") {
+    TestFixture fx;
+    const QString okId = fx.manager().addConnection(makeReplayConfig(
+        QStringLiteral("ok"), QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    const QString badId = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("bad"), QStringLiteral("/tmp/missing-file.sfreplay")));
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(fx.manager().connectConnection(okId));
+    REQUIRE(waitForState(*fx.manager().connection(okId), conn::Connection::State::Connected));
+    (void)fx.manager().connectConnection(badId);
+    REQUIRE(waitForState(*fx.manager().connection(badId), conn::Connection::State::Error));
+
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Error);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-error"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class returns to status-idle after disconnect", "[connection][m17][status]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("cycle"),
+                         QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(fx.manager().connectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Connected));
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-connected"));
+
+    REQUIRE(fx.manager().disconnectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Idle));
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Idle);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-idle"));
+}
+
+TEST_CASE("M17 S1: StatusWidget inner label objectName is stable for visual-test targeting",
+          "[connection][m17][status]") {
+    TestFixture fx;
+    conn::ConnectionStatusWidget status(&fx.manager());
+    REQUIRE(status.label()->objectName() == QStringLiteral("connectionStatusLabel"));
+}
+
+// ── M17 S2 — ConnectionListWidget panel-header + state-colored rows ──
+
+TEST_CASE("M17 S2: ListWidget panel header is present with objectName=panelHeader", "[connection][m17][list]") {
+    TestFixture fx;
+    conn::ConnectionListWidget widget(&fx.manager());
+    REQUIRE(widget.panelHeader() != nullptr);
+    REQUIRE(widget.panelHeader()->objectName() == QStringLiteral("panelHeader"));
+}
+
+TEST_CASE("M17 S2: colorForState returns token-consistent QColors per state", "[connection][m17][list]") {
+    using namespace signalforge::tokens::light;
+    REQUIRE(conn::ConnectionListWidget::colorForState(conn::Connection::State::Idle) == statusIdle());
+    REQUIRE(conn::ConnectionListWidget::colorForState(conn::Connection::State::Connecting) == statusConnecting());
+    REQUIRE(conn::ConnectionListWidget::colorForState(conn::Connection::State::Connected) == statusConnected());
+    REQUIRE(conn::ConnectionListWidget::colorForState(conn::Connection::State::Disconnecting) == statusDisconnecting());
+    REQUIRE(conn::ConnectionListWidget::colorForState(conn::Connection::State::Error) == statusError());
+}
+
+TEST_CASE("M17 S2: ListWidget row foreground colour matches state (idle → connected)", "[connection][m17][list]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("colored"),
+                         QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    conn::ConnectionListWidget widget(&fx.manager());
+    REQUIRE(widget.listWidget()->count() == 1);
+
+    auto idleColor = widget.listWidget()->item(0)->foreground().color();
+    REQUIRE(idleColor == signalforge::tokens::light::statusIdle());
+
+    REQUIRE(fx.manager().connectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Connected));
+    auto connectedColor = widget.listWidget()->item(0)->foreground().color();
+    REQUIRE(connectedColor == signalforge::tokens::light::statusConnected());
+}
+
+TEST_CASE("M17 S2: ListWidget row foreground colour switches to status-error on error", "[connection][m17][list]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("badrow"), QStringLiteral("/tmp/missing-file.sfreplay")));
+    conn::ConnectionListWidget widget(&fx.manager());
+
+    (void)fx.manager().connectConnection(id);
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Error));
+    auto errorColor = widget.listWidget()->item(0)->foreground().color();
+    REQUIRE(errorColor == signalforge::tokens::light::statusError());
+}
+
+TEST_CASE("M17 S4: ConnectionListWidget outer objectName is connectionListPanel", "[connection][m17][list]") {
+    TestFixture fx;
+    conn::ConnectionListWidget widget(&fx.manager());
+    REQUIRE(widget.objectName() == QStringLiteral("connectionListPanel"));
 }
