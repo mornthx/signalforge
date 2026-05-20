@@ -166,3 +166,81 @@ TEST_CASE("S6: StatusWidget shows error count when any connection is errored", "
     REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Idle));
     REQUIRE_FALSE(status.label()->text().contains(QStringLiteral("errors")));
 }
+
+// ── M17 S1 — aggregate-state QSS class assertions ────────────
+// Pattern per docs/v0.3/widget-styling-guide.md §8.2: assert the
+// `class` dynamic property; visual diff verifies the rendered colour.
+
+TEST_CASE("M17 S1: StatusWidget aggregate=Idle and class=status-idle on empty manager", "[connection][m17][status]") {
+    TestFixture fx;
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Idle);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-idle"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class=status-idle with Idle connections", "[connection][m17][status]") {
+    TestFixture fx;
+    (void)fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("idle1"),
+                         QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+
+    conn::ConnectionStatusWidget status(&fx.manager());
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Idle);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-idle"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class=status-connected when all connections connected", "[connection][m17][status]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(makeReplayConfig(
+        QStringLiteral("ok"), QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(fx.manager().connectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Connected));
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Connected);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-connected"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class=status-error when any connection errored "
+          "(precedence rank 1 over connected)",
+          "[connection][m17][status]") {
+    TestFixture fx;
+    const QString okId = fx.manager().addConnection(makeReplayConfig(
+        QStringLiteral("ok"), QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    const QString badId = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("bad"), QStringLiteral("/tmp/missing-file.sfreplay")));
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(fx.manager().connectConnection(okId));
+    REQUIRE(waitForState(*fx.manager().connection(okId), conn::Connection::State::Connected));
+    (void)fx.manager().connectConnection(badId);
+    REQUIRE(waitForState(*fx.manager().connection(badId), conn::Connection::State::Error));
+
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Error);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-error"));
+}
+
+TEST_CASE("M17 S1: StatusWidget class returns to status-idle after disconnect", "[connection][m17][status]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("cycle"),
+                         QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    REQUIRE(fx.manager().connectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Connected));
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-connected"));
+
+    REQUIRE(fx.manager().disconnectConnection(id));
+    REQUIRE(waitForState(*fx.manager().connection(id), conn::Connection::State::Idle));
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Idle);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-idle"));
+}
+
+TEST_CASE("M17 S1: StatusWidget inner label objectName is stable for visual-test targeting",
+          "[connection][m17][status]") {
+    TestFixture fx;
+    conn::ConnectionStatusWidget status(&fx.manager());
+    REQUIRE(status.label()->objectName() == QStringLiteral("connectionStatusLabel"));
+}

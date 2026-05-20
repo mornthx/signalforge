@@ -6,8 +6,8 @@ Running progress log for M17 execution. Updated after each subtask.
 
 | Subtask | Status | Commit | Build | ctest | clang-format | Notes |
 |---|---|---|---|---|---|---|
-| S0 (Bootstrap) | in_progress | pending | n/a (docs only) | n/a | n/a | spec + understanding + plan + concerns drafted |
-| S1 (StatusWidget class) | pending | — | — | — | — | — |
+| S0 (Bootstrap) | completed | 8aa7225 | n/a (docs only) | n/a | n/a | spec + understanding + plan + concerns drafted; pushed milestone/M17 to origin |
+| S1 (StatusWidget class) | completed | pending | debug ✓ + release ✓ | 621/621 + 6/6 M17 S1 | ✓ | aggregate-state enum + class property; classes status-idle/connecting/connected/error per precedence rule §6.1 |
 | S2 (ListWidget rows + header) | pending | — | — | — | — | — |
 | S3 (SignalSelector header + count + order) | pending | — | — | — | — | — |
 | S4 (MainWindow objectName audit) | pending | — | — | — | — | — |
@@ -34,6 +34,28 @@ Next: commit + push branch to origin; begin S1 (StatusWidget).
 
 See `.claude/M17-concerns.md`.
 
+## S1 progress log
+
+2026-05-20 — ConnectionStatusWidget aggregate state + QSS class.
+
+- Added `AggregateState` enum (Idle / Connecting / Connected / Error) to
+  `connection_status_widget.hpp` + `aggregateState()` test accessor.
+- Implemented aggregate computation in `refresh()` honouring spec §6.1
+  precedence (Error > Connecting > Connected > Idle).
+- Wired `setProperty("class", …)` + `style()->unpolish/polish/update`
+  so the M16 `tokens.qss` `QLabel[class="status-*"]` rules activate.
+- Added `objectName="connectionStatusLabel"` for visual-test targeting.
+- Added 6 unit tests (one per aggregate state + objectName assertion);
+  all pass in debug and release.
+- Full ctest suite: 621/621 green in debug, 6/6 M17 S1 green in
+  release.
+- clang-format clean (auto-formatted on commit).
+
+C1 status unchanged (precedence is CC-authored; awaits PR review).
+
 ## Build / CI history
 
-(Filled at S1+.)
+| Subtask | Debug build | Debug ctest | Release build | Release ctest | clang-format |
+|---|---|---|---|---|---|
+| S0 | n/a (docs only) | n/a | n/a | n/a | n/a |
+| S1 | ✓ | 621/621 ✓ | ✓ | 6/6 M17 S1 ✓ | ✓ |
