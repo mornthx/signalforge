@@ -12,7 +12,7 @@
 | Subtask count | 6 (S0 bootstrap → S6 closure) + 0 amendments + 0 follow-ups |
 | CI run on closure | pending push (this commit) |
 | Frozen-surface counter | **0 / 4** (all M17 changes are additive: new enum, new methods, new objectNames, new properties — no signature changes to frozen interfaces) |
-| PR | pending — opened at S6 close (see §10) |
+| PR | [#31](https://github.com/mornthx/signalforge/pull/31) — opened 2026-05-21 |
 
 ---
 
@@ -437,17 +437,20 @@ acceptance. CI confirmation pending at S6 push.
 
 ## 11. PR + merge
 
-- **PR**: pending — opened by S6 push (referenced after creation)
+- **PR**: [#31](https://github.com/mornthx/signalforge/pull/31) —
+  opened 2026-05-21 at S6 close
 - **Title**: `M17 — V0.3 widget rebuild — operator-facing UI/UX evolution`
 - **Body**: covers V0.3 keystone application + 12 R8 re-accepted +
   1 new baseline + 18 new unit tests + ADR-014 consumer-side closure
 - **Reviewer guidance**: M17-done.md §2 + §5 + §10
 
-- **Pre-merge CI**: pending — recorded once green
+- **Pre-merge CI**: run `26176372155` — pending green; watched via
+  `gh run watch` (background task `blna5ybcd`)
 
-- **Merge SHA**: pending — recorded after `gh pr merge`
+- **Merge SHA**: pending — recorded after `gh pr merge` once CI green
 
-- **Tag**: `v0.3.1-m17` per M17-plan.md tag-scheme note.
+- **Tag**: `v0.3.1-m17` per M17-plan.md tag-scheme note. Pushed after
+  merge.
 
 ---
 
