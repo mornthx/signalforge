@@ -8,8 +8,8 @@ Running progress log for M17 execution. Updated after each subtask.
 |---|---|---|---|---|---|---|
 | S0 (Bootstrap) | completed | 8aa7225 | n/a (docs only) | n/a | n/a | spec + understanding + plan + concerns drafted; pushed milestone/M17 to origin |
 | S1 (StatusWidget class) | completed | 0fbc6c0 | debug ✓ + release ✓ | 621/621 + 6/6 M17 S1 | ✓ | aggregate-state enum + class property; classes status-idle/connecting/connected/error per precedence rule §6.1 |
-| S2 (ListWidget rows + header) | completed | pending | debug ✓ + release ✓ | 625/625 + 4/4 M17 S2 | ✓ | QFrame#panelHeader title row + per-row QColor from tokens::light status accessors. C2 resolved (no mirror needed; direct consumer) |
-| S3 (SignalSelector header + count + order) | pending | — | — | — | — | — |
+| S2 (ListWidget rows + header) | completed | 70b9c06 | debug ✓ + release ✓ | 625/625 + 4/4 M17 S2 | ✓ | QFrame#panelHeader title row + per-row QColor from tokens::light status accessors. C2 resolved (no mirror needed; direct consumer) |
+| S3 (SignalSelector header + count + order) | completed | pending | debug ✓ + release ✓ | 627/627 + 6/6 M17 S3 | ✓ | panelHeader "Signals" + filter-count label (class="caption") + std::map storage + sorted top-level groups (ADR-014 consumer closure) |
 | S4 (MainWindow objectName audit) | pending | — | — | — | — | — |
 | S5 (Visual baselines) | pending | — | — | — | — | — |
 | S6 (Closure) | pending | — | — | — | — | — |
@@ -76,6 +76,37 @@ C1 status unchanged (precedence is CC-authored; awaits PR review).
 - Full ctest suite: 625/625 green in debug.
 - clang-format clean (auto-formatted on commit).
 
+## S3 progress log
+
+2026-05-21 — SignalSelector panel header + count + deterministic order.
+
+- Added `QFrame* header_` with `objectName="panelHeader"` and a "Signals"
+  title label (`class="heading"`) at the top of the layout.
+- Hidden the `QTreeWidget::header()` since the panelHeader now provides
+  the title.
+- Added `QLabel* countLabel_` (`objectName="signalSelectorCount"`,
+  `class="caption"`) below the filter line edit. Text format:
+    - `No signals available` when total == 0
+    - `N signals` when filter is empty
+    - `N / M signals` when filter is non-empty
+- Switched `Impl::groups` and `Impl::leaves` from `std::unordered_map`
+  to `std::map<QString, ...>` — deterministic alphabetical iteration
+  closes the ADR-014 consumer-side anti-pattern (widget-styling-guide
+  §9 row 6) in SignalSelector.
+- Added explicit sort of `signalIds()` before tree population +
+  post-population re-sort of top-level items so QTreeWidget's
+  insertion-ordered storage doesn't override the deterministic group
+  order.
+- Added 6 new unit tests covering:
+    - panel header objectName + label text + class property
+    - count label class + empty-state text
+    - count label transitions (unfiltered → filtered → unfiltered)
+    - reverse-alphabetical insertion → alphabetical group order
+    - non-alphabetical leaf insertion → alphabetical leaf order
+    - tree header hidden assertion
+- Full ctest suite: 627/627 green in debug.
+- clang-format clean (auto-formatted on commit).
+
 ## Build / CI history
 
 | Subtask | Debug build | Debug ctest | Release build | Release ctest | clang-format |
@@ -83,3 +114,4 @@ C1 status unchanged (precedence is CC-authored; awaits PR review).
 | S0 | n/a (docs only) | n/a | n/a | n/a | n/a |
 | S1 | ✓ | 621/621 ✓ | ✓ | 6/6 M17 S1 ✓ | ✓ |
 | S2 | ✓ | 625/625 ✓ | ✓ | 10/10 M17 S1+S2 ✓ | ✓ |
+| S3 | ✓ | 627/627 ✓ | ✓ | 16/16 M17 S1+S2+S3 ✓ | ✓ |
