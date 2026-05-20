@@ -177,4 +177,52 @@ showing M17's green status label); only the genuine new state
 
 ---
 
-(Concerns C4+ added as M17 execution surfaces them.)
+## C4 — New baseline 34-conn-replay-error lacks universal status-bar mask
+
+**Status**: resolved at S6 follow-up (2026-05-21).
+**Surfaced at**: S6 CI run `26176356451` (push trigger on commit
+`798e705`, debug-asan job).
+
+**Symptom**: CI debug-asan job failed at
+`M15-visual-test_states_production_fidelity` with:
+
+```
+FAIL test_baseline_34_conn_replay_error: visual regression:
+  state='34-conn-replay-error' diff=0.253% max_cluster=1067px
+  note=diff=0.253% threshold=1.0% max_cluster=1067px threshold=200px
+```
+
+Diff percentage 0.253 % (well under 1 % gate) but max cluster 1 067 px
+exceeded the 200 px gate.
+
+**Root cause**: state `34-conn-replay-error` was a new M17 capture and
+did not carry the universal status-bar live-counter mask that all 12
+M16 baselines have (per `docs/v0.3/s6-cross-env-verification.md` §11,
+mask region `x=615, y=778, w=320, h=22` covering FPS / Dropped /
+throttled / buffer-budget labels which drift sub-percent cross-host /
+cross-runtime-config). Note the cluster size **1067 px** matches the
+M16 S6.5 ADR-014 measurement exactly — same physical pattern.
+
+The same commit's PR-trigger run (`26176372155`) passed because the
+debug-asan timing happened to land the live-counter values in
+positions whose cluster fit under 200 px; this is *flake*, not
+*fix*. The mask is the deterministic fix.
+
+**Why the local capture didn't see this**: development host runs
+without ASan, with stable rendering throughput. The live-counter
+labels render identically on consecutive captures and identically at
+the baseline-capture moment. Under ASan + CI timing, the counters
+drift, exposing the cluster.
+
+**Resolution**: added
+`tests/visual/baselines/34-conn-replay-error.mask.json` mirroring the
+M16 universal pattern (same rectangle, same rationale lineage, R8
+single-approval). Concerns C3 + C4 both close at this commit.
+
+**Lesson for M18 / widget-styling-guide §12.5 follow-up**: any new
+state that captures the status bar inherits the universal mask
+requirement. The mask should be authored alongside the baseline, not
+in response to a CI failure.
+
+(Concerns C5+ added as future M17 execution surfaces them; this
+milestone closes at C4.)
