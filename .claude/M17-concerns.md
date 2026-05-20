@@ -96,7 +96,7 @@ status hex without updating the test target will fail the assertion.
 
 ## C3 — Visual-baseline shift due to new panelHeader chrome
 
-**Status**: open (resolution at S5).
+**Status**: confirmed at S4 (2026-05-21); resolution at S5.
 **Surfaced at**: S0 (2026-05-20).
 
 Both SignalSelector (S3) and ConnectionListWidget (S2) gain a new
@@ -120,8 +120,26 @@ At S5 each affected baseline gets either:
 - Or, if the shift is < 1 % per the visual-diff contract, no
   re-acceptance needed.
 
-**Resolution**: Tabulated at S5 close with per-baseline status in
-`.claude/M17-done.md` §10.
+**S4 confirmation (2026-05-21)**: Running the visual ctest suite after
+S4 build, `00-empty-launch` reports:
+
+- diff = 3.135 % (gate: < 1 %)
+- max cluster = 15 906 px (gate: < 200 px)
+- 9 clusters across 31 885 differing pixels
+- masked region: 7 040 px (the universal status-bar mask is in effect
+  and not affected)
+- env_drift: [] (env contract clean)
+
+This is the SignalSelector + ConnectionListWidget panelHeader chrome
+shift exactly as predicted. The other baselines (02/04/12/13/24/25/26/30/31/32/33)
+have cached screenshots from M16 captures that survived the build, so
+their pytest cases pass without re-capturing — they will need fresh
+capture + R8 review at S5.
+
+**Resolution**: invalidate all cached screenshots, re-capture all 12
+M16 baselines + 2 new M17 baselines under the new build, R8-accept the
+chrome-shifted baselines, tabulated at S5 close with per-baseline
+status in `.claude/M17-done.md` §10.
 
 ---
 

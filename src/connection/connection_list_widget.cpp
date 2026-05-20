@@ -27,6 +27,9 @@ QListWidgetItem* makeItem(const QString& id, const QString& label) {
 
 ConnectionListWidget::ConnectionListWidget(ConnectionManager* manager, QWidget* parent)
     : QWidget(parent), manager_(manager) {
+    // M17 S4 — stable objectName for visual-test + AT-SPI tooling.
+    setObjectName(QStringLiteral("connectionListPanel"));
+
     auto* root = new QVBoxLayout(this);
 
     // M17 S2 — panel header. The QFrame#panelHeader QSS rule in

@@ -9,8 +9,8 @@ Running progress log for M17 execution. Updated after each subtask.
 | S0 (Bootstrap) | completed | 8aa7225 | n/a (docs only) | n/a | n/a | spec + understanding + plan + concerns drafted; pushed milestone/M17 to origin |
 | S1 (StatusWidget class) | completed | 0fbc6c0 | debug ✓ + release ✓ | 621/621 + 6/6 M17 S1 | ✓ | aggregate-state enum + class property; classes status-idle/connecting/connected/error per precedence rule §6.1 |
 | S2 (ListWidget rows + header) | completed | 70b9c06 | debug ✓ + release ✓ | 625/625 + 4/4 M17 S2 | ✓ | QFrame#panelHeader title row + per-row QColor from tokens::light status accessors. C2 resolved (no mirror needed; direct consumer) |
-| S3 (SignalSelector header + count + order) | completed | pending | debug ✓ + release ✓ | 627/627 + 6/6 M17 S3 | ✓ | panelHeader "Signals" + filter-count label (class="caption") + std::map storage + sorted top-level groups (ADR-014 consumer closure) |
-| S4 (MainWindow objectName audit) | pending | — | — | — | — | — |
+| S3 (SignalSelector header + count + order) | completed | c5a3e59 | debug ✓ + release ✓ | 627/627 + 6/6 M17 S3 | ✓ | panelHeader "Signals" + filter-count label (class="caption") + std::map storage + sorted top-level groups (ADR-014 consumer closure) |
+| S4 (MainWindow objectName audit) | completed | pending | debug ✓ + release ✓ | 18/18 M17 + 1 visual fail (expected per C3) | ✓ | objectNames on dock/status-bar surfaces; visual regression confirmed at 00-empty-launch (3.135% / 15906px cluster) per C3 — resolved at S5 |
 | S5 (Visual baselines) | pending | — | — | — | — | — |
 | S6 (Closure) | pending | — | — | — | — | — |
 
@@ -107,6 +107,31 @@ C1 status unchanged (precedence is CC-authored; awaits PR review).
 - Full ctest suite: 627/627 green in debug.
 - clang-format clean (auto-formatted on commit).
 
+## S4 progress log
+
+2026-05-21 — MainWindow objectName audit + outer-widget naming.
+
+- Set `objectName` on both `SignalSelector` (`signalSelectorPanel`) and
+  `ConnectionListWidget` (`connectionListPanel`) inside their respective
+  constructors so the outer widgets have stable identifiers regardless
+  of where they're embedded.
+- In `MainWindow::buildChartUi()` added objectNames to status-bar
+  labels: `fpsLabel`, `droppedLabel`, `throttledLabel`,
+  `bufferBudgetLabel`, plus `mainStatusBar` on `QStatusBar*` itself.
+- In `MainWindow::buildSessionUi()` and the replay-UI setup, added
+  `recordingStatusLabel` and `replayStatusLabel`.
+- Added 2 new unit tests asserting the outer-panel objectNames; both
+  pass in debug and release.
+- C3 confirmed: visual ctest `M15-visual-test_states_empty` fails after
+  the build with `00-empty-launch` diff 3.135 % / max cluster 15 906 px.
+  This is the SignalSelector + ConnectionListWidget panelHeader chrome
+  shift from S2/S3 making contact with a baseline that pre-dates the
+  chrome. All other visual tests still pass (their pytest harnesses
+  cache `tests/screenshots/<state>.png` and skip re-capture when the
+  file is present — those captures still reflect the pre-S2 build).
+  Full impact assessment + R8 acceptance handled at S5.
+- clang-format clean (auto-formatted on commit).
+
 ## Build / CI history
 
 | Subtask | Debug build | Debug ctest | Release build | Release ctest | clang-format |
@@ -115,3 +140,4 @@ C1 status unchanged (precedence is CC-authored; awaits PR review).
 | S1 | ✓ | 621/621 ✓ | ✓ | 6/6 M17 S1 ✓ | ✓ |
 | S2 | ✓ | 625/625 ✓ | ✓ | 10/10 M17 S1+S2 ✓ | ✓ |
 | S3 | ✓ | 627/627 ✓ | ✓ | 16/16 M17 S1+S2+S3 ✓ | ✓ |
+| S4 | ✓ | 1 visual fail (C3) + 18/18 M17 unit ✓ | ✓ | 18/18 M17 unit ✓ | ✓ |

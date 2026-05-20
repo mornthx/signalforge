@@ -294,3 +294,9 @@ TEST_CASE("M17 S2: ListWidget row foreground colour switches to status-error on 
     auto errorColor = widget.listWidget()->item(0)->foreground().color();
     REQUIRE(errorColor == signalforge::tokens::light::statusError());
 }
+
+TEST_CASE("M17 S4: ConnectionListWidget outer objectName is connectionListPanel", "[connection][m17][list]") {
+    TestFixture fx;
+    conn::ConnectionListWidget widget(&fx.manager());
+    REQUIRE(widget.objectName() == QStringLiteral("connectionListPanel"));
+}

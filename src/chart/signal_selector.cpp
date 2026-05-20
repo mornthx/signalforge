@@ -80,6 +80,9 @@ struct SignalSelector::Impl {
 SignalSelector::SignalSelector(signalforge::buffer::SignalBufferRegistry& registry, ChartManager& manager,
                                QWidget* parent)
     : QWidget(parent), registry_(&registry), manager_(&manager), impl_(std::make_unique<Impl>()) {
+    // M17 S4 — stable objectName for visual-test + AT-SPI tooling.
+    setObjectName(QStringLiteral("signalSelectorPanel"));
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);

@@ -280,6 +280,14 @@ TEST_CASE("M17 S3: tree header is hidden (panel header takes title role)", "[cha
     REQUIRE(tree->isHeaderHidden());
 }
 
+TEST_CASE("M17 S4: SignalSelector outer objectName is signalSelectorPanel", "[chart][m17][selector]") {
+    app();
+    bm6::SignalBufferRegistry registry;
+    ch8::ChartManager manager(registry);
+    ch8::SignalSelector selector(registry, manager);
+    REQUIRE(selector.objectName() == QStringLiteral("signalSelectorPanel"));
+}
+
 TEST_CASE("S6: refresh picks up registry changes", "[chart][s6][selector][refresh]") {
     app();
     bm6::SignalBufferRegistry registry;
