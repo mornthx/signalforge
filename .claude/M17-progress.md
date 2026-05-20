@@ -11,8 +11,8 @@ Running progress log for M17 execution. Updated after each subtask.
 | S2 (ListWidget rows + header) | completed | 70b9c06 | debug ✓ + release ✓ | 625/625 + 4/4 M17 S2 | ✓ | QFrame#panelHeader title row + per-row QColor from tokens::light status accessors. C2 resolved (no mirror needed; direct consumer) |
 | S3 (SignalSelector header + count + order) | completed | c5a3e59 | debug ✓ + release ✓ | 627/627 + 6/6 M17 S3 | ✓ | panelHeader "Signals" + filter-count label (class="caption") + std::map storage + sorted top-level groups (ADR-014 consumer closure) |
 | S4 (MainWindow objectName audit) | completed | eb9a059 | debug ✓ + release ✓ | 18/18 M17 + 1 visual fail (expected per C3) | ✓ | objectNames on dock/status-bar surfaces; visual regression confirmed at 00-empty-launch (3.135% / 15906px cluster) per C3 — resolved at S5 |
-| S5 (Visual baselines) | completed | pending | debug ✓ + release ✓ | 633/633 debug + 633/633 release ✓ | n/a (binary baselines) | All 12 M16 baselines R8-re-accepted; 1 new M17 baseline (34-conn-replay-error) for red status state. C3 resolved. |
-| S6 (Closure) | pending | — | — | — | — | — |
+| S5 (Visual baselines) | completed | a104296 | debug ✓ + release ✓ | 633/633 debug + 633/633 release ✓ | n/a (binary baselines) | All 12 M16 baselines R8-re-accepted; 1 new M17 baseline (34-conn-replay-error) for red status state. C3 resolved. |
+| S6 (Closure) | completed | pending | n/a (docs only) | n/a (no source changes) | n/a | M17-done.md + widget-styling-guide §12 + PR + tag |
 
 ## S0 progress log
 
@@ -170,3 +170,4 @@ C1 status unchanged (precedence is CC-authored; awaits PR review).
 | S3 | ✓ | 627/627 ✓ | ✓ | 16/16 M17 S1+S2+S3 ✓ | ✓ |
 | S4 | ✓ | 1 visual fail (C3) + 18/18 M17 unit ✓ | ✓ | 18/18 M17 unit ✓ | ✓ |
 | S5 | ✓ | 633/633 ✓ | ✓ | 633/633 ✓ | n/a (no source changes) |
+| S6 | n/a (docs only) | n/a | n/a | n/a | n/a |
