@@ -136,10 +136,44 @@ have cached screenshots from M16 captures that survived the build, so
 their pytest cases pass without re-capturing — they will need fresh
 capture + R8 review at S5.
 
-**Resolution**: invalidate all cached screenshots, re-capture all 12
-M16 baselines + 2 new M17 baselines under the new build, R8-accept the
-chrome-shifted baselines, tabulated at S5 close with per-baseline
-status in `.claude/M17-done.md` §10.
+**S5 resolution (2026-05-21)**: All 12 M16 baselines invalidated by
+clearing `tests/screenshots/*.png`, then full visual ctest captured
+fresh under the M17 build. Per-state pre-acceptance diff vs M16
+baseline:
+
+| State | Pre-accept diff | Max cluster | Verdict |
+|---|---:|---:|---|
+| 00-empty-launch | 3.135 % | 15 906 px | shifted (panelHeader chrome) |
+| 02-conn-udp-idle | 3.282 % | 15 905 px | shifted (panelHeader chrome + grey idle label) |
+| 04-conn-udp-connected | 4.180 % | 15 904 px | shifted (panelHeader chrome + green connected label) |
+| 12-multi-2-drivers | 5.272 % | 15 868 px | shifted (panelHeader chrome + green labels + per-row colours) |
+| 13-multi-5-drivers | 6.499 % | 15 870 px | shifted (panelHeader chrome + green labels + per-row colours) |
+| 24-dialog-add-serial | 1.297 % | 12 586 px | shifted (panelHeader visible behind modal) |
+| 25-dialog-add-udp | 1.297 % | 12 586 px | shifted (panelHeader visible behind modal) |
+| 26-dialog-edit | 1.470 % | 12 584 px | shifted (panelHeader visible behind modal) |
+| 30-menu-file-open | 3.135 % | 15 906 px | shifted (panelHeader visible behind menu popup) |
+| 31-menu-connections-open | 2.891 % | 13 422 px | shifted (panelHeader visible behind menu popup) |
+| 32-menu-session-open | 3.135 % | 15 906 px | shifted (panelHeader visible behind menu popup) |
+| 33-status-buffer-normal | 4.188 % | 15 904 px | shifted (panelHeader chrome + green labels) |
+
+All 12 baselines R8-accepted via `scripts/accept-baseline.sh <state> ""`.
+Acceptance promotes the new PNG + env.json (and any existing mask.json).
+
+Plus 1 new M17 baseline:
+
+| State | Coverage |
+|---|---|
+| 34-conn-replay-error | Replay-driver pointing at missing path → Error state → ConnectionStatusWidget renders class="status-error" red + ConnectionListWidget row foreground red |
+
+Total post-M17 baseline matrix: **13 baselines** (12 M16 + 1 new M17),
+all green under the visual-diff contract on debug + release presets.
+
+Scope reduction from spec §3.2: original plan called for 2 new M17
+baselines (`30-all-connected` + `31-with-errors`). The "all-connected"
+case is already captured by re-accepted `04-conn-udp-connected` (now
+showing M17's green status label); only the genuine new state
+(`34-conn-replay-error`) needed a fresh capture. Spec state numbers
+30/31 are already in use for menu states; M17's new state uses 34.
 
 ---
 

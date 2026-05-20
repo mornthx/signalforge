@@ -1,0 +1,31 @@
+schema_version: 1
+description: |
+  M17 S5 — error-state visual baseline fixture.
+
+  One Replay-driver connection pointing at a path that does not
+  exist on disk. After autoLoadTestFixture's connectAll() call,
+  the driver fails to open the file and transitions the
+  Connection to Error state.
+
+  The ConnectionStatusWidget (M17 S1) renders its inner QLabel
+  with class="status-error" (red); the ConnectionListWidget
+  (M17 S2) sets the row's Qt::ForegroundRole to the same red
+  token colour. This baseline locks the red-status rendering
+  cross-environment per the M16 visual-diff contract.
+
+  Path is under /tmp so it is never coincidentally present on
+  any host; the autoLoadTestFixture stream-load path is the
+  same as for m14_smoke.yaml so capture timing inherits the
+  M15 / M16 envelope.
+
+connections:
+  - id: m17-error-replay
+    displayName: "M17 error fixture"
+    driverType: replay
+    driverConfig:
+      sessionFilePath: "/tmp/m17-nonexistent-session.sfreplay"
+      loop: false
+      playbackSpeed: 1.0
+    decoderSchemaId: ""
+    autoConnectOnStartup: false
+    autoConnectCommands: []

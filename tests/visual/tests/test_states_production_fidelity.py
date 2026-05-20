@@ -132,6 +132,19 @@ SPECS: list[FidelitySpec] = [
             "udp:m14-smoke-udp/temperature",
         ],
     ),
+    # M17 S5 — new baseline. Replay driver pointing at a missing
+    # path transitions to Error state on connectAll(). The
+    # ConnectionStatusWidget label renders class="status-error"
+    # (red) and the ConnectionListWidget row foreground matches.
+    FidelitySpec(
+        name="34-conn-replay-error",
+        launch_args=[
+            "--auto-load-test-fixture",
+            "tests/integration/gui/fixtures/m17_replay_error.yaml",
+        ],
+        capture_after_ms=2500,
+        exit_after_ms=3500,
+    ),
 ]
 
 # M16 S7: per-state tolerance hack removed. V0.2 needed it because
