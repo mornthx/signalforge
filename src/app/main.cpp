@@ -146,6 +146,8 @@ int main(int argc, char** argv) {
     const QString autoBufferStatusArg = flagValue(argc, argv, "--auto-buffer-status");
     const QString autoChartStatusArg = flagValue(argc, argv, "--auto-chart-status");
     const QString autoConfigSaveStatusArg = flagValue(argc, argv, "--auto-config-save-status");
+    const QString autoConnectionStateArg = flagValue(argc, argv, "--auto-connection-state");
+    const QString autoM19ModalArg = flagValue(argc, argv, "--auto-m19-modal");
 
     // M15 S3 Round 4 menu/dialog baseline-capture flags. Full-screen
     // capture (`--capture-fullscreen-*`) captures top-level windows
@@ -311,6 +313,21 @@ int main(int argc, char** argv) {
             if (!window.autoSetConfigSaveStatusForVisualTest(autoConfigSaveStatusArg)) {
                 SF_LOG_ERROR("SignalForge: --auto-config-save-status '{}' failed",
                              autoConfigSaveStatusArg.toStdString());
+            }
+        });
+    }
+    if (!autoConnectionStateArg.isEmpty()) {
+        QTimer::singleShot(500, &app, [&window, autoConnectionStateArg]() {
+            if (!window.autoSetConnectionStateForVisualTest(autoConnectionStateArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-connection-state '{}' failed",
+                             autoConnectionStateArg.toStdString());
+            }
+        });
+    }
+    if (!autoM19ModalArg.isEmpty()) {
+        QTimer::singleShot(2000, &app, [&window, autoM19ModalArg]() {
+            if (!window.autoShowM19ModalForVisualTest(autoM19ModalArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-m19-modal '{}' failed", autoM19ModalArg.toStdString());
             }
         });
     }

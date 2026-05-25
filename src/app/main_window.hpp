@@ -155,6 +155,13 @@ public:
     /// M18 UX visual harness: force connection-config save status states.
     [[nodiscard]] bool autoSetConfigSaveStatusForVisualTest(const QString& status);
 
+    /// M19 visual harness: force a connection row/status strip to render a
+    /// transient/error state without mutating frozen connection contracts.
+    [[nodiscard]] bool autoSetConnectionStateForVisualTest(const QString& status);
+
+    /// M19 visual harness: show deterministic modal/fault-flow windows.
+    [[nodiscard]] bool autoShowM19ModalForVisualTest(const QString& modal);
+
     /// M15 S3 Round 3: seek replay to ``percent`` of the loaded
     /// session's duration (0–100). Returns false on out-of-range
     /// input or null playback controller.

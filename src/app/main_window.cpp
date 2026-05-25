@@ -741,6 +741,117 @@ bool MainWindow::autoSetConfigSaveStatusForVisualTest(const QString& status) {
     return false;
 }
 
+bool MainWindow::autoSetConnectionStateForVisualTest(const QString& status) {
+    if (connectionManager_ == nullptr || connectionList_ == nullptr || connectionStatus_ == nullptr) {
+        return false;
+    }
+    const QString normalized = status.trimmed().toLower();
+    using CState = signalforge::connection::Connection::State;
+    using AState = signalforge::connection::ConnectionStatusWidget::AggregateState;
+    CState rowState = CState::Idle;
+    AState aggregateState = AState::Idle;
+    QString statusText;
+    if (normalized == QStringLiteral("connecting")) {
+        rowState = CState::Connecting;
+        aggregateState = AState::Connecting;
+        statusText = tr("0/1 connecting");
+    } else if (normalized == QStringLiteral("disconnecting")) {
+        rowState = CState::Disconnecting;
+        aggregateState = AState::Connecting;
+        statusText = tr("1/1 disconnecting");
+    } else if (normalized == QStringLiteral("error")) {
+        rowState = CState::Error;
+        aggregateState = AState::Error;
+        statusText = tr("0/1 connected · errors: 1");
+    } else {
+        SF_LOG_WARN("MainWindow::autoSetConnectionStateForVisualTest: unknown status '{}'", status.toStdString());
+        return false;
+    }
+
+    QString id = connectionList_->currentId();
+    if (id.isEmpty()) {
+        const auto ids = connectionManager_->connectionIds();
+        if (!ids.isEmpty()) {
+            id = ids.first();
+        }
+    }
+    if (id.isEmpty()) {
+        signalforge::connection::ConnectionConfig cfg;
+        cfg.id = QStringLiteral("m19-visual-udp");
+        cfg.displayName = tr("M19 visual UDP");
+        cfg.driverType = signalforge::connection::DriverType::Udp;
+        signalforge::drivers::UdpConfig udp;
+        udp.localBindAddress = QStringLiteral("127.0.0.1");
+        udp.localBindPort = 0;
+        cfg.driverConfig = udp;
+        id = connectionManager_->addConnection(cfg);
+    }
+    if (id.isEmpty()) {
+        return false;
+    }
+    if (!connectionList_->setVisualStateForTest(id, rowState)) {
+        return false;
+    }
+    connectionStatus_->setVisualStateForTest(statusText, aggregateState);
+    if (connectionDock_ != nullptr) {
+        connectionDock_->raise();
+    }
+    return true;
+}
+
+bool MainWindow::autoShowM19ModalForVisualTest(const QString& modal) {
+    const QString normalized = modal.trimmed().toLower();
+    if (normalized == QStringLiteral("replay-open-dialog") || normalized == QStringLiteral("open-session")) {
+        auto* dialog = new QFileDialog(this, tr("Open session"), QString(), tr("SFREPLAY (*.sfreplay)"));
+        dialog->setObjectName(QStringLiteral("m19ReplayOpenDialog"));
+        dialog->setFileMode(QFileDialog::ExistingFile);
+        dialog->setOption(QFileDialog::DontUseNativeDialog, true);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowModality(Qt::ApplicationModal);
+        dialog->show();
+        return true;
+    }
+
+    auto* box = new QMessageBox(this);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->setWindowModality(Qt::ApplicationModal);
+    if (normalized == QStringLiteral("live-to-replay")) {
+        box->setIcon(QMessageBox::Warning);
+        box->setWindowTitle(tr("Pause connections to enter Replay?"));
+        box->setText(tr("Entering Replay mode will pause active connection(s). Continue?"));
+        box->setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    } else if (normalized == QStringLiteral("replay-to-live")) {
+        box->setIcon(QMessageBox::Question);
+        box->setWindowTitle(tr("Exit Replay"));
+        box->setText(tr("Resume the previously-paused connections?"));
+        box->setStandardButtons(QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    } else if (normalized == QStringLiteral("recording-error")) {
+        if (recordingStatusLabel_ != nullptr) {
+            recordingStatusLabel_->setText(tr("Recording error | Could not open target file"));
+            applyLabelClass(recordingStatusLabel_, "severity-error");
+        }
+        box->setIcon(QMessageBox::Critical);
+        box->setWindowTitle(tr("Recording error"));
+        box->setText(tr("Could not open the recording target file."));
+        box->setStandardButtons(QMessageBox::Ok);
+    } else if (normalized == QStringLiteral("replay-error")) {
+        if (replayStatusLabel_ != nullptr) {
+            replayStatusLabel_->setText(tr("Replay error"));
+            applyLabelClass(replayStatusLabel_, "severity-error");
+        }
+        box->setIcon(QMessageBox::Critical);
+        box->setWindowTitle(tr("Replay error"));
+        box->setText(tr("Failed to load session: invalid or unreadable replay file."));
+        box->setStandardButtons(QMessageBox::Ok);
+    } else {
+        delete box;
+        SF_LOG_WARN("MainWindow::autoShowM19ModalForVisualTest: unknown modal '{}'", modal.toStdString());
+        return false;
+    }
+    box->show();
+    return true;
+}
+
 bool MainWindow::autoReplaySeekPercent(int percent) {
     if (playbackController_ == nullptr || percent < 0 || percent > 100) {
         return false;

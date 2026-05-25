@@ -52,6 +52,10 @@ public:
         return aggregateState_;
     }
 
+    /// M19 visual harness: force the label text/class to a given
+    /// aggregate state without mutating managed connections.
+    void setVisualStateForTest(const QString& text, AggregateState state);
+
 signals:
     /// Emitted when the user clicks the widget. Callers are
     /// expected to surface the connection list / dialog.

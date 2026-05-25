@@ -61,6 +61,11 @@ public:
     /// against `generated_style_tokens.hpp`.
     [[nodiscard]] static QColor colorForState(Connection::State s);
 
+    /// M19 visual harness: render an existing row as if it were in
+    /// `state` without mutating the underlying Connection state machine.
+    /// Returns false if the row does not exist.
+    [[nodiscard]] bool setVisualStateForTest(const QString& id, Connection::State state);
+
 signals:
     /// Emitted when the user clicks "Add" on the toolbar.
     void addRequested();

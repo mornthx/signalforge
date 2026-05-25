@@ -300,3 +300,30 @@ TEST_CASE("M17 S4: ConnectionListWidget outer objectName is connectionListPanel"
     conn::ConnectionListWidget widget(&fx.manager());
     REQUIRE(widget.objectName() == QStringLiteral("connectionListPanel"));
 }
+
+TEST_CASE("M19: ListWidget visual-state hook updates row text and colour without mutating connection",
+          "[connection][m19][list]") {
+    TestFixture fx;
+    const QString id = fx.manager().addConnection(
+        makeReplayConfig(QStringLiteral("visual"),
+                         QStringLiteral(SIGNALFORGE_FIXTURES_DIR) + QStringLiteral("/minimal_session.sfreplay")));
+    conn::ConnectionListWidget widget(&fx.manager());
+
+    REQUIRE(widget.setVisualStateForTest(id, conn::Connection::State::Disconnecting));
+    REQUIRE(widget.listWidget()->item(0)->text().contains(QStringLiteral("Disconnecting")));
+    REQUIRE(widget.listWidget()->item(0)->foreground().color() == signalforge::tokens::light::statusDisconnecting());
+    REQUIRE(fx.manager().connection(id)->state() == conn::Connection::State::Idle);
+}
+
+TEST_CASE("M19: StatusWidget visual-state hook updates aggregate class without mutating manager",
+          "[connection][m19][status]") {
+    TestFixture fx;
+    conn::ConnectionStatusWidget status(&fx.manager());
+
+    status.setVisualStateForTest(QStringLiteral("0/1 connecting"),
+                                 conn::ConnectionStatusWidget::AggregateState::Connecting);
+    REQUIRE(status.label()->text() == QStringLiteral("0/1 connecting"));
+    REQUIRE(status.aggregateState() == conn::ConnectionStatusWidget::AggregateState::Connecting);
+    REQUIRE(status.label()->property("class").toString() == QStringLiteral("status-connecting"));
+    REQUIRE(fx.manager().connectionCount() == 0);
+}
