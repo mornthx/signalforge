@@ -10,6 +10,7 @@
 
 #include "chart/chart.hpp"
 
+#include "app/generated_style_tokens.hpp"
 #include "buffer/signal_buffer.hpp"
 #include "decode/decoder_interface.hpp"
 #include "observability/logging.hpp"
@@ -58,10 +59,8 @@ constexpr double kDropFrameMs = 50.0;  ///< Frame interval > this counts as a dr
 /// adds a signal without specifying a color. Loops if more signals
 /// than entries — fine for V1, theming is V1.5+.
 [[nodiscard]] QColor defaultColorForIndex(int idx) noexcept {
-    static const QColor kPalette[] = {
-        QColor(122, 192, 255), QColor(255, 122, 122), QColor(122, 255, 158), QColor(255, 218, 122),
-        QColor(196, 122, 255), QColor(122, 255, 244), QColor(255, 158, 122), QColor(180, 220, 122),
-    };
+    using namespace signalforge::tokens::light;
+    const QColor kPalette[] = {signal0(), signal1(), signal2(), signal3(), signal4(), signal5(), signal6(), signal7()};
     constexpr int n = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
     return kPalette[((idx % n) + n) % n];
 }
@@ -129,6 +128,15 @@ struct Chart::Impl {
     QSGGeometryNode* cursorNode = nullptr;
     double lastCursorX = -1.0;
     bool cursorYAlternate = false;
+
+    /// Background grid / border nodes. These keep empty charts visually
+    /// distinct from the guided workflow empty state and provide a subtle
+    /// measurement surface before data arrives.
+    std::vector<QSGSimpleRectNode*> gridNodes;
+    QSGSimpleRectNode* borderTopNode = nullptr;
+    QSGSimpleRectNode* borderRightNode = nullptr;
+    QSGSimpleRectNode* borderBottomNode = nullptr;
+    QSGSimpleRectNode* borderLeftNode = nullptr;
 
     /// M14 Wave 1 F4 diagnostic node. Activated when the env var
     /// `SF_F4_DIAG` is set at process launch. Paints a bright orange
@@ -392,6 +400,48 @@ QSGNode* Chart::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* /*data*/)
     const double w = static_cast<double>(width());
     const double h = static_cast<double>(height());
     const double yRangeSpan = (impl_->yMax - impl_->yMin > 0.0) ? (impl_->yMax - impl_->yMin) : 1.0;
+
+    const QColor gridColor = signalforge::tokens::light::border();
+    const QColor borderColor = signalforge::tokens::light::textDisabled();
+    constexpr int kVerticalGridLines = 6;
+    constexpr int kHorizontalGridLines = 4;
+    const int neededGridNodes = (kVerticalGridLines - 1) + (kHorizontalGridLines - 1);
+    while (static_cast<int>(impl_->gridNodes.size()) < neededGridNodes) {
+        auto* node = new QSGSimpleRectNode(QRectF{}, gridColor);
+        root->appendChildNode(node);
+        impl_->gridNodes.push_back(node);
+    }
+    int gridIndex = 0;
+    for (int i = 1; i < kVerticalGridLines; ++i) {
+        const double x = (w * static_cast<double>(i)) / static_cast<double>(kVerticalGridLines);
+        impl_->gridNodes[gridIndex]->setRect(QRectF(x, 0.0, 1.0, h));
+        impl_->gridNodes[gridIndex]->setColor(gridColor);
+        ++gridIndex;
+    }
+    for (int i = 1; i < kHorizontalGridLines; ++i) {
+        const double y = (h * static_cast<double>(i)) / static_cast<double>(kHorizontalGridLines);
+        impl_->gridNodes[gridIndex]->setRect(QRectF(0.0, y, w, 1.0));
+        impl_->gridNodes[gridIndex]->setColor(gridColor);
+        ++gridIndex;
+    }
+    auto ensureBorder = [root](QSGSimpleRectNode*& node, const QColor& color) {
+        if (node == nullptr) {
+            node = new QSGSimpleRectNode(QRectF{}, color);
+            root->appendChildNode(node);
+        }
+    };
+    ensureBorder(impl_->borderTopNode, borderColor);
+    ensureBorder(impl_->borderRightNode, borderColor);
+    ensureBorder(impl_->borderBottomNode, borderColor);
+    ensureBorder(impl_->borderLeftNode, borderColor);
+    impl_->borderTopNode->setRect(QRectF(0.0, 0.0, w, 1.0));
+    impl_->borderRightNode->setRect(QRectF(std::max(0.0, w - 1.0), 0.0, 1.0, h));
+    impl_->borderBottomNode->setRect(QRectF(0.0, std::max(0.0, h - 1.0), w, 1.0));
+    impl_->borderLeftNode->setRect(QRectF(0.0, 0.0, 1.0, h));
+    impl_->borderTopNode->setColor(borderColor);
+    impl_->borderRightNode->setColor(borderColor);
+    impl_->borderBottomNode->setColor(borderColor);
+    impl_->borderLeftNode->setColor(borderColor);
 
     const auto axisStart = timeAxis_->visibleStart();
     const auto axisEnd = timeAxis_->visibleEnd();

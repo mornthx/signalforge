@@ -149,3 +149,34 @@ TEST_CASE_METHOD(ControllerFixture, "M11 S7: closeSession from any state returns
     REQUIRE(ctrl.state() == r::PlaybackState::Idle);
     REQUIRE(ctrl.currentFilePath().isEmpty());
 }
+
+TEST_CASE_METHOD(ControllerFixture, "M18 UX: seek emits immediate positionChanged for slider/status feedback",
+                 "[replay][m18][ux]") {
+    const QString path = writeFile(tmp_, QStringLiteral("seek-feedback.sfreplay"), {0, 100, 200});
+    b::SignalBufferRegistry registry;
+    r::PlaybackController ctrl(registry);
+    REQUIRE(ctrl.loadSession(path));
+
+    QSignalSpy positionSpy(&ctrl, &r::PlaybackController::positionChanged);
+    REQUIRE(ctrl.seek(150000));
+
+    REQUIRE(positionSpy.count() == 1);
+    REQUIRE(ctrl.currentPositionNs() >= 100000);
+    REQUIRE(ctrl.currentRecordIndex() >= 1);
+}
+
+TEST_CASE_METHOD(ControllerFixture, "M18 UX: speed change emits positionChanged without waiting for next record",
+                 "[replay][m18][ux]") {
+    const QString path = writeFile(tmp_, QStringLiteral("speed-feedback.sfreplay"), {0, 100, 200});
+    b::SignalBufferRegistry registry;
+    r::PlaybackController ctrl(registry);
+    REQUIRE(ctrl.loadSession(path));
+
+    QSignalSpy speedSpy(&ctrl, &r::PlaybackController::speedChanged);
+    QSignalSpy positionSpy(&ctrl, &r::PlaybackController::positionChanged);
+    REQUIRE(ctrl.setSpeed(2.0));
+
+    REQUIRE(speedSpy.count() == 1);
+    REQUIRE(positionSpy.count() == 1);
+    REQUIRE(ctrl.currentSpeed() == 2.0);
+}

@@ -111,6 +111,7 @@ int main(int argc, char** argv) {
     // without a human clicking the Record menu.
     const QString autoRecordPath = flagValue(argc, argv, "--auto-record-to");
     const QString autoStopRecordingArg = flagValue(argc, argv, "--auto-stop-recording-after-ms");
+    const QString autoCloseWindowArg = flagValue(argc, argv, "--auto-close-window-after-ms");
     const QString exitAfterMsArg = flagValue(argc, argv, "--exit-after-ms");
 
     // M15 S1 full-window screenshot capture (mechanism C per
@@ -139,7 +140,12 @@ int main(int argc, char** argv) {
     // jumps to a specific position before capture.
     const QString autoReplayLoadPath = flagValue(argc, argv, "--auto-load-replay");
     const QString autoReplayPlayAfterArg = flagValue(argc, argv, "--auto-replay-play-after-ms");
+    const QString autoReplayPauseAfterArg = flagValue(argc, argv, "--auto-replay-pause-after-ms");
+    const QString autoReplayStepToEndAfterArg = flagValue(argc, argv, "--auto-replay-step-to-end-after-ms");
     const QString autoReplaySeekPercentArg = flagValue(argc, argv, "--auto-replay-seek-percent");
+    const QString autoBufferStatusArg = flagValue(argc, argv, "--auto-buffer-status");
+    const QString autoChartStatusArg = flagValue(argc, argv, "--auto-chart-status");
+    const QString autoConfigSaveStatusArg = flagValue(argc, argv, "--auto-config-save-status");
 
     // M15 S3 Round 4 menu/dialog baseline-capture flags. Full-screen
     // capture (`--capture-fullscreen-*`) captures top-level windows
@@ -152,6 +158,7 @@ int main(int argc, char** argv) {
     const QString autoOpenMenuArg = flagValue(argc, argv, "--auto-open-menu");
     const QString autoOpenDialogArg = flagValue(argc, argv, "--auto-open-dialog");
     const QString autoOpenDialogDriverArg = flagValue(argc, argv, "--auto-open-dialog-driver");
+    const bool autoOpenDialogAdvanced = hasFlag(argc, argv, "--auto-open-dialog-advanced");
     const QString autoReplaySpeedPopupIndexArg = flagValue(argc, argv, "--auto-replay-speed-popup-index");
 
     // M16 S5 — `--dump-render-env <path>`: emit env-sidecar JSON
@@ -241,6 +248,34 @@ int main(int argc, char** argv) {
             });
         }
     }
+    if (!autoReplayPauseAfterArg.isEmpty()) {
+        bool ok = false;
+        const int pauseMs = autoReplayPauseAfterArg.toInt(&ok);
+        if (!ok || pauseMs < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-pause-after-ms requires non-negative integer; got '{}'",
+                         autoReplayPauseAfterArg.toStdString());
+        } else {
+            QTimer::singleShot(pauseMs, &app, [&window]() {
+                if (!window.autoReplayPause()) {
+                    SF_LOG_ERROR("SignalForge: autoReplayPause() returned false");
+                }
+            });
+        }
+    }
+    if (!autoReplayStepToEndAfterArg.isEmpty()) {
+        bool ok = false;
+        const int endMs = autoReplayStepToEndAfterArg.toInt(&ok);
+        if (!ok || endMs < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-replay-step-to-end-after-ms requires non-negative integer; got '{}'",
+                         autoReplayStepToEndAfterArg.toStdString());
+        } else {
+            QTimer::singleShot(endMs, &app, [&window]() {
+                if (!window.autoReplayStepToEnd()) {
+                    SF_LOG_ERROR("SignalForge: autoReplayStepToEnd() returned false");
+                }
+            });
+        }
+    }
     if (!autoReplaySeekPercentArg.isEmpty()) {
         bool ok = false;
         const int percent = autoReplaySeekPercentArg.toInt(&ok);
@@ -257,6 +292,28 @@ int main(int argc, char** argv) {
             });
         }
     }
+    if (!autoBufferStatusArg.isEmpty()) {
+        QTimer::singleShot(400, &app, [&window, autoBufferStatusArg]() {
+            if (!window.autoSetBufferStatusForVisualTest(autoBufferStatusArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-buffer-status '{}' failed", autoBufferStatusArg.toStdString());
+            }
+        });
+    }
+    if (!autoChartStatusArg.isEmpty()) {
+        QTimer::singleShot(400, &app, [&window, autoChartStatusArg]() {
+            if (!window.autoSetChartStatusForVisualTest(autoChartStatusArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-chart-status '{}' failed", autoChartStatusArg.toStdString());
+            }
+        });
+    }
+    if (!autoConfigSaveStatusArg.isEmpty()) {
+        QTimer::singleShot(400, &app, [&window, autoConfigSaveStatusArg]() {
+            if (!window.autoSetConfigSaveStatusForVisualTest(autoConfigSaveStatusArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-config-save-status '{}' failed",
+                             autoConfigSaveStatusArg.toStdString());
+            }
+        });
+    }
     if (!autoOpenMenuArg.isEmpty()) {
         // Menu pops up at 2000 ms; captures schedule for 2500 ms
         // so the menu is fully drawn at capture time.
@@ -269,11 +326,11 @@ int main(int argc, char** argv) {
     if (!autoOpenDialogArg.isEmpty()) {
         // Dialog shows at 2000 ms (non-modal show()); captures
         // schedule for 2500 ms.
-        QTimer::singleShot(2000, &app, [&window, autoOpenDialogArg, autoOpenDialogDriverArg]() {
+        QTimer::singleShot(2000, &app, [&window, autoOpenDialogArg, autoOpenDialogDriverArg, autoOpenDialogAdvanced]() {
             const QString d = autoOpenDialogArg.toLower();
             bool ok = false;
             if (d == "add" || d == "add-conn") {
-                ok = window.autoShowAddConnectionDialog(autoOpenDialogDriverArg);
+                ok = window.autoShowAddConnectionDialog(autoOpenDialogDriverArg, autoOpenDialogAdvanced);
             } else if (d == "edit" || d == "edit-conn") {
                 ok = window.autoShowEditConnectionDialog();
             } else {
@@ -358,6 +415,19 @@ int main(int argc, char** argv) {
             QTimer::singleShot(stopMs, &app, [&window]() {
                 const std::size_t bytes = window.autoStopRecording();
                 SF_LOG_INFO("SignalForge: auto-stop wrote {} bytes", bytes);
+            });
+        }
+    }
+    if (!autoCloseWindowArg.isEmpty()) {
+        bool ok = false;
+        const int closeMs = autoCloseWindowArg.toInt(&ok);
+        if (!ok || closeMs < 0) {
+            SF_LOG_ERROR("SignalForge: --auto-close-window-after-ms requires non-negative integer; got '{}'",
+                         autoCloseWindowArg.toStdString());
+        } else {
+            QTimer::singleShot(closeMs, &app, [&window]() {
+                SF_LOG_INFO("SignalForge: --auto-close-window-after-ms reached; closing window");
+                window.close();
             });
         }
     }

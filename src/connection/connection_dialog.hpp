@@ -12,6 +12,7 @@ class QLineEdit;
 class QSpinBox;
 class QDoubleSpinBox;
 class QCheckBox;
+class QGroupBox;
 class QPushButton;
 class QListWidget;
 
@@ -57,6 +58,15 @@ public:
     }
     [[nodiscard]] QPushButton* okButton() const noexcept {
         return okButton_;
+    }
+    [[nodiscard]] QGroupBox* advancedCommandsGroup() const noexcept {
+        return commandsGroup_;
+    }
+    [[nodiscard]] QWidget* advancedCommandsBody() const noexcept {
+        return commandsBody_;
+    }
+    [[nodiscard]] QPushButton* validateButton() const noexcept {
+        return testBtn_;
     }
 
 private slots:
@@ -125,7 +135,9 @@ private:
     QDoubleSpinBox* replaySpeed_{nullptr};
     QCheckBox* replayLoop_{nullptr};
 
-    // Auto-connect commands list (on its own page in stack)
+    // Advanced auto-connect commands. Hidden by default because it is a rare driver-initialisation path.
+    QGroupBox* commandsGroup_{nullptr};
+    QWidget* commandsBody_{nullptr};
     QListWidget* commandsList_{nullptr};
     QLineEdit* cmdName_{nullptr};
     QLineEdit* cmdPayloadHex_{nullptr};

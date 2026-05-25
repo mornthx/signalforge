@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QImage>
 #include <QMainWindow>
 #include <QString>
@@ -7,7 +8,10 @@
 
 class QComboBox;
 class QDockWidget;
+class QFrame;
 class QLabel;
+class QHBoxLayout;
+class QPushButton;
 class QSplitter;
 class QToolButton;
 class QVBoxLayout;
@@ -45,6 +49,7 @@ enum class AppMode;
 class QAction;
 class QSlider;
 class QToolBar;
+class QTimer;
 
 namespace signalforge::app {
 
@@ -138,6 +143,18 @@ public:
     /// same conditions as ``autoReplayPlay``.
     [[nodiscard]] bool autoReplayPause();
 
+    /// M18 UX visual harness: step replay to its terminal Ended state.
+    [[nodiscard]] bool autoReplayStepToEnd();
+
+    /// M18 UX visual harness: force Buffer status strip warning/full states.
+    [[nodiscard]] bool autoSetBufferStatusForVisualTest(const QString& status);
+
+    /// M18 UX visual harness: force Chart status strip interrupted state.
+    [[nodiscard]] bool autoSetChartStatusForVisualTest(const QString& status);
+
+    /// M18 UX visual harness: force connection-config save status states.
+    [[nodiscard]] bool autoSetConfigSaveStatusForVisualTest(const QString& status);
+
     /// M15 S3 Round 3: seek replay to ``percent`` of the loaded
     /// session's duration (0–100). Returns false on out-of-range
     /// input or null playback controller.
@@ -174,7 +191,7 @@ public:
     /// / ``"tcp"`` / ``"replay"`` (case-insensitive); empty
     /// string leaves the driver-type combo at its default.
     /// Returns false if the dialog cannot be created.
-    [[nodiscard]] bool autoShowAddConnectionDialog(const QString& driverType = QString());
+    [[nodiscard]] bool autoShowAddConnectionDialog(const QString& driverType = QString(), bool expandAdvanced = false);
 
     /// M15 S3 Round 4: same as ``autoShowAddConnectionDialog``
     /// but for the connection-edit flow. Picks the first
@@ -222,6 +239,12 @@ private:
     void buildSessionUi();
     void buildReplayUi();
     void updateReplayActionStates();
+    void updateRecordingStatusLabel();
+    void updateWorkflowModeLabel();
+    void updateReplayStatusLabel();
+    void updateEmptyStateVisibility();
+    void onConfigurationSaveStateChanged(bool saved, const QString& path, const QString& message);
+    [[nodiscard]] bool confirmExitReplayForClose();
     void rebuildChartWidgets();
     [[nodiscard]] QStringList enumerateAvailableSchemaIds() const;
 
@@ -238,23 +261,41 @@ private:
     signalforge::chart::SignalSelector* signalSelector_ = nullptr;
     QSplitter* centralSplitter_ = nullptr;
     QWidget* chartContainer_ = nullptr;
+    QWidget* chartEmptyState_ = nullptr;
+    QPushButton* emptyAddConnectionButton_ = nullptr;
+    QPushButton* emptyOpenSessionButton_ = nullptr;
+    QPushButton* emptyLoadSchemaButton_ = nullptr;
     QVBoxLayout* chartLayout_ = nullptr;
     QToolButton* liveToggle_ = nullptr;
     QComboBox* timePresetCombo_ = nullptr;
+    QFrame* statusStrip_ = nullptr;
+    QHBoxLayout* statusStripLayout_ = nullptr;
+    QLabel* workflowModeLabel_ = nullptr;
     QLabel* fpsLabel_ = nullptr;
     QLabel* droppedLabel_ = nullptr;
     QLabel* throttledLabel_ = nullptr;
     QLabel* bufferBudgetLabel_ = nullptr;  ///< M14 F15: signal_buffer budget usage
+    QString bufferBudgetOverrideText_;
+    QString bufferBudgetOverrideClass_;
+    QString chartStatusOverrideText_;
+    QString chartStatusOverrideClass_;
 
     // M9 connection UI.
     QDockWidget* connectionDock_ = nullptr;
     signalforge::connection::ConnectionListWidget* connectionList_ = nullptr;
     signalforge::connection::ConnectionStatusWidget* connectionStatus_ = nullptr;
+    QLabel* configSaveDockBanner_ = nullptr;
+    QLabel* configSaveStatusLabel_ = nullptr;
+    bool configSaveHealthy_ = true;
+    QString lastConfigSaveMessage_;
 
     // M10 session recording UI.
     QAction* recordAction_ = nullptr;
     QLabel* recordingStatusLabel_ = nullptr;
+    QTimer* recordingHeartbeatTimer_ = nullptr;
+    QElapsedTimer recordingElapsed_;
     QString currentRecordingPath_;
+    std::size_t lastRecordingBytes_ = 0;
 
     // M11 replay UX.
     std::unique_ptr<signalforge::replay::PlaybackController> playbackController_;

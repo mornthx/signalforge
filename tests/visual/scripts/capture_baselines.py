@@ -51,7 +51,7 @@ def ensure_replay_fixture() -> Path:
     binary records via ``--auto-record-to``; in parallel a
     helper Python script feeds UDP frames into the listener.
     """
-    if REPLAY_FIXTURE.is_file() and REPLAY_FIXTURE.stat().st_size > 64:
+    if REPLAY_FIXTURE.is_file() and REPLAY_FIXTURE.stat().st_size > 1200:
         return REPLAY_FIXTURE
 
     TMP_RUN_DIR.mkdir(parents=True, exist_ok=True)
@@ -74,8 +74,8 @@ def ensure_replay_fixture() -> Path:
         str(binary),
         "--auto-load-test-fixture", "tests/integration/gui/fixtures/m14_smoke.yaml",
         "--auto-record-to", str(REPLAY_FIXTURE),
-        "--auto-stop-recording-after-ms", "1500",
-        "--exit-after-ms", "2200",
+        "--auto-stop-recording-after-ms", "4500",
+        "--exit-after-ms", "5200",
     ]
 
     sf_proc = subprocess.Popen(sf_cmd, env=env, cwd=REPO_ROOT,
@@ -86,15 +86,15 @@ def ensure_replay_fixture() -> Path:
     sender_cmd = [
         "python3", "tests/integration/gui/helpers/udp_fixture_sender.py",
         "--host", "127.0.0.1", "--port", "9998",
-        "--frames", "50", "--rate-hz", "50",
-        "--initial-delay-s", "0",
+        "--frames", "150", "--rate-hz", "50",
+        "--initial-delay-s", "1.2",
     ]
     subprocess.run(sender_cmd, cwd=REPO_ROOT, check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     sf_proc.wait(timeout=15)
 
-    if not REPLAY_FIXTURE.is_file() or REPLAY_FIXTURE.stat().st_size <= 64:
+    if not REPLAY_FIXTURE.is_file() or REPLAY_FIXTURE.stat().st_size <= 1200:
         stderr = sf_proc.stderr.read().decode(errors="replace")[-800:] if sf_proc.stderr else ""
         raise RuntimeError(
             f"replay-fixture generation produced no usable session file at {REPLAY_FIXTURE}\n"

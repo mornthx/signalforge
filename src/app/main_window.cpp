@@ -25,18 +25,22 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFrame>
+#include <QGroupBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QScreen>
 #include <QSlider>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QStyle>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -64,10 +68,70 @@ QString formatReplayPosition(std::int64_t ns) {
         .arg(fff, 3, 10, QLatin1Char('0'));
 }
 
+QString formatReplayStatusSeconds(std::int64_t ns) {
+    if (ns < 0) {
+        ns = 0;
+    }
+    return QStringLiteral("%1s").arg(static_cast<double>(ns) / 1'000'000'000.0, 0, 'f', 1);
+}
+
+QString formatElapsedMs(qint64 elapsedMs) {
+    if (elapsedMs < 0) {
+        elapsedMs = 0;
+    }
+    const qint64 totalSeconds = elapsedMs / 1000;
+    const qint64 hh = totalSeconds / 3600;
+    const qint64 mm = (totalSeconds / 60) % 60;
+    const qint64 ss = totalSeconds % 60;
+    if (hh > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(hh, 2, 10, QLatin1Char('0'))
+            .arg(mm, 2, 10, QLatin1Char('0'))
+            .arg(ss, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2").arg(mm, 2, 10, QLatin1Char('0')).arg(ss, 2, 10, QLatin1Char('0'));
+}
+
 // driverId convention: `<type>:<connectionId>` — DecoderRegistrar
 // splits on ':' and uses the prefix as its driver-type lookup key
 // (so "udp:conn-3" → "udp"). Mirrors the `driverTypeToYamlInternal`
 // helper in connection_manager.cpp's anonymous namespace.
+
+void applyLabelClass(QLabel* label, const char* className) {
+    if (label == nullptr) {
+        return;
+    }
+    label->setProperty("class", QLatin1String(className));
+    label->style()->unpolish(label);
+    label->style()->polish(label);
+    label->update();
+}
+
+QFrame* makeStatusCell(const QString& titleText, QWidget* valueWidget, QWidget* parent) {
+    auto* frame = new QFrame(parent);
+    frame->setObjectName(QStringLiteral("statusCell"));
+    auto* layout = new QHBoxLayout(frame);
+    layout->setContentsMargins(8, 0, 8, 0);
+    layout->setSpacing(6);
+    auto* title = new QLabel(titleText, frame);
+    title->setProperty("class", QLatin1String("caption"));
+    title->setToolTip(titleText);
+    layout->addWidget(title);
+    layout->addWidget(valueWidget);
+    return frame;
+}
+
+QWidget* makeStatusValueRow(QWidget* parent, std::initializer_list<QWidget*> widgets) {
+    auto* row = new QWidget(parent);
+    auto* layout = new QHBoxLayout(row);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
+    for (auto* widget : widgets) {
+        layout->addWidget(widget);
+    }
+    return row;
+}
+
 QString driverTypeName(signalforge::connection::DriverType t) {
     using DT = signalforge::connection::DriverType;
     switch (t) {
@@ -151,6 +215,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     const QString cfgPath = signalforge::connection::ConnectionManager::defaultConfigPath();
     QDir().mkpath(QFileInfo(cfgPath).absolutePath());
     (void)connectionManager_->loadConfigFile(cfgPath);
+    const int startupConnects = connectionManager_->connectStartupConnections();
+    if (startupConnects > 0) {
+        SF_LOG_INFO("MainWindow: auto-connect-on-startup attempted {} connection(s)", startupConnects);
+    }
 
     // ADR-013 (F17) defense-in-depth: also save on application exit.
     // Catches any future mutation path that bypasses autoSave() and
@@ -185,6 +253,8 @@ void MainWindow::buildChartUi() {
     centralSplitter_ = new QSplitter(Qt::Horizontal, this);
 
     signalSelector_ = new signalforge::chart::SignalSelector(*signalBufferRegistry_, *chartManager_);
+    connect(signalSelector_, &signalforge::chart::SignalSelector::signalToggled, this,
+            [this](const QString&, bool) { updateEmptyStateVisibility(); });
     centralSplitter_->addWidget(signalSelector_);
 
     chartContainer_ = new QWidget;
@@ -230,9 +300,9 @@ void MainWindow::buildChartUi() {
     auto* addChartAction = toolbar->addAction(tr("+ Chart"));
     connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
 
-    fpsLabel_ = new QLabel(tr("FPS: -"));
+    fpsLabel_ = new QLabel(tr("Chart idle"));
     fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
-    droppedLabel_ = new QLabel(tr("Dropped: 0"));
+    droppedLabel_ = new QLabel(tr("Drops 0"));
     droppedLabel_->setObjectName(QStringLiteral("droppedLabel"));
     throttledLabel_ = new QLabel;
     throttledLabel_->setObjectName(QStringLiteral("throttledLabel"));
@@ -241,10 +311,19 @@ void MainWindow::buildChartUi() {
     bufferBudgetLabel_->setObjectName(QStringLiteral("bufferBudgetLabel"));
     bufferBudgetLabel_->setToolTip(tr("Signal buffer memory budget usage"));
     statusBar()->setObjectName(QStringLiteral("mainStatusBar"));
-    statusBar()->addPermanentWidget(fpsLabel_);
-    statusBar()->addPermanentWidget(droppedLabel_);
-    statusBar()->addPermanentWidget(throttledLabel_);
-    statusBar()->addPermanentWidget(bufferBudgetLabel_);
+    statusStrip_ = new QFrame(statusBar());
+    statusStrip_->setObjectName(QStringLiteral("statusStrip"));
+    statusStripLayout_ = new QHBoxLayout(statusStrip_);
+    statusStripLayout_->setContentsMargins(0, 0, 0, 0);
+    statusStripLayout_->setSpacing(2);
+    workflowModeLabel_ = new QLabel(tr("Live"), statusStrip_);
+    workflowModeLabel_->setObjectName(QStringLiteral("workflowModeLabel"));
+    applyLabelClass(workflowModeLabel_, "mode-live");
+    statusStripLayout_->addWidget(makeStatusCell(tr("Mode"), workflowModeLabel_, statusStrip_));
+    auto* chartStatusRow = makeStatusValueRow(statusStrip_, {fpsLabel_, droppedLabel_, throttledLabel_});
+    statusStripLayout_->addWidget(makeStatusCell(tr("Chart"), chartStatusRow, statusStrip_));
+    statusStripLayout_->addWidget(makeStatusCell(tr("Buffer"), bufferBudgetLabel_, statusStrip_));
+    statusBar()->addPermanentWidget(statusStrip_, 1);
 
     auto* statusTimer = new QTimer(this);
     statusTimer->setInterval(1000);
@@ -269,9 +348,20 @@ void MainWindow::buildConnectionUi() {
     connect(disconnectAllAction, &QAction::triggered, this, &MainWindow::onDisconnectAllAction);
 
     // Connection list dock (left side).
-    connectionList_ = new signalforge::connection::ConnectionListWidget(connectionManager_.get(), this);
+    auto* connectionDockBody = new QWidget(this);
+    auto* connectionDockLayout = new QVBoxLayout(connectionDockBody);
+    connectionDockLayout->setContentsMargins(0, 0, 0, 0);
+    connectionDockLayout->setSpacing(0);
+    configSaveDockBanner_ = new QLabel(connectionDockBody);
+    configSaveDockBanner_->setObjectName(QStringLiteral("configSaveDockBanner"));
+    configSaveDockBanner_->setWordWrap(true);
+    configSaveDockBanner_->setVisible(false);
+    applyLabelClass(configSaveDockBanner_, "severity-error");
+    connectionDockLayout->addWidget(configSaveDockBanner_);
+    connectionList_ = new signalforge::connection::ConnectionListWidget(connectionManager_.get(), connectionDockBody);
+    connectionDockLayout->addWidget(connectionList_, 1);
     connectionDock_ = new QDockWidget(tr("Connections"), this);
-    connectionDock_->setWidget(connectionList_);
+    connectionDock_->setWidget(connectionDockBody);
     connectionDock_->setObjectName(QStringLiteral("connectionsDock"));
     addDockWidget(Qt::LeftDockWidgetArea, connectionDock_);
 
@@ -280,11 +370,22 @@ void MainWindow::buildConnectionUi() {
     connect(connectionList_, &signalforge::connection::ConnectionListWidget::editRequested, this,
             &MainWindow::onEditConnectionRequested);
 
-    // Connection status widget in the status bar.
+    // Connection status widget in the status strip.
     connectionStatus_ = new signalforge::connection::ConnectionStatusWidget(connectionManager_.get(), this);
-    statusBar()->addPermanentWidget(connectionStatus_);
+    if (statusStripLayout_ != nullptr) {
+        statusStripLayout_->insertWidget(0, makeStatusCell(tr("Connection"), connectionStatus_, statusStrip_));
+    }
     connect(connectionStatus_, &signalforge::connection::ConnectionStatusWidget::clicked, connectionDock_,
             &QDockWidget::raise);
+    configSaveStatusLabel_ = new QLabel(tr("Config ready"), statusStrip_);
+    configSaveStatusLabel_->setObjectName(QStringLiteral("configSaveStatusLabel"));
+    configSaveStatusLabel_->setToolTip(tr("Connection configuration save status"));
+    applyLabelClass(configSaveStatusLabel_, "severity-info");
+    if (statusStripLayout_ != nullptr) {
+        statusStripLayout_->insertWidget(1, makeStatusCell(tr("Config"), configSaveStatusLabel_, statusStrip_));
+    }
+    connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::configurationSaveStateChanged, this,
+            &MainWindow::onConfigurationSaveStateChanged);
 
     // After loading connections, refresh the SignalSelector tree
     // so any newly-arriving decoder signals appear in the chart's
@@ -327,6 +428,7 @@ bool MainWindow::autoSelectSignal(const QString& signalId) {
         return false;
     }
     chart->addSignal(signalId);
+    updateEmptyStateVisibility();
     SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' added to chart '{}'", signalId.toStdString(),
                 ids.first().toStdString());
     return true;
@@ -360,8 +462,12 @@ bool MainWindow::autoStartRecording(const QString& path) {
     // so the GUI reflects the recording state in headless capture (the
     // S3 fidelity audit found state-14 / state-15 captures looked
     // identical to state-05 because these UI updates were skipped).
-    if (recordingStatusLabel_ != nullptr) {
-        recordingStatusLabel_->setText(tr("● Recording: %1 (0 bytes)").arg(QFileInfo(path).fileName()));
+    lastRecordingBytes_ = 0;
+    recordingElapsed_.restart();
+    updateRecordingStatusLabel();
+    updateWorkflowModeLabel();
+    if (recordingHeartbeatTimer_ != nullptr) {
+        recordingHeartbeatTimer_->start();
     }
     if (recordAction_ != nullptr) {
         recordAction_->setText(tr("&Stop recording"));
@@ -379,8 +485,15 @@ std::size_t MainWindow::autoStopRecording() {
     const std::size_t droppedBeforeStop = sessionWriter_->droppedEvents();
     const std::size_t bytes = sessionWriter_->stop();
     // M15 S3 Round 6: mirror the production onRecordToggle UI updates.
+    if (recordingHeartbeatTimer_ != nullptr) {
+        recordingHeartbeatTimer_->stop();
+    }
+    lastRecordingBytes_ = bytes;
+    updateWorkflowModeLabel();
     if (recordingStatusLabel_ != nullptr) {
-        recordingStatusLabel_->setText(tr("Stopped (%1 bytes)").arg(bytes));
+        recordingStatusLabel_->setText(
+            tr("Record stopped %1 | %2 bytes").arg(formatElapsedMs(recordingElapsed_.elapsed())).arg(bytes));
+        applyLabelClass(recordingStatusLabel_, "severity-info");
     }
     if (recordAction_ != nullptr) {
         recordAction_->setText(tr("&Record…"));
@@ -450,7 +563,7 @@ bool MainWindow::autoOpenMenu(const QString& name) {
     return false;
 }
 
-bool MainWindow::autoShowAddConnectionDialog(const QString& driverType) {
+bool MainWindow::autoShowAddConnectionDialog(const QString& driverType, bool expandAdvanced) {
     auto* dlg = new signalforge::connection::ConnectionDialog(enumerateAvailableSchemaIds(), this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setWindowModality(Qt::NonModal);
@@ -470,8 +583,12 @@ bool MainWindow::autoShowAddConnectionDialog(const QString& driverType) {
                         driverType.toStdString());
         }
     }
+    if (expandAdvanced && dlg->advancedCommandsGroup() != nullptr) {
+        dlg->advancedCommandsGroup()->setChecked(true);
+    }
     dlg->show();
-    SF_LOG_INFO("MainWindow::autoShowAddConnectionDialog: shown non-modal (driverType='{}')", driverType.toStdString());
+    SF_LOG_INFO("MainWindow::autoShowAddConnectionDialog: shown non-modal (driverType='{}', expandAdvanced={})",
+                driverType.toStdString(), expandAdvanced);
     return true;
 }
 
@@ -529,7 +646,8 @@ bool MainWindow::autoLoadReplaySession(const QString& path) {
         replaySeekSlider_->setRange(0, static_cast<int>(playbackController_->totalRecords()));
     }
     if (replayStatusLabel_ != nullptr) {
-        replayStatusLabel_->setText(tr("Replay: %1").arg(QFileInfo(path).fileName()));
+        replayStatusLabel_->setText(tr("Replay loaded %1").arg(QFileInfo(path).fileName()));
+        applyLabelClass(replayStatusLabel_, "mode-replay");
     }
     SF_LOG_INFO("MainWindow::autoLoadReplaySession: loaded '{}'", path.toStdString());
     return true;
@@ -547,6 +665,80 @@ bool MainWindow::autoReplayPause() {
         return false;
     }
     return playbackController_->pause();
+}
+
+bool MainWindow::autoReplayStepToEnd() {
+    if (playbackController_ == nullptr || playbackController_->totalRecords() == 0) {
+        return false;
+    }
+    if (playbackController_->state() == signalforge::replay::PlaybackState::Playing) {
+        (void)playbackController_->pause();
+    }
+    const auto maxSteps = playbackController_->totalRecords() + 1;
+    for (std::size_t i = 0; i < maxSteps; ++i) {
+        if (playbackController_->state() == signalforge::replay::PlaybackState::Ended) {
+            updateReplayStatusLabel();
+            return true;
+        }
+        (void)playbackController_->stepForward();
+    }
+    updateReplayStatusLabel();
+    return playbackController_->state() == signalforge::replay::PlaybackState::Ended;
+}
+
+bool MainWindow::autoSetBufferStatusForVisualTest(const QString& status) {
+    const QString normalized = status.trimmed().toLower();
+    if (normalized == QStringLiteral("warning") || normalized == QStringLiteral("warn")) {
+        bufferBudgetOverrideText_ = tr("Buffer 86% 220/256 MiB");
+        bufferBudgetOverrideClass_ = QStringLiteral("severity-warning");
+    } else if (normalized == QStringLiteral("full") || normalized == QStringLiteral("error")) {
+        bufferBudgetOverrideText_ = tr("Buffer full 256/256 MiB");
+        bufferBudgetOverrideClass_ = QStringLiteral("severity-error");
+    } else {
+        SF_LOG_WARN("MainWindow::autoSetBufferStatusForVisualTest: unknown status '{}'", status.toStdString());
+        return false;
+    }
+    if (bufferBudgetLabel_ != nullptr) {
+        bufferBudgetLabel_->setText(bufferBudgetOverrideText_);
+        bufferBudgetLabel_->setToolTip(tr("Signal buffer memory budget usage (%1 visual state)").arg(normalized));
+        applyLabelClass(bufferBudgetLabel_, bufferBudgetOverrideClass_.toUtf8().constData());
+    }
+    return true;
+}
+
+bool MainWindow::autoSetChartStatusForVisualTest(const QString& status) {
+    const QString normalized = status.trimmed().toLower();
+    if (normalized == QStringLiteral("interrupted") || normalized == QStringLiteral("stale")) {
+        chartStatusOverrideText_ = tr("Interrupted");
+        chartStatusOverrideClass_ = QStringLiteral("severity-warning");
+    } else {
+        SF_LOG_WARN("MainWindow::autoSetChartStatusForVisualTest: unknown status '{}'", status.toStdString());
+        return false;
+    }
+    if (throttledLabel_ != nullptr) {
+        throttledLabel_->setText(chartStatusOverrideText_);
+        throttledLabel_->setToolTip(tr("Chart data stream is interrupted or frames were dropped."));
+        applyLabelClass(throttledLabel_, chartStatusOverrideClass_.toUtf8().constData());
+    }
+    return true;
+}
+
+bool MainWindow::autoSetConfigSaveStatusForVisualTest(const QString& status) {
+    const QString normalized = status.trimmed().toLower();
+    if (normalized == QStringLiteral("saved") || normalized == QStringLiteral("ok")) {
+        onConfigurationSaveStateChanged(true, signalforge::connection::ConnectionManager::defaultConfigPath(),
+                                        QString());
+        return true;
+    }
+    if (normalized == QStringLiteral("failed") || normalized == QStringLiteral("error")) {
+        onConfigurationSaveStateChanged(
+            false, signalforge::connection::ConnectionManager::defaultConfigPath(),
+            tr("Could not save connection configuration to %1")
+                .arg(signalforge::connection::ConnectionManager::defaultConfigPath()));
+        return true;
+    }
+    SF_LOG_WARN("MainWindow::autoSetConfigSaveStatusForVisualTest: unknown status '{}'", status.toStdString());
+    return false;
 }
 
 bool MainWindow::autoReplaySeekPercent(int percent) {
@@ -578,11 +770,12 @@ bool MainWindow::autoReplaySeekPercent(int percent) {
     if (replayStatusLabel_ != nullptr) {
         const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
         const auto recordIndex = (playbackController_->totalRecords() * static_cast<std::size_t>(percent)) / 100;
-        replayStatusLabel_->setText(tr("Replay: %1 | seek %2 %% | %3 / %4 records")
+        replayStatusLabel_->setText(tr("Replay %1 | seek %2% | %3/%4 records")
                                         .arg(filename)
                                         .arg(percent)
                                         .arg(recordIndex)
                                         .arg(playbackController_->totalRecords()));
+        applyLabelClass(replayStatusLabel_, "mode-replay");
     }
     return true;
 }
@@ -768,6 +961,7 @@ void MainWindow::onAddChart() {
         return;
     }
     const QString chartId = chartManager_->createChart();
+    chartManager_->setActiveChartId(chartId);
     rebuildChartWidgets();
     SF_LOG_INFO("MainWindow: created chart {}", chartId.toStdString());
 }
@@ -782,6 +976,40 @@ void MainWindow::rebuildChartWidgets() {
         }
         delete item;
     }
+
+    chartEmptyState_ = new QFrame(chartContainer_);
+    chartEmptyState_->setObjectName(QStringLiteral("chartEmptyState"));
+    auto* emptyRoot = new QVBoxLayout(chartEmptyState_);
+    emptyRoot->setContentsMargins(24, 18, 24, 18);
+    emptyRoot->setSpacing(8);
+
+    auto* title = new QLabel(tr("Start a SignalForge workflow"), chartEmptyState_);
+    title->setProperty("class", QLatin1String("display"));
+    emptyRoot->addWidget(title);
+
+    auto* caption = new QLabel(
+        tr("Connect a live source, select signals, record a session, or open an existing replay."), chartEmptyState_);
+    caption->setProperty("class", QLatin1String("caption"));
+    caption->setWordWrap(true);
+    emptyRoot->addWidget(caption);
+
+    auto* actions = new QHBoxLayout();
+    actions->setSpacing(8);
+    emptyAddConnectionButton_ = new QPushButton(tr("Add connection"), chartEmptyState_);
+    emptyOpenSessionButton_ = new QPushButton(tr("Open session"), chartEmptyState_);
+    emptyLoadSchemaButton_ = new QPushButton(tr("Load schema"), chartEmptyState_);
+    emptyLoadSchemaButton_->setToolTip(tr("Decoder schemas are selected while adding or editing a connection."));
+    actions->addWidget(emptyAddConnectionButton_);
+    actions->addWidget(emptyOpenSessionButton_);
+    actions->addWidget(emptyLoadSchemaButton_);
+    actions->addStretch();
+    emptyRoot->addLayout(actions);
+
+    connect(emptyAddConnectionButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
+    connect(emptyOpenSessionButton_, &QPushButton::clicked, this, &MainWindow::onOpenSessionRequested);
+    connect(emptyLoadSchemaButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
+    chartLayout_->addWidget(chartEmptyState_, 0);
+
     for (const auto& id : chartManager_->chartIds()) {
         auto* chart = chartManager_->chart(id);
         if (chart == nullptr) {
@@ -791,7 +1019,36 @@ void MainWindow::rebuildChartWidgets() {
         // non-null rootObject(). Without it, setParentItem(nullptr)
         // orphans Chart and nothing renders. setSource is synchronous
         // for qrc:/ URLs, so rootObject() is ready immediately.
-        auto* hostWidget = new QQuickWidget(chartContainer_);
+        auto* chartFrame = new QFrame(chartContainer_);
+        chartFrame->setObjectName(QStringLiteral("chartFrame"));
+        auto* frameLayout = new QVBoxLayout(chartFrame);
+        frameLayout->setContentsMargins(0, 0, 0, 0);
+        frameLayout->setSpacing(0);
+
+        auto* header = new QFrame(chartFrame);
+        header->setObjectName(QStringLiteral("panelHeader"));
+        auto* headerLayout = new QHBoxLayout(header);
+        headerLayout->setContentsMargins(8, 4, 8, 4);
+        auto* title = new QLabel(chart->config().title.isEmpty() ? id : chart->config().title, header);
+        title->setProperty("class", QLatin1String("heading"));
+        auto* legend = new QLabel(header);
+        legend->setProperty("class", QLatin1String("caption"));
+        auto updateLegend = [chart, legend]() {
+            const auto visibleSignalIds = chart->visibleSignals();
+            legend->setText(
+                visibleSignalIds.isEmpty()
+                    ? QObject::tr("No signals selected")
+                    : QObject::tr("%1 signal(s): %2").arg(visibleSignalIds.size()).arg(visibleSignalIds.join(", ")));
+        };
+        updateLegend();
+        auto* removeButton = new QPushButton(tr("Remove"), header);
+        removeButton->setToolTip(tr("Remove this chart"));
+        headerLayout->addWidget(title);
+        headerLayout->addWidget(legend, 1);
+        headerLayout->addWidget(removeButton);
+        frameLayout->addWidget(header);
+
+        auto* hostWidget = new QQuickWidget(chartFrame);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
         // QQuickWidget's default size policy is Preferred/Preferred and
         // its sizeHint() can be invalid until a scene is loaded; under
@@ -804,16 +1061,28 @@ void MainWindow::rebuildChartWidgets() {
         if (hostWidget->status() != QQuickWidget::Ready) {
             SF_LOG_ERROR("MainWindow: ChartHost.qml failed to load (status={})",
                          static_cast<int>(hostWidget->status()));
-            hostWidget->deleteLater();
+            chartFrame->deleteLater();
             continue;
         }
         auto* root = hostWidget->rootObject();
         if (root == nullptr) {
             SF_LOG_ERROR("MainWindow: ChartHost.qml loaded but rootObject() is null");
-            hostWidget->deleteLater();
+            chartFrame->deleteLater();
             continue;
         }
         chart->setParentItem(root);
+        connect(chart, &signalforge::chart::Chart::signalAdded, this, updateLegend);
+        connect(chart, &signalforge::chart::Chart::signalRemoved, this, updateLegend);
+        connect(removeButton, &QPushButton::clicked, this, [this, id]() {
+            if (chartManager_ == nullptr) {
+                return;
+            }
+            (void)chartManager_->removeChart(id);
+            if (chartManager_->chartIds().isEmpty()) {
+                (void)chartManager_->createChart();
+            }
+            rebuildChartWidgets();
+        });
         // ADR-011: bind Chart's geometry to the host scene root.
         // QQuickWidget::SizeRootObjectToView keeps `root` matched to the
         // widget; ChartHost.qml's anchors.fill keeps the QML scene matched
@@ -823,8 +1092,28 @@ void MainWindow::rebuildChartWidgets() {
         syncSize();
         connect(root, &QQuickItem::widthChanged, chart, syncSize);
         connect(root, &QQuickItem::heightChanged, chart, syncSize);
-        chartLayout_->addWidget(hostWidget, 1);
+        frameLayout->addWidget(hostWidget, 1);
+        chartLayout_->addWidget(chartFrame, 1);
     }
+    updateEmptyStateVisibility();
+}
+
+void MainWindow::updateEmptyStateVisibility() {
+    if (chartEmptyState_ == nullptr) {
+        return;
+    }
+    const bool hasAvailableSignals = signalBufferRegistry_ != nullptr && !signalBufferRegistry_->signalIds().isEmpty();
+    bool hasVisibleSignal = false;
+    if (chartManager_ != nullptr) {
+        for (const auto& id : chartManager_->chartIds()) {
+            auto* chart = chartManager_->chart(id);
+            if (chart != nullptr && !chart->visibleSignals().isEmpty()) {
+                hasVisibleSignal = true;
+                break;
+            }
+        }
+    }
+    chartEmptyState_->setVisible(!hasAvailableSignals && !hasVisibleSignal);
 }
 
 void MainWindow::onLiveToggleChanged(bool live) {
@@ -890,16 +1179,28 @@ void MainWindow::refreshStatusBar() {
     }
     if (fpsLabel_ != nullptr) {
         if (chartCount > 0) {
-            fpsLabel_->setText(tr("FPS: ~%1 / chart").arg(30));
+            fpsLabel_->setText(tr("%1 Hz").arg(30));
         } else {
-            fpsLabel_->setText(tr("FPS: -"));
+            fpsLabel_->setText(tr("idle"));
         }
+        fpsLabel_->setToolTip(chartCount > 0 ? tr("Chart render cadence") : tr("No chart render activity"));
+        applyLabelClass(fpsLabel_, "severity-info");
     }
     if (droppedLabel_ != nullptr) {
-        droppedLabel_->setText(tr("Dropped: %1").arg(totalDropped));
+        droppedLabel_->setText(tr("Drops %1").arg(totalDropped));
+        droppedLabel_->setToolTip(tr("Chart frames dropped while rendering"));
+        applyLabelClass(droppedLabel_, totalDropped > 0 ? "severity-warning" : "severity-info");
     }
     if (throttledLabel_ != nullptr) {
-        throttledLabel_->setText(totalDropped > 0 ? tr("⚠ throttled") : QString{});
+        if (!chartStatusOverrideText_.isEmpty()) {
+            throttledLabel_->setText(chartStatusOverrideText_);
+            throttledLabel_->setToolTip(tr("Chart data stream is interrupted or frames were dropped."));
+            applyLabelClass(throttledLabel_, chartStatusOverrideClass_.toUtf8().constData());
+        } else {
+            throttledLabel_->setText(QString{});
+            throttledLabel_->setToolTip(QString{});
+            applyLabelClass(throttledLabel_, "severity-info");
+        }
     }
     // M14 F15: surface signal_buffer budget pressure to the user. Pre-fix
     // the registry silently logged "registration rejected: would exceed
@@ -907,7 +1208,10 @@ void MainWindow::refreshStatusBar() {
     // wasn't drawing some signals by reading the log file. Now the
     // status bar shows the percentage utilized and flips to a warning
     // tone above the 80 % soft threshold.
-    if (bufferBudgetLabel_ != nullptr && signalBufferRegistry_ != nullptr) {
+    if (bufferBudgetLabel_ != nullptr && !bufferBudgetOverrideText_.isEmpty()) {
+        bufferBudgetLabel_->setText(bufferBudgetOverrideText_);
+        applyLabelClass(bufferBudgetLabel_, bufferBudgetOverrideClass_.toUtf8().constData());
+    } else if (bufferBudgetLabel_ != nullptr && signalBufferRegistry_ != nullptr) {
         const std::size_t used = signalBufferRegistry_->totalMemoryBytes();
         const std::size_t budget = signalBufferRegistry_->totalBudgetBytes();
         if (budget == 0) {
@@ -915,19 +1219,24 @@ void MainWindow::refreshStatusBar() {
         } else {
             const int pct = static_cast<int>((100ULL * used) / budget);
             QString text;
+            const char* cls = "severity-info";
             if (pct >= 100) {
-                text = tr("⚠ buffer FULL (%1 MiB / %2 MiB)").arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+                text = tr("Buffer full %1/%2 MiB").arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+                cls = "severity-error";
             } else if (pct >= 80) {
-                text = tr("⚠ buffer %1%% (%2 / %3 MiB)").arg(pct).arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+                text = tr("Buffer %1% %2/%3 MiB").arg(pct).arg(used / (1024 * 1024)).arg(budget / (1024 * 1024));
+                cls = "severity-warning";
             } else {
-                text = tr("buffer %1%% (%2 MiB)").arg(pct).arg(used / (1024 * 1024));
+                text = tr("Buffer %1% %2 MiB").arg(pct).arg(used / (1024 * 1024));
             }
             bufferBudgetLabel_->setText(text);
+            applyLabelClass(bufferBudgetLabel_, cls);
         }
     }
     if (signalSelector_ != nullptr) {
         signalSelector_->refresh();
     }
+    updateEmptyStateVisibility();
 }
 
 void MainWindow::showEvent(QShowEvent* event) {
@@ -958,7 +1267,57 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         // footer. No removeSink needed.
         (void)sessionWriter_->stop();
     }
+    if (replayModeManager_ != nullptr && replayModeManager_->currentMode() == signalforge::replay::AppMode::Replay) {
+        if (!confirmExitReplayForClose()) {
+            event->ignore();
+            return;
+        }
+    }
+    if (!configSaveHealthy_) {
+        const QString detail = lastConfigSaveMessage_.isEmpty()
+                                   ? tr("Connection configuration has not been saved.")
+                                   : lastConfigSaveMessage_;
+        const auto button =
+            QMessageBox::warning(this, tr("Configuration not saved"),
+                                 tr("%1\n\nExit anyway?").arg(detail), QMessageBox::Yes | QMessageBox::Cancel,
+                                 QMessageBox::Cancel);
+        if (button != QMessageBox::Yes) {
+            event->ignore();
+            return;
+        }
+    }
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::onConfigurationSaveStateChanged(bool saved, const QString& path, const QString& message) {
+    configSaveHealthy_ = saved;
+    lastConfigSaveMessage_ = message;
+    if (configSaveStatusLabel_ == nullptr) {
+        return;
+    }
+    if (saved) {
+        configSaveStatusLabel_->setText(path.isEmpty() ? tr("Config ready") : tr("Config saved"));
+        configSaveStatusLabel_->setToolTip(path.isEmpty() ? tr("Connection configuration save status")
+                                                          : tr("Saved to %1").arg(path));
+        applyLabelClass(configSaveStatusLabel_, "severity-info");
+        if (configSaveDockBanner_ != nullptr) {
+            configSaveDockBanner_->clear();
+            configSaveDockBanner_->setVisible(false);
+        }
+        return;
+    }
+    configSaveStatusLabel_->setText(tr("Config save failed"));
+    configSaveStatusLabel_->setToolTip(message.isEmpty() ? tr("Connection configuration was not saved.") : message);
+    applyLabelClass(configSaveStatusLabel_, "severity-error");
+    if (configSaveDockBanner_ != nullptr) {
+        configSaveDockBanner_->setText(
+            message.isEmpty()
+                ? tr("Connection configuration was not saved. Fix the config path before relying on this setup.")
+                : tr("%1\nChanges remain in memory until SignalForge exits.").arg(message));
+        configSaveDockBanner_->setToolTip(configSaveDockBanner_->text());
+        configSaveDockBanner_->setVisible(true);
+        applyLabelClass(configSaveDockBanner_, "severity-error");
+    }
 }
 
 void MainWindow::buildSessionUi() {
@@ -970,9 +1329,12 @@ void MainWindow::buildSessionUi() {
 
     recordingStatusLabel_ = new QLabel;
     recordingStatusLabel_->setObjectName(QStringLiteral("recordingStatusLabel"));
-    recordingStatusLabel_->setText(tr("Idle"));
+    recordingStatusLabel_->setText(tr("Record idle"));
+    applyLabelClass(recordingStatusLabel_, "severity-info");
     recordingStatusLabel_->setToolTip(tr("Session recording status"));
-    statusBar()->addPermanentWidget(recordingStatusLabel_);
+    if (statusStripLayout_ != nullptr) {
+        statusStripLayout_->insertWidget(2, makeStatusCell(tr("Recording"), recordingStatusLabel_, statusStrip_));
+    }
 
     if (sessionWriter_ != nullptr) {
         connect(sessionWriter_.get(), &signalforge::session::SessionWriter::flushed, this,
@@ -980,6 +1342,9 @@ void MainWindow::buildSessionUi() {
         connect(sessionWriter_.get(), &signalforge::session::SessionWriter::errorOccurred, this,
                 &MainWindow::onRecordingError);
     }
+    recordingHeartbeatTimer_ = new QTimer(this);
+    recordingHeartbeatTimer_->setInterval(1000);
+    connect(recordingHeartbeatTimer_, &QTimer::timeout, this, &MainWindow::updateRecordingStatusLabel);
 }
 
 void MainWindow::onRecordToggle() {
@@ -991,9 +1356,16 @@ void MainWindow::onRecordToggle() {
         // subscribed to TeeSink across recording sessions; state gates
         // file writes.
         const std::size_t bytes = sessionWriter_->stop();
+        if (recordingHeartbeatTimer_ != nullptr) {
+            recordingHeartbeatTimer_->stop();
+        }
+        lastRecordingBytes_ = bytes;
+        updateWorkflowModeLabel();
         recordAction_->setText(tr("&Record…"));
         if (recordingStatusLabel_ != nullptr) {
-            recordingStatusLabel_->setText(tr("Stopped (%1 bytes)").arg(bytes));
+            recordingStatusLabel_->setText(
+                tr("Record stopped %1 | %2 bytes").arg(formatElapsedMs(recordingElapsed_.elapsed())).arg(bytes));
+            applyLabelClass(recordingStatusLabel_, "severity-info");
         }
         SF_LOG_INFO("MainWindow: recording stopped ({} bytes -> {})", bytes, currentRecordingPath_.toStdString());
         currentRecordingPath_.clear();
@@ -1044,24 +1416,74 @@ void MainWindow::onRecordToggle() {
     // ADR-013 (F6): SessionWriter is already subscribed to TeeSink at
     // MainWindow ctor — no per-recording addSink needed.
     currentRecordingPath_ = path;
+    lastRecordingBytes_ = 0;
+    recordingElapsed_.restart();
     recordAction_->setText(tr("&Stop recording"));
-    if (recordingStatusLabel_ != nullptr) {
-        recordingStatusLabel_->setText(tr("● Recording: %1 (0 bytes)").arg(QFileInfo(path).fileName()));
+    updateRecordingStatusLabel();
+    updateWorkflowModeLabel();
+    if (recordingHeartbeatTimer_ != nullptr) {
+        recordingHeartbeatTimer_->start();
     }
     SF_LOG_INFO("MainWindow: recording started -> {}", path.toStdString());
 }
 
 void MainWindow::onRecordingFlushed(std::size_t bytes) {
+    if (currentRecordingPath_.isEmpty()) {
+        return;
+    }
+    lastRecordingBytes_ = bytes;
+    updateRecordingStatusLabel();
+}
+
+void MainWindow::updateRecordingStatusLabel() {
     if (recordingStatusLabel_ == nullptr || currentRecordingPath_.isEmpty()) {
         return;
     }
-    recordingStatusLabel_->setText(
-        tr("● Recording: %1 (%2 bytes)").arg(QFileInfo(currentRecordingPath_).fileName()).arg(bytes));
+    const QString filename = QFileInfo(currentRecordingPath_).fileName();
+    recordingStatusLabel_->setText(tr("Recording %1 | %2 bytes | %3")
+                                       .arg(formatElapsedMs(recordingElapsed_.elapsed()))
+                                       .arg(lastRecordingBytes_)
+                                       .arg(filename));
+    applyLabelClass(recordingStatusLabel_, "mode-recording");
+}
+
+void MainWindow::updateWorkflowModeLabel() {
+    if (workflowModeLabel_ == nullptr) {
+        return;
+    }
+    const bool recording = sessionWriter_ != nullptr && sessionWriter_->isRecording();
+    const bool inReplay =
+        replayModeManager_ != nullptr && replayModeManager_->currentMode() == signalforge::replay::AppMode::Replay;
+    if (recording) {
+        workflowModeLabel_->setText(tr("Recording"));
+        applyLabelClass(workflowModeLabel_, "mode-recording");
+    } else if (inReplay) {
+        using S = signalforge::replay::PlaybackState;
+        const auto replayState = playbackController_ != nullptr ? playbackController_->state() : S::Loaded;
+        if (replayState == S::Paused) {
+            workflowModeLabel_->setText(tr("Paused"));
+            applyLabelClass(workflowModeLabel_, "mode-paused");
+        } else if (replayState == S::Ended) {
+            workflowModeLabel_->setText(tr("Ended"));
+            applyLabelClass(workflowModeLabel_, "mode-ended");
+        } else {
+            workflowModeLabel_->setText(tr("Replay"));
+            applyLabelClass(workflowModeLabel_, "mode-replay");
+        }
+    } else {
+        workflowModeLabel_->setText(tr("Live"));
+        applyLabelClass(workflowModeLabel_, "mode-live");
+    }
 }
 
 void MainWindow::onRecordingError(const QString& message) {
+    if (recordingHeartbeatTimer_ != nullptr) {
+        recordingHeartbeatTimer_->stop();
+    }
+    updateWorkflowModeLabel();
     if (recordingStatusLabel_ != nullptr) {
-        recordingStatusLabel_->setText(tr("Recording error"));
+        recordingStatusLabel_->setText(tr("Recording error | %1").arg(message));
+        applyLabelClass(recordingStatusLabel_, "severity-error");
     }
     if (recordAction_ != nullptr) {
         recordAction_->setText(tr("&Record…"));
@@ -1095,25 +1517,46 @@ void MainWindow::buildReplayUi() {
 
     // Replay toolbar — initially hidden; visible only in Replay mode.
     replayToolbar_ = addToolBar(tr("Replay"));
+    replayToolbar_->setObjectName(QStringLiteral("replayTransportToolbar"));
     replayToolbar_->setMovable(false);
     replayToolbar_->setVisible(false);
 
-    replayPlayPauseAction_ = replayToolbar_->addAction(tr("Play"));
-    connect(replayPlayPauseAction_, &QAction::triggered, this, &MainWindow::onReplayPlayPause);
-
-    replayStepBackAction_ = replayToolbar_->addAction(tr("◀ Step"));
+    auto* transportGroup = new QWidget(replayToolbar_);
+    transportGroup->setObjectName(QStringLiteral("replayTransportGroup"));
+    auto* transportLayout = new QHBoxLayout(transportGroup);
+    transportLayout->setContentsMargins(0, 0, 0, 0);
+    transportLayout->setSpacing(4);
+    auto* stepBackButton = new QToolButton(transportGroup);
+    replayStepBackAction_ = new QAction(tr("◀"), stepBackButton);
+    replayStepBackAction_->setToolTip(tr("Step backward"));
+    stepBackButton->setDefaultAction(replayStepBackAction_);
     connect(replayStepBackAction_, &QAction::triggered, this, &MainWindow::onReplayStepBackward);
-
-    replayStepForwardAction_ = replayToolbar_->addAction(tr("Step ▶"));
+    auto* playButton = new QToolButton(transportGroup);
+    replayPlayPauseAction_ = new QAction(tr("▶ Play"), playButton);
+    replayPlayPauseAction_->setToolTip(tr("Play or pause replay"));
+    playButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    playButton->setDefaultAction(replayPlayPauseAction_);
+    connect(replayPlayPauseAction_, &QAction::triggered, this, &MainWindow::onReplayPlayPause);
+    auto* stepForwardButton = new QToolButton(transportGroup);
+    replayStepForwardAction_ = new QAction(tr("▶"), stepForwardButton);
+    replayStepForwardAction_->setToolTip(tr("Step forward"));
+    stepForwardButton->setDefaultAction(replayStepForwardAction_);
     connect(replayStepForwardAction_, &QAction::triggered, this, &MainWindow::onReplayStepForward);
+    transportLayout->addWidget(stepBackButton);
+    transportLayout->addWidget(playButton);
+    transportLayout->addWidget(stepForwardButton);
+    replayToolbar_->addWidget(transportGroup);
+    replayToolbar_->addSeparator();
 
     replaySeekSlider_ = new QSlider(Qt::Horizontal, replayToolbar_);
-    replaySeekSlider_->setMinimumWidth(200);
+    replaySeekSlider_->setObjectName(QStringLiteral("replaySeekSlider"));
+    replaySeekSlider_->setMinimumWidth(260);
     replaySeekSlider_->setRange(0, 0);
     connect(replaySeekSlider_, &QSlider::valueChanged, this, &MainWindow::onReplaySeekSliderChanged);
     replayToolbar_->addWidget(replaySeekSlider_);
 
     replaySpeedCombo_ = new QComboBox(replayToolbar_);
+    replaySpeedCombo_->setObjectName(QStringLiteral("replaySpeedCombo"));
     replaySpeedCombo_->addItem(tr("0.5×"), 0.5);
     replaySpeedCombo_->addItem(tr("1×"), 1.0);
     replaySpeedCombo_->addItem(tr("2×"), 2.0);
@@ -1123,6 +1566,7 @@ void MainWindow::buildReplayUi() {
     connect(replaySpeedCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &MainWindow::onReplaySpeedChanged);
     replayToolbar_->addWidget(replaySpeedCombo_);
+    replayToolbar_->addSeparator();
 
     replayExitAction_ = replayToolbar_->addAction(tr("Exit Replay"));
     connect(replayExitAction_, &QAction::triggered, this, &MainWindow::onExitReplayRequested);
@@ -1130,8 +1574,11 @@ void MainWindow::buildReplayUi() {
     // Status-bar replay info.
     replayStatusLabel_ = new QLabel;
     replayStatusLabel_->setObjectName(QStringLiteral("replayStatusLabel"));
-    replayStatusLabel_->setText(tr(""));
-    statusBar()->addPermanentWidget(replayStatusLabel_);
+    replayStatusLabel_->setText(tr("Replay idle"));
+    applyLabelClass(replayStatusLabel_, "severity-info");
+    if (statusStripLayout_ != nullptr) {
+        statusStripLayout_->insertWidget(3, makeStatusCell(tr("Replay"), replayStatusLabel_, statusStrip_));
+    }
 
     // Wire PlaybackController + ReplayModeManager signals.
     connect(playbackController_.get(), &signalforge::replay::PlaybackController::positionChanged, this,
@@ -1146,9 +1593,13 @@ void MainWindow::buildReplayUi() {
     // mode (audit §F14). updateReplayActionStates re-reads
     // replayModeManager_->currentMode() and updates both actions.
     connect(replayModeManager_.get(), &signalforge::replay::ReplayModeManager::modeChanged, this,
-            [this](signalforge::replay::AppMode) { updateReplayActionStates(); });
+            [this](signalforge::replay::AppMode) {
+                updateReplayActionStates();
+                updateWorkflowModeLabel();
+            });
 
     updateReplayActionStates();
+    updateWorkflowModeLabel();
 }
 
 void MainWindow::onOpenSessionRequested() {
@@ -1200,7 +1651,8 @@ void MainWindow::onOpenSessionRequested() {
     replayToolbar_->setVisible(true);
     replaySeekSlider_->setRange(0, static_cast<int>(playbackController_->totalRecords()));
     if (replayStatusLabel_ != nullptr) {
-        replayStatusLabel_->setText(tr("Replay: %1").arg(QFileInfo(path).fileName()));
+        replayStatusLabel_->setText(tr("Replay loaded %1").arg(QFileInfo(path).fileName()));
+        applyLabelClass(replayStatusLabel_, "mode-replay");
     }
     updateReplayActionStates();
     SF_LOG_INFO("MainWindow: replay started -> {}", path.toStdString());
@@ -1240,7 +1692,9 @@ void MainWindow::onReplaySeekSliderChanged(int value) {
     const std::int64_t duration = playbackController_->durationNs();
     const auto target = static_cast<std::int64_t>((static_cast<double>(value) / static_cast<double>(total)) *
                                                   static_cast<double>(duration));
-    (void)playbackController_->seek(target);
+    if (playbackController_->seek(target)) {
+        onReplayPositionChanged(playbackController_->currentPositionNs(), playbackController_->currentRecordIndex());
+    }
 }
 
 void MainWindow::onReplaySpeedChanged(int index) {
@@ -1248,7 +1702,9 @@ void MainWindow::onReplaySpeedChanged(int index) {
         return;
     }
     const double speed = replaySpeedCombo_->itemData(index).toDouble();
-    (void)playbackController_->setSpeed(speed);
+    if (playbackController_->setSpeed(speed)) {
+        onReplayPositionChanged(playbackController_->currentPositionNs(), playbackController_->currentRecordIndex());
+    }
 }
 
 void MainWindow::onExitReplayRequested() {
@@ -1271,9 +1727,93 @@ void MainWindow::onExitReplayRequested() {
 
     replayToolbar_->setVisible(false);
     if (replayStatusLabel_ != nullptr) {
-        replayStatusLabel_->clear();
+        replayStatusLabel_->setText(tr("Replay idle"));
+        applyLabelClass(replayStatusLabel_, "severity-info");
     }
     updateReplayActionStates();
+}
+
+bool MainWindow::confirmExitReplayForClose() {
+    if (replayModeManager_ == nullptr || replayModeManager_->currentMode() != signalforge::replay::AppMode::Replay) {
+        return true;
+    }
+
+    bool resume = false;
+    const auto pausedIds = replayModeManager_->pausedConnectionIds();
+    if (pausedIds.isEmpty()) {
+        const auto reply = QMessageBox::question(this, tr("Exit Replay"),
+                                                 tr("A replay session is open.\n\nExit Replay and close SignalForge?"),
+                                                 QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Yes);
+        if (reply != QMessageBox::Yes) {
+            return false;
+        }
+    } else {
+        const auto reply =
+            QMessageBox::question(this, tr("Exit Replay"),
+                                  tr("A replay session is open and %1 connection(s) were paused.\n\nResume paused "
+                                     "connections before closing?")
+                                      .arg(pausedIds.size()),
+                                  QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes);
+        if (reply == QMessageBox::Cancel) {
+            return false;
+        }
+        resume = (reply == QMessageBox::Yes);
+    }
+
+    if (playbackController_ != nullptr) {
+        playbackController_->closeSession();
+    }
+    (void)replayModeManager_->exitReplay(resume);
+    if (replayToolbar_ != nullptr) {
+        replayToolbar_->setVisible(false);
+    }
+    if (replayStatusLabel_ != nullptr) {
+        replayStatusLabel_->setText(tr("Replay idle"));
+        applyLabelClass(replayStatusLabel_, "severity-info");
+    }
+    updateReplayActionStates();
+    updateWorkflowModeLabel();
+    return true;
+}
+
+void MainWindow::updateReplayStatusLabel() {
+    if (replayStatusLabel_ == nullptr || playbackController_ == nullptr) {
+        return;
+    }
+    using S = signalforge::replay::PlaybackState;
+    const auto st = playbackController_->state();
+    if (st == S::Idle) {
+        replayStatusLabel_->setText(tr("Replay idle"));
+        applyLabelClass(replayStatusLabel_, "severity-info");
+        return;
+    }
+    if (st == S::Error) {
+        replayStatusLabel_->setText(tr("Replay error"));
+        applyLabelClass(replayStatusLabel_, "severity-error");
+        return;
+    }
+    const QString filename = QFileInfo(playbackController_->currentFilePath()).fileName();
+    QString stateText = tr("Loaded");
+    if (st == S::Playing) {
+        stateText = tr("Playing");
+    } else if (st == S::Paused) {
+        stateText = tr("Paused");
+    } else if (st == S::Ended) {
+        stateText = tr("Ended");
+    }
+    replayStatusLabel_->setText(tr("%1 %2/%3")
+                                    .arg(stateText)
+                                    .arg(formatReplayStatusSeconds(playbackController_->currentPositionNs()))
+                                    .arg(formatReplayStatusSeconds(playbackController_->durationNs())));
+    replayStatusLabel_->setToolTip(tr("%1 | %2/%3 | %4 records")
+                                       .arg(filename)
+                                       .arg(formatReplayPosition(playbackController_->currentPositionNs()))
+                                       .arg(formatReplayPosition(playbackController_->durationNs()))
+                                       .arg(playbackController_->totalRecords()));
+    const char* cls = st == S::Paused  ? "mode-paused"
+                      : st == S::Ended ? "mode-ended"
+                                       : "mode-replay";
+    applyLabelClass(replayStatusLabel_, cls);
 }
 
 void MainWindow::onReplayPositionChanged(std::int64_t timestampNs, std::size_t recordIndex) {
@@ -1289,17 +1829,33 @@ void MainWindow::onReplayPositionChanged(std::int64_t timestampNs, std::size_t r
         // M14 F12: relative-from-zero mm:ss.fff format per M11 §Test 4
         // / §Test 5 (audit §F12). Pre-fix the formatter emitted raw
         // nanoseconds which read like an absolute UTC timestamp.
-        replayStatusLabel_->setText(tr("Replay: %1 | %2 / %3 | %4 / %5 records")
-                                        .arg(filename)
-                                        .arg(formatReplayPosition(timestampNs))
-                                        .arg(formatReplayPosition(playbackController_->durationNs()))
-                                        .arg(recordIndex)
-                                        .arg(playbackController_->totalRecords()));
+        using S = signalforge::replay::PlaybackState;
+        const auto st = playbackController_->state();
+        const QString stateText = st == S::Playing  ? tr("Playing")
+                                  : st == S::Paused ? tr("Paused")
+                                  : st == S::Ended  ? tr("Ended")
+                                                    : tr("Loaded");
+        replayStatusLabel_->setText(tr("%1 %2/%3")
+                                        .arg(stateText)
+                                        .arg(formatReplayStatusSeconds(timestampNs))
+                                        .arg(formatReplayStatusSeconds(playbackController_->durationNs())));
+        replayStatusLabel_->setToolTip(tr("%1 | %2/%3 | %4/%5 records")
+                                           .arg(filename)
+                                           .arg(formatReplayPosition(timestampNs))
+                                           .arg(formatReplayPosition(playbackController_->durationNs()))
+                                           .arg(recordIndex)
+                                           .arg(playbackController_->totalRecords()));
+        const char* cls = st == S::Paused  ? "mode-paused"
+                          : st == S::Ended ? "mode-ended"
+                                           : "mode-replay";
+        applyLabelClass(replayStatusLabel_, cls);
     }
 }
 
 void MainWindow::onReplayStateChanged() {
     updateReplayActionStates();
+    updateWorkflowModeLabel();
+    updateReplayStatusLabel();
 }
 
 void MainWindow::onReplayError(const QString& message) {
@@ -1312,7 +1868,7 @@ void MainWindow::updateReplayActionStates() {
     }
     const auto st = playbackController_->state();
     using S = signalforge::replay::PlaybackState;
-    replayPlayPauseAction_->setText(st == S::Playing ? tr("Pause") : tr("Play"));
+    replayPlayPauseAction_->setText(st == S::Playing ? tr("Pause") : tr("▶ Play"));
     replayPlayPauseAction_->setEnabled(st == S::Loaded || st == S::Paused || st == S::Playing);
     replayStepForwardAction_->setEnabled(st == S::Loaded || st == S::Paused);
     replayStepBackAction_->setEnabled(st == S::Loaded || st == S::Paused || st == S::Ended);

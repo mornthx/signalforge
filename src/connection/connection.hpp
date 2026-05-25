@@ -69,9 +69,10 @@ using DriverConfig = std::variant<signalforge::drivers::SerialConfig, signalforg
 /// connect-time via the `DecoderRegistrar` configured in
 /// `MainWindow`).
 ///
-/// `autoConnectOnStartup` is **forward-compatibility only** in V1;
-/// per design decision M9.2 the V1 reconnect behavior is manual
-/// (see `docs/milestones/M9-connection-manager.md` §3.2).
+/// `autoConnectOnStartup` is opt-in startup behavior. It defaults
+/// to false so normal launch remains manual, but persisted configs
+/// that explicitly set it true are connected after the startup config
+/// file is loaded.
 ///
 /// Frozen at M9 close: field set + names + default values.
 struct ConnectionConfig {

@@ -173,6 +173,7 @@ bool PlaybackController::seek(std::int64_t timestampNs) {
         state_ = PlaybackState::Paused;
         emit stateChanged(state_);
     }
+    emit positionChanged(player_->currentPositionNs(), player_->currentRecordIndex());
     return true;
 }
 
@@ -180,8 +181,16 @@ bool PlaybackController::setSpeed(double factor) {
     if (!player_) {
         return false;
     }
+    const bool wasPlaying = state_ == PlaybackState::Playing;
+    if (wasPlaying) {
+        player_->pause();
+    }
     player_->setSpeed(factor);
+    if (wasPlaying && !player_->atEnd()) {
+        player_->play();
+    }
     emit speedChanged(player_->currentSpeed());
+    emit positionChanged(player_->currentPositionNs(), player_->currentRecordIndex());
     return true;
 }
 

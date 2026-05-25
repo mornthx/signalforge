@@ -21,7 +21,9 @@ inline constexpr const char* kBgPrimaryHex = "#fbfbfa";
 inline constexpr const char* kBgSurfaceHex = "#ffffff";
 inline constexpr const char* kBorderHex = "#d6d6d4";
 inline constexpr const char* kBorderFocusHex = "#3b7ddd";
+inline constexpr const char* kModeEndedHex = "#5a5d63";
 inline constexpr const char* kModeLiveHex = "#2d8a3e";
+inline constexpr const char* kModePausedHex = "#d4a72c";
 inline constexpr const char* kModeRecordingHex = "#c8392a";
 inline constexpr const char* kModeReplayHex = "#3b7ddd";
 inline constexpr const char* kSeverityErrorHex = "#c8392a";
@@ -51,7 +53,9 @@ inline QColor bgPrimary() { return QColor(QString::fromLatin1("#fbfbfa")); }
 inline QColor bgSurface() { return QColor(QString::fromLatin1("#ffffff")); }
 inline QColor border() { return QColor(QString::fromLatin1("#d6d6d4")); }
 inline QColor borderFocus() { return QColor(QString::fromLatin1("#3b7ddd")); }
+inline QColor modeEnded() { return QColor(QString::fromLatin1("#5a5d63")); }
 inline QColor modeLive() { return QColor(QString::fromLatin1("#2d8a3e")); }
+inline QColor modePaused() { return QColor(QString::fromLatin1("#d4a72c")); }
 inline QColor modeRecording() { return QColor(QString::fromLatin1("#c8392a")); }
 inline QColor modeReplay() { return QColor(QString::fromLatin1("#3b7ddd")); }
 inline QColor severityError() { return QColor(QString::fromLatin1("#c8392a")); }

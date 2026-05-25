@@ -248,6 +248,8 @@ def gen_qss(light: dict[str, Any], version: str) -> str:
     lines.append("QLabel[class=\"mode-live\"]           { color: " + color["mode.live"] + "; }")
     lines.append("QLabel[class=\"mode-recording\"]      { color: " + color["mode.recording"] + "; }")
     lines.append("QLabel[class=\"mode-replay\"]         { color: " + color["mode.replay"] + "; }")
+    lines.append("QLabel[class=\"mode-paused\"]         { color: " + color["mode.paused"] + "; }")
+    lines.append("QLabel[class=\"mode-ended\"]          { color: " + color["mode.ended"] + "; }")
     lines.append("QLabel[class=\"severity-info\"]       { color: " + color["severity.info"] + "; }")
     lines.append("QLabel[class=\"severity-warning\"]    { color: " + color["severity.warning"] + "; }")
     lines.append("QLabel[class=\"severity-error\"]      { color: " + color["severity.error"] + "; }")

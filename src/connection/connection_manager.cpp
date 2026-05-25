@@ -9,7 +9,9 @@
 #include "decode/decoder_registrar.hpp"
 #include "observability/logging.hpp"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <fstream>
@@ -45,7 +47,16 @@ QString resolveSchemaPath(const QString& decoderSchemaId) {
     if (decoderSchemaId.isEmpty()) {
         return QString();
     }
-    return QStringLiteral("examples/schemas/") + decoderSchemaId + QStringLiteral(".yaml");
+    QString value = decoderSchemaId.trimmed();
+    if (value.startsWith(QStringLiteral("~/"))) {
+        value = QDir::homePath() + value.mid(1);
+    }
+    const bool looksLikePath = value.contains(QLatin1Char('/')) || value.endsWith(QStringLiteral(".yaml")) ||
+                               value.endsWith(QStringLiteral(".yml"));
+    if (looksLikePath) {
+        return QFileInfo(value).absoluteFilePath();
+    }
+    return QStringLiteral("examples/schemas/") + value + QStringLiteral(".yaml");
 }
 
 // ADR-008 wire-up: map a ConnectionConfig onto a
@@ -186,6 +197,20 @@ void ConnectionManager::disconnectAll() {
             (void)it->second->disconnectDriver();
         }
     }
+}
+
+int ConnectionManager::connectStartupConnections() {
+    int attempts = 0;
+    for (const QString& id : orderedIds_) {
+        auto it = connections_.find(id);
+        if (it == connections_.end() || !it->second || !it->second->config().autoConnectOnStartup) {
+            continue;
+        }
+        if (it->second->connectDriver()) {
+            ++attempts;
+        }
+    }
+    return attempts;
 }
 
 Connection* ConnectionManager::connection(const QString& id) const {
@@ -581,11 +606,16 @@ void ConnectionManager::wireConnection(const QString& id, Connection& conn) {
             [this, id](const QString& msg) { Q_EMIT connectionError(id, msg); });
 }
 
-bool ConnectionManager::autoSave() const {
+bool ConnectionManager::autoSave() {
     if (configPath_.isEmpty()) {
+        Q_EMIT configurationSaveStateChanged(true, QString(), QString());
         return true;  // No path configured yet; nothing to save.
     }
-    return saveConfigFile(configPath_);
+    const bool saved = saveConfigFile(configPath_);
+    Q_EMIT configurationSaveStateChanged(
+        saved, configPath_,
+        saved ? QString() : tr("Could not save connection configuration to %1").arg(configPath_));
+    return saved;
 }
 
 void ConnectionManager::insertConnection(const QString& id, std::unique_ptr<Connection> conn) {

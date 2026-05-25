@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSerialPortInfo>
 #include <QSpinBox>
@@ -53,10 +54,9 @@ ConnectionDialog::ConnectionDialog(QStringList availableSchemaIds, QWidget* pare
     }
     commonForm->addRow(tr("Decoder schema"), schemaCombo_);
 
-    autoConnectStartup_ = new QCheckBox(tr("Auto-connect on startup (V1.5+: currently has no effect)"), commonGroup);
-    autoConnectStartup_->setToolTip(tr("Per design decision M9.2, V1 reconnect is manual. "
-                                       "This flag is preserved in yaml for forward compatibility."));
-    commonForm->addRow(QString(), autoConnectStartup_);
+    autoConnectStartup_ = new QCheckBox(tr("Auto-connect on startup"), commonGroup);
+    autoConnectStartup_->setToolTip(tr("Preserved in saved configs for future workflow support."));
+    autoConnectStartup_->setVisible(false);
 
     typeCombo_ = new QComboBox(commonGroup);
     typeCombo_->addItem(tr("Serial"), QVariant::fromValue(static_cast<int>(DriverType::Serial)));
@@ -80,7 +80,7 @@ ConnectionDialog::ConnectionDialog(QStringList availableSchemaIds, QWidget* pare
 
     // ── Buttons ─────────────────────────────────────────────
     auto* buttonRow = new QHBoxLayout();
-    testBtn_ = new QPushButton(tr("Test connection"), this);
+    testBtn_ = new QPushButton(tr("Validate fields"), this);
     okButton_ = new QPushButton(tr("OK"), this);
     cancelButton_ = new QPushButton(tr("Cancel"), this);
     okButton_->setDefault(true);
@@ -96,6 +96,7 @@ ConnectionDialog::ConnectionDialog(QStringList availableSchemaIds, QWidget* pare
     connect(testBtn_, &QPushButton::clicked, this, &ConnectionDialog::onTestConnectionClicked);
 
     wireValidationSignals();
+    setDriverType(DriverType::Udp);
     revalidate();
 }
 
@@ -233,31 +234,39 @@ QWidget* ConnectionDialog::buildReplayPage() {
 }
 
 QWidget* ConnectionDialog::buildCommandsPage() {
-    auto* group = new QGroupBox(tr("Auto-connect commands"), this);
-    auto* outer = new QVBoxLayout(group);
+    commandsGroup_ = new QGroupBox(tr("Advanced: auto-connect commands"), this);
+    commandsGroup_->setCheckable(true);
+    commandsGroup_->setChecked(false);
+    commandsGroup_->setToolTip(
+        tr("Optional byte commands sent after a connection opens. Leave collapsed for normal sources."));
+    auto* groupOuter = new QVBoxLayout(commandsGroup_);
 
-    commandsList_ = new QListWidget(group);
+    commandsBody_ = new QWidget(commandsGroup_);
+    auto* outer = new QVBoxLayout(commandsBody_);
+    outer->setContentsMargins(0, 4, 0, 0);
+
+    commandsList_ = new QListWidget(commandsBody_);
     outer->addWidget(commandsList_);
 
     auto* form = new QFormLayout();
-    cmdName_ = new QLineEdit(group);
+    cmdName_ = new QLineEdit(commandsBody_);
     form->addRow(tr("Name"), cmdName_);
 
-    cmdPayloadHex_ = new QLineEdit(group);
+    cmdPayloadHex_ = new QLineEdit(commandsBody_);
     cmdPayloadHex_->setPlaceholderText(QStringLiteral("hex bytes, e.g. 454e41424c450a"));
     form->addRow(tr("Payload (hex)"), cmdPayloadHex_);
 
-    cmdExpectedHex_ = new QLineEdit(group);
+    cmdExpectedHex_ = new QLineEdit(commandsBody_);
     cmdExpectedHex_->setPlaceholderText(QStringLiteral("optional hex bytes for expected response"));
     form->addRow(tr("Expected (hex)"), cmdExpectedHex_);
 
-    cmdTimeout_ = new QSpinBox(group);
+    cmdTimeout_ = new QSpinBox(commandsBody_);
     cmdTimeout_->setRange(0, 300000);
     cmdTimeout_->setValue(1000);
     cmdTimeout_->setSuffix(QStringLiteral(" ms"));
     form->addRow(tr("Timeout"), cmdTimeout_);
 
-    cmdDelay_ = new QSpinBox(group);
+    cmdDelay_ = new QSpinBox(commandsBody_);
     cmdDelay_->setRange(0, 60000);
     cmdDelay_->setValue(0);
     cmdDelay_->setSuffix(QStringLiteral(" ms"));
@@ -266,17 +275,20 @@ QWidget* ConnectionDialog::buildCommandsPage() {
     outer->addLayout(form);
 
     auto* btnRow = new QHBoxLayout();
-    addCmdBtn_ = new QPushButton(tr("Add"), group);
-    removeCmdBtn_ = new QPushButton(tr("Remove selected"), group);
+    addCmdBtn_ = new QPushButton(tr("Add"), commandsBody_);
+    removeCmdBtn_ = new QPushButton(tr("Remove selected"), commandsBody_);
     btnRow->addWidget(addCmdBtn_);
     btnRow->addWidget(removeCmdBtn_);
     btnRow->addStretch();
     outer->addLayout(btnRow);
 
+    groupOuter->addWidget(commandsBody_);
+    commandsBody_->setVisible(false);
+    connect(commandsGroup_, &QGroupBox::toggled, commandsBody_, &QWidget::setVisible);
     connect(addCmdBtn_, &QPushButton::clicked, this, &ConnectionDialog::onAddCommand);
     connect(removeCmdBtn_, &QPushButton::clicked, this, &ConnectionDialog::onRemoveCommand);
 
-    return group;
+    return commandsGroup_;
 }
 
 void ConnectionDialog::wireValidationSignals() {
@@ -362,11 +374,11 @@ void ConnectionDialog::onRemoveCommand() {
 }
 
 void ConnectionDialog::onTestConnectionClicked() {
-    // V1: open + close round-trip without producing real frames.
-    // The full "test" UX is V1.5+ per spec §3.1. The button is
-    // wired so the slot exists for tests; full driver round-trip
-    // is M9 S10's integration test territory.
-    SF_LOG_INFO("ConnectionDialog::onTestConnectionClicked stub (V1)");
+    revalidate();
+    const QString msg = isValid() ? tr("The current fields form a valid connection configuration.")
+                                  : tr("Complete the required fields before saving this connection.");
+    SF_LOG_INFO("ConnectionDialog::onTestConnectionClicked validation_only valid={}", isValid());
+    QMessageBox::information(this, tr("Validate fields"), msg);
 }
 
 void ConnectionDialog::setConfig(const ConnectionConfig& cfg) {
@@ -399,6 +411,11 @@ void ConnectionDialog::setConfig(const ConnectionConfig& cfg) {
     }
 
     commands_ = cfg.autoConnectCommands;
+    if (commandsGroup_ != nullptr && commandsBody_ != nullptr) {
+        const bool hasCommands = !commands_.empty();
+        commandsGroup_->setChecked(hasCommands);
+        commandsBody_->setVisible(hasCommands);
+    }
     commandsList_->clear();
     for (const auto& c : commands_) {
         commandsList_->addItem(QStringLiteral("%1: %2 bytes (timeout %3ms, delay %4ms)")
