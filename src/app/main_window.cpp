@@ -288,6 +288,7 @@ void MainWindow::buildChartUi() {
     setCentralWidget(centralSplitter_);
 
     auto* toolbar = addToolBar(tr("Chart"));
+    toolbar->setObjectName(QStringLiteral("chartToolbar"));
     toolbar->setMovable(false);
 
     liveToggle_ = new QToolButton(toolbar);
@@ -1209,7 +1210,9 @@ void MainWindow::rebuildChartWidgets() {
     auto* actions = new QHBoxLayout();
     actions->setSpacing(8);
     emptyAddConnectionButton_ = new QPushButton(tr("Add connection"), chartEmptyState_);
+    emptyAddConnectionButton_->setProperty("class", QLatin1String("primary"));
     emptyOpenSessionButton_ = new QPushButton(tr("Open session"), chartEmptyState_);
+    emptyOpenSessionButton_->setProperty("class", QLatin1String("primary"));
     emptyLoadSchemaButton_ = new QPushButton(tr("Load schema"), chartEmptyState_);
     emptyLoadSchemaButton_->setToolTip(tr("Decoder schemas are selected while adding or editing a connection."));
     actions->addWidget(emptyAddConnectionButton_);
