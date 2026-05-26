@@ -4,7 +4,9 @@
 Reads `resources/styles/tokens.json` (canonical source per
 M16-concerns §C4 + R15). Generates 3 consumer files:
 
-  resources/styles/tokens.qss             (Qt stylesheet snippet)
+  resources/styles/tokens.qss             (Qt stylesheet snippet, light)
+  resources/styles/tokens-dark.qss        (Qt stylesheet snippet, dark)
+  resources/styles/tokens-high-contrast.qss (Qt stylesheet snippet, high contrast)
   src/app/generated_style_tokens.hpp      (C++ constexpr + helpers)
   tests/visual/lib/generated_tokens.py    (Python test consumer)
 
@@ -42,8 +44,11 @@ TOKENS_JSON = REPO_ROOT / "resources" / "styles" / "tokens.json"
 SCHEMA_JSON = REPO_ROOT / "resources" / "styles" / "tokens.schema.json"
 
 OUTPUT_QSS  = REPO_ROOT / "resources" / "styles" / "tokens.qss"
+OUTPUT_QSS_DARK = REPO_ROOT / "resources" / "styles" / "tokens-dark.qss"
+OUTPUT_QSS_HIGH_CONTRAST = REPO_ROOT / "resources" / "styles" / "tokens-high-contrast.qss"
 OUTPUT_HPP  = REPO_ROOT / "src" / "app" / "generated_style_tokens.hpp"
 OUTPUT_PY   = REPO_ROOT / "tests" / "visual" / "lib" / "generated_tokens.py"
+THEME_ORDER = ("light", "dark", "high_contrast")
 
 DO_NOT_EDIT_HEADER = (
     "GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY\n"
@@ -70,6 +75,15 @@ def light_theme(tokens: dict[str, Any]) -> dict[str, Any]:
         sys.stderr.write("tokens.json: themes.light is required (M16 spec §3 M16.2)\n")
         sys.exit(2)
     return light
+
+
+def required_themes(tokens: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    themes = tokens.get("themes", {})
+    missing = [name for name in THEME_ORDER if name not in themes]
+    if missing:
+        sys.stderr.write("tokens.json: M20 requires themes: " + ", ".join(missing) + "\n")
+        sys.exit(2)
+    return {name: themes[name] for name in THEME_ORDER}
 
 
 # ----- minimal JSON Schema validation (stdlib only) --------------------------
@@ -105,8 +119,8 @@ def validate_tokens(tokens: dict[str, Any]) -> list[str]:
     if "light" not in themes:
         errors.append("'themes.light' is required (M16 spec)")
     for theme_name, theme in themes.items():
-        if theme_name not in ("light", "dark"):
-            errors.append(f"'themes.{theme_name}' unknown (only light + dark allowed)")
+        if theme_name not in THEME_ORDER:
+            errors.append(f"'themes.{theme_name}' unknown (only light + dark + high_contrast allowed)")
             continue
         errors.extend(_validate_theme(theme_name, theme))
 
@@ -172,15 +186,15 @@ def _validate_theme(name: str, theme: dict[str, Any]) -> list[str]:
 # ----- generators ------------------------------------------------------------
 
 
-def gen_qss(light: dict[str, Any], version: str) -> str:
-    color = light["color"]
-    font = light["font"]
-    spacing = light["spacing"]
+def gen_qss(theme: dict[str, Any], version: str, theme_name: str) -> str:
+    color = theme["color"]
+    font = theme["font"]
+    spacing = theme["spacing"]
     lines: list[str] = []
     lines.append("/*")
     for line in DO_NOT_EDIT_HEADER.splitlines():
         lines.append(f" * {line}")
-    lines.append(f" * tokens.json version {version}")
+    lines.append(f" * tokens.json version {version}; theme={theme_name}")
     lines.append(" *")
     lines.append(" * M16 S2: token snippet scaffold. S4 SignalForgeStyle loads this")
     lines.append(" * via QApplication::setStyleSheet after Fusion + palette init.")
@@ -214,7 +228,7 @@ def gen_qss(light: dict[str, Any], version: str) -> str:
     lines.append(f"    padding: {spacing['xs']}px {spacing['sm']}px;")
     lines.append("}")
     lines.append("QPushButton:focus {")
-    lines.append(f"    border: 1px solid {color['border.focus']};")
+    lines.append(f"    border: 2px solid {color['border.focus']};")
     lines.append("}")
     lines.append("QPushButton:disabled {")
     lines.append(f"    color: {color['text.disabled']};")
@@ -226,8 +240,12 @@ def gen_qss(light: dict[str, Any], version: str) -> str:
     lines.append(f"    border: 1px solid {color['border']};")
     lines.append(f"    padding: {spacing['xs']}px {spacing['sm']}px;")
     lines.append("}")
-    lines.append("QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {")
-    lines.append(f"    border: 1px solid {color['border.focus']};")
+    lines.append("QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QSlider:focus, QToolButton:focus, QListWidget:focus, QTreeView:focus {")
+    lines.append(f"    border: 2px solid {color['border.focus']};")
+    lines.append("}")
+    lines.append("QMenuBar::item:selected, QMenu::item:selected {")
+    lines.append(f"    background-color: {color['border.focus']};")
+    lines.append(f"    color: {color['bg.primary']};")
     lines.append("}")
     lines.append("")
     lines.append("/* ===== Panel chrome ===== */")
@@ -260,6 +278,8 @@ def gen_qss(light: dict[str, Any], version: str) -> str:
     lines.append("QLabel[class=\"caption\"]  { font-size: " + str(font["size.caption"]) + "px; color: " + color["text.secondary"] + "; }")
     lines.append("QLabel[class=\"mono\"]     { font-family: \"" + font["family.mono"] + "\"; font-size: " + str(font["size.mono"]) + "px; }")
     lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines) + "\n"
 
 
@@ -269,11 +289,11 @@ def _cpp_token_name(key: str) -> str:
     return "".join(p[:1].upper() + p[1:] for p in parts)
 
 
-def gen_hpp(light: dict[str, Any], version: str) -> str:
-    color = light["color"]
-    font = light["font"]
-    spacing = light["spacing"]
-    icon = light["icon"]
+def _cpp_namespace(theme_name: str) -> str:
+    return theme_name
+
+
+def gen_hpp(themes: dict[str, dict[str, Any]], version: str) -> str:
     lines: list[str] = []
     lines.append("#pragma once")
     lines.append("")
@@ -287,55 +307,65 @@ def gen_hpp(light: dict[str, Any], version: str) -> str:
     lines.append("#include <QColor>")
     lines.append("#include <QString>")
     lines.append("")
-    lines.append("namespace signalforge::tokens::light {")
-    lines.append("")
-    lines.append("// ----- Color hex strings (string-form for QSS interop) -------------")
-    lines.append("")
-    for k in sorted(color.keys()):
-        cname = _cpp_token_name("color." + k)
-        # strip leading "Color" to keep names compact
-        if cname.startswith("Color"):
-            cname = cname[len("Color"):]
-        lines.append(f'inline constexpr const char* k{cname}Hex = "{color[k]}";')
-    lines.append("")
-    lines.append("// ----- Color QColor accessors (inline; QColor not constexpr) ------")
-    lines.append("")
-    for k in sorted(color.keys()):
-        cname = _cpp_token_name("color." + k)
-        if cname.startswith("Color"):
-            cname = cname[len("Color"):]
-        lines.append(f'inline QColor {cname[:1].lower() + cname[1:]}() {{ return QColor(QString::fromLatin1("{color[k]}")); }}')
-    lines.append("")
-    lines.append("// ----- Font ---------------------------------------------------------")
-    lines.append("")
-    lines.append(f'inline constexpr const char* kFontFamilySans = "{font["family.sans"]}";')
-    lines.append(f'inline constexpr const char* kFontFamilyMono = "{font["family.mono"]}";')
-    lines.append(f'inline constexpr int kFontSizeDisplay = {font["size.display"]};')
-    lines.append(f'inline constexpr int kFontSizeHeading = {font["size.heading"]};')
-    lines.append(f'inline constexpr int kFontSizeBody    = {font["size.body"]};')
-    lines.append(f'inline constexpr int kFontSizeCaption = {font["size.caption"]};')
-    lines.append(f'inline constexpr int kFontSizeMono    = {font["size.mono"]};')
-    lines.append(f'inline constexpr int kFontWeightRegular = {font["weight.regular"]};')
-    lines.append(f'inline constexpr int kFontWeightMedium  = {font["weight.medium"]};')
-    lines.append(f'inline constexpr int kFontWeightBold    = {font["weight.bold"]};')
-    lines.append("")
-    lines.append("// ----- Spacing (px) -------------------------------------------------")
-    lines.append("")
-    for k in ("xs", "sm", "md", "lg", "xl"):
-        if k in spacing:
-            lines.append(f'inline constexpr int kSpacing{k[:1].upper()}{k[1:]} = {spacing[k]};')
-    lines.append("")
-    lines.append("// ----- Icon sizes (px) ----------------------------------------------")
-    lines.append("")
-    lines.append(f'inline constexpr int kIconSm = {icon["size.sm"]};')
-    lines.append(f'inline constexpr int kIconMd = {icon["size.md"]};')
-    lines.append(f'inline constexpr int kIconLg = {icon["size.lg"]};')
-    lines.append("")
-    lines.append("}  // namespace signalforge::tokens::light")
+    for theme_name in THEME_ORDER:
+        theme = themes[theme_name]
+        color = theme["color"]
+        font = theme["font"]
+        spacing = theme["spacing"]
+        icon = theme["icon"]
+        ns = _cpp_namespace(theme_name)
+        lines.append(f"namespace signalforge::tokens::{ns} {{")
+        lines.append("")
+        lines.append("// ----- Color hex strings (string-form for QSS interop) -------------")
+        lines.append("")
+        for k in sorted(color.keys()):
+            cname = _cpp_token_name("color." + k)
+            if cname.startswith("Color"):
+                cname = cname[len("Color"):]
+            lines.append(f'inline constexpr const char* k{cname}Hex = "{color[k]}";')
+        lines.append("")
+        lines.append("// ----- Color QColor accessors (inline; QColor not constexpr) ------")
+        lines.append("")
+        for k in sorted(color.keys()):
+            cname = _cpp_token_name("color." + k)
+            if cname.startswith("Color"):
+                cname = cname[len("Color"):]
+            lines.append(f'inline QColor {cname[:1].lower() + cname[1:]}() {{ return QColor(QString::fromLatin1("{color[k]}")); }}')
+        lines.append("")
+        lines.append("// ----- Font ---------------------------------------------------------")
+        lines.append("")
+        lines.append(f'inline constexpr const char* kFontFamilySans = "{font["family.sans"]}";')
+        lines.append(f'inline constexpr const char* kFontFamilyMono = "{font["family.mono"]}";')
+        lines.append(f'inline constexpr int kFontSizeDisplay = {font["size.display"]};')
+        lines.append(f'inline constexpr int kFontSizeHeading = {font["size.heading"]};')
+        lines.append(f'inline constexpr int kFontSizeBody    = {font["size.body"]};')
+        lines.append(f'inline constexpr int kFontSizeCaption = {font["size.caption"]};')
+        lines.append(f'inline constexpr int kFontSizeMono    = {font["size.mono"]};')
+        lines.append(f'inline constexpr int kFontWeightRegular = {font["weight.regular"]};')
+        lines.append(f'inline constexpr int kFontWeightMedium  = {font["weight.medium"]};')
+        lines.append(f'inline constexpr int kFontWeightBold    = {font["weight.bold"]};')
+        lines.append("")
+        lines.append("// ----- Spacing (px) -------------------------------------------------")
+        lines.append("")
+        for k in ("xs", "sm", "md", "lg", "xl"):
+            if k in spacing:
+                lines.append(f'inline constexpr int kSpacing{k[:1].upper()}{k[1:]} = {spacing[k]};')
+        lines.append("")
+        lines.append("// ----- Icon sizes (px) ----------------------------------------------")
+        lines.append("")
+        lines.append(f'inline constexpr int kIconSm = {icon["size.sm"]};')
+        lines.append(f'inline constexpr int kIconMd = {icon["size.md"]};')
+        lines.append(f'inline constexpr int kIconLg = {icon["size.lg"]};')
+        lines.append("")
+        lines.append(f"}}  // namespace signalforge::tokens::{ns}")
+        lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines) + "\n"
 
 
-def gen_py(light: dict[str, Any], version: str) -> str:
+def gen_py(themes: dict[str, dict[str, Any]], version: str) -> str:
+    light = themes["light"]
     color = light["color"]
     font = light["font"]
     spacing = light["spacing"]
@@ -382,6 +412,18 @@ def gen_py(light: dict[str, Any], version: str) -> str:
         lines.append(f'    "{k}": {icon[k]},')
     lines.append("}")
     lines.append("")
+    lines.append("THEMES: Final[dict[str, dict[str, dict[str, object]]]] = {")
+    for theme_name in THEME_ORDER:
+        theme = themes[theme_name]
+        lines.append(f'    "{theme_name}": {{')
+        for group in ("color", "font", "spacing", "icon"):
+            lines.append(f'        "{group}": {{')
+            for key, value in sorted(theme[group].items()):
+                lines.append(f'            "{key}": {value!r},')
+            lines.append("        },")
+        lines.append("    },")
+    lines.append("}")
+    lines.append("")
     return "\n".join(lines) + "\n"
 
 
@@ -402,13 +444,16 @@ def check_mode() -> int:
         for e in errors:
             sys.stderr.write(f"  - {e}\n")
         return 2
-    light = light_theme(tokens)
+    themes = required_themes(tokens)
+    light = themes["light"]
     version = tokens["version"]
 
     expected = {
-        OUTPUT_QSS: gen_qss(light, version),
-        OUTPUT_HPP: gen_hpp(light, version),
-        OUTPUT_PY:  gen_py(light, version),
+        OUTPUT_QSS: gen_qss(light, version, "light"),
+        OUTPUT_QSS_DARK: gen_qss(themes["dark"], version, "dark"),
+        OUTPUT_QSS_HIGH_CONTRAST: gen_qss(themes["high_contrast"], version, "high_contrast"),
+        OUTPUT_HPP: gen_hpp(themes, version),
+        OUTPUT_PY:  gen_py(themes, version),
     }
 
     drift: list[Path] = []
@@ -440,15 +485,18 @@ def generate_mode() -> int:
         for e in errors:
             sys.stderr.write(f"  - {e}\n")
         return 2
-    light = light_theme(tokens)
+    themes = required_themes(tokens)
+    light = themes["light"]
     version = tokens["version"]
 
-    write_file(OUTPUT_QSS, gen_qss(light, version))
-    write_file(OUTPUT_HPP, gen_hpp(light, version))
-    write_file(OUTPUT_PY,  gen_py(light, version))
+    write_file(OUTPUT_QSS, gen_qss(light, version, "light"))
+    write_file(OUTPUT_QSS_DARK, gen_qss(themes["dark"], version, "dark"))
+    write_file(OUTPUT_QSS_HIGH_CONTRAST, gen_qss(themes["high_contrast"], version, "high_contrast"))
+    write_file(OUTPUT_HPP, gen_hpp(themes, version))
+    write_file(OUTPUT_PY,  gen_py(themes, version))
 
     print(f"Generated tokens v{version}:")
-    for p in (OUTPUT_QSS, OUTPUT_HPP, OUTPUT_PY):
+    for p in (OUTPUT_QSS, OUTPUT_QSS_DARK, OUTPUT_QSS_HIGH_CONTRAST, OUTPUT_HPP, OUTPUT_PY):
         print(f"  {p.relative_to(REPO_ROOT)}  ({p.stat().st_size} bytes)")
     return 0
 

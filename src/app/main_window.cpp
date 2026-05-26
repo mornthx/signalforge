@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "app_style.hpp"
 #include "buffer/signal_buffer_registry.hpp"
 #include "chart/chart.hpp"
 #include "chart/chart_manager.hpp"
@@ -19,6 +20,8 @@
 #include "session/tee_signal_value_sink.hpp"
 
 #include <QAction>
+#include <QActionGroup>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDir>
@@ -105,6 +108,13 @@ void applyLabelClass(QLabel* label, const char* className) {
     label->style()->unpolish(label);
     label->style()->polish(label);
     label->update();
+}
+
+void applyChartHostTheme(QQuickWidget* hostWidget) {
+    if (hostWidget == nullptr) {
+        return;
+    }
+    hostWidget->setClearColor(QApplication::palette().color(QPalette::Base));
 }
 
 QFrame* makeStatusCell(const QString& titleText, QWidget* valueWidget, QWidget* parent) {
@@ -245,6 +255,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     buildConnectionUi();
     buildSessionUi();
     buildReplayUi();
+    buildThemeUi();
 }
 
 MainWindow::~MainWindow() = default;
@@ -397,6 +408,68 @@ void MainWindow::buildConnectionUi() {
                     signalSelector_->refresh();
                 }
             });
+}
+
+void MainWindow::buildThemeUi() {
+    auto* viewMenu = menuBar()->addMenu(tr("&View"));
+    auto* themeMenu = viewMenu->addMenu(tr("&Theme"));
+    auto* group = new QActionGroup(this);
+    group->setExclusive(true);
+
+    lightThemeAction_ = themeMenu->addAction(tr("&Light"));
+    lightThemeAction_->setCheckable(true);
+    lightThemeAction_->setData(SignalForgeStyle::themeName(SignalForgeStyle::Theme::Light));
+    lightThemeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+1")));
+    group->addAction(lightThemeAction_);
+
+    darkThemeAction_ = themeMenu->addAction(tr("&Dark"));
+    darkThemeAction_->setCheckable(true);
+    darkThemeAction_->setData(SignalForgeStyle::themeName(SignalForgeStyle::Theme::Dark));
+    darkThemeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+2")));
+    group->addAction(darkThemeAction_);
+
+    highContrastThemeAction_ = themeMenu->addAction(tr("High &contrast"));
+    highContrastThemeAction_->setCheckable(true);
+    highContrastThemeAction_->setData(SignalForgeStyle::themeName(SignalForgeStyle::Theme::HighContrast));
+    highContrastThemeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+3")));
+    group->addAction(highContrastThemeAction_);
+
+    const auto active = SignalForgeStyle::activeTheme();
+    if (active == SignalForgeStyle::Theme::Dark) {
+        darkThemeAction_->setChecked(true);
+    } else if (active == SignalForgeStyle::Theme::HighContrast) {
+        highContrastThemeAction_->setChecked(true);
+    } else {
+        lightThemeAction_->setChecked(true);
+    }
+
+    connect(group, &QActionGroup::triggered, this, &MainWindow::applyThemeFromAction);
+
+    if (connectionList_ != nullptr && signalSelector_ != nullptr && liveToggle_ != nullptr &&
+        timePresetCombo_ != nullptr && replaySeekSlider_ != nullptr && replaySpeedCombo_ != nullptr) {
+        setTabOrder(connectionList_, signalSelector_);
+        setTabOrder(signalSelector_, liveToggle_);
+        setTabOrder(liveToggle_, timePresetCombo_);
+        setTabOrder(timePresetCombo_, replaySeekSlider_);
+        setTabOrder(replaySeekSlider_, replaySpeedCombo_);
+    }
+}
+
+void MainWindow::applyThemeFromAction(QAction* action) {
+    if (action == nullptr) {
+        return;
+    }
+    bool ok = false;
+    const auto theme = SignalForgeStyle::themeFromName(action->data().toString(), &ok);
+    if (!ok) {
+        SF_LOG_WARN("MainWindow::applyThemeFromAction: unknown theme '{}'", action->data().toString().toStdString());
+        return;
+    }
+    SignalForgeStyle::setActiveTheme(theme);
+    for (auto* hostWidget : findChildren<QQuickWidget*>()) {
+        applyChartHostTheme(hostWidget);
+    }
+    update();
 }
 
 // ---- M14 S1 GUI smoke-test hooks ---------------------------------------
@@ -731,10 +804,10 @@ bool MainWindow::autoSetConfigSaveStatusForVisualTest(const QString& status) {
         return true;
     }
     if (normalized == QStringLiteral("failed") || normalized == QStringLiteral("error")) {
+        const QString visualPath = QStringLiteral("/tmp/signalforge-visual/connections.yaml");
         onConfigurationSaveStateChanged(
-            false, signalforge::connection::ConnectionManager::defaultConfigPath(),
-            tr("Could not save connection configuration to %1")
-                .arg(signalforge::connection::ConnectionManager::defaultConfigPath()));
+            false, visualPath,
+            tr("Could not save connection configuration to %1").arg(visualPath));
         return true;
     }
     SF_LOG_WARN("MainWindow::autoSetConfigSaveStatusForVisualTest: unknown status '{}'", status.toStdString());
@@ -849,6 +922,35 @@ bool MainWindow::autoShowM19ModalForVisualTest(const QString& modal) {
         return false;
     }
     box->show();
+    return true;
+}
+
+bool MainWindow::autoFocusWidgetForVisualTest(const QString& name) {
+    const QString normalized = name.trimmed().toLower().replace(QLatin1Char('-'), QLatin1Char('_'));
+    QWidget* target = nullptr;
+    if (normalized == QStringLiteral("connection_list")) {
+        target = connectionList_;
+    } else if (normalized == QStringLiteral("signal_selector")) {
+        target = signalSelector_;
+    } else if (normalized == QStringLiteral("live_toggle")) {
+        target = liveToggle_;
+    } else if (normalized == QStringLiteral("time_preset")) {
+        target = timePresetCombo_;
+    } else if (normalized == QStringLiteral("replay_seek")) {
+        target = replaySeekSlider_;
+    } else if (normalized == QStringLiteral("replay_speed")) {
+        target = replaySpeedCombo_;
+    } else if (normalized == QStringLiteral("empty_open_session")) {
+        target = emptyOpenSessionButton_;
+    }
+    if (target == nullptr) {
+        SF_LOG_WARN("MainWindow::autoFocusWidgetForVisualTest: unknown focus target '{}'", name.toStdString());
+        return false;
+    }
+    target->setFocusPolicy(Qt::StrongFocus);
+    target->setFocus(Qt::TabFocusReason);
+    target->update();
+    SF_LOG_INFO("MainWindow::autoFocusWidgetForVisualTest: focused '{}'", name.toStdString());
     return true;
 }
 
@@ -1161,6 +1263,7 @@ void MainWindow::rebuildChartWidgets() {
 
         auto* hostWidget = new QQuickWidget(chartFrame);
         hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+        applyChartHostTheme(hostWidget);
         // QQuickWidget's default size policy is Preferred/Preferred and
         // its sizeHint() can be invalid until a scene is loaded; under
         // a QVBoxLayout that means the layout gives it 0 width even

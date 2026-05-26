@@ -2,7 +2,7 @@
  * GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY
  * Generator: tools/generate_style_assets.py
  * Run `--check` to verify freshness (M16 R15 / H12)
- * tokens.json version 1.0
+ * tokens.json version 1.1; theme=light
  *
  * M16 S2: token snippet scaffold. S4 SignalForgeStyle loads this
  * via QApplication::setStyleSheet after Fusion + palette init.
@@ -36,7 +36,7 @@ QPushButton {
     padding: 4px 8px;
 }
 QPushButton:focus {
-    border: 1px solid #3b7ddd;
+    border: 2px solid #3b7ddd;
 }
 QPushButton:disabled {
     color: #9ea1a7;
@@ -48,8 +48,12 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     border: 1px solid #d6d6d4;
     padding: 4px 8px;
 }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 1px solid #3b7ddd;
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QSlider:focus, QToolButton:focus, QListWidget:focus, QTreeView:focus {
+    border: 2px solid #3b7ddd;
+}
+QMenuBar::item:selected, QMenu::item:selected {
+    background-color: #3b7ddd;
+    color: #fbfbfa;
 }
 
 /* ===== Panel chrome ===== */
@@ -81,4 +85,3 @@ QLabel[class="display"]  { font-size: 18px; font-weight: 500; }
 QLabel[class="heading"]  { font-size: 14px; font-weight: 500; }
 QLabel[class="caption"]  { font-size: 11px; color: #5a5d63; }
 QLabel[class="mono"]     { font-family: "JetBrains Mono"; font-size: 12px; }
-

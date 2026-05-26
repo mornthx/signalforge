@@ -1,0 +1,87 @@
+/*
+ * GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY
+ * Generator: tools/generate_style_assets.py
+ * Run `--check` to verify freshness (M16 R15 / H12)
+ * tokens.json version 1.1; theme=dark
+ *
+ * M16 S2: token snippet scaffold. S4 SignalForgeStyle loads this
+ * via QApplication::setStyleSheet after Fusion + palette init.
+ * QSS discipline (per manifesto + spec §3 M16.4): objectName /
+ * class-name / dynamic-property selectors only; no `*` or deep
+ * descendants; no hot-path setStyleSheet.
+ */
+
+/* ===== Top-level surfaces ===== */
+QMainWindow {
+    background-color: #15171c;
+    color: #f4f6f8;
+}
+
+QDockWidget {
+    background-color: #1d2027;
+    color: #f4f6f8;
+}
+
+QStatusBar {
+    background-color: #15171c;
+    color: #c2c7d0;
+    border-top: 1px solid #3b414d;
+}
+
+/* ===== Controls ===== */
+QPushButton {
+    background-color: #272b34;
+    color: #f4f6f8;
+    border: 1px solid #3b414d;
+    padding: 4px 8px;
+}
+QPushButton:focus {
+    border: 2px solid #7fb2ff;
+}
+QPushButton:disabled {
+    color: #777f8d;
+}
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #1d2027;
+    color: #f4f6f8;
+    border: 1px solid #3b414d;
+    padding: 4px 8px;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QSlider:focus, QToolButton:focus, QListWidget:focus, QTreeView:focus {
+    border: 2px solid #7fb2ff;
+}
+QMenuBar::item:selected, QMenu::item:selected {
+    background-color: #7fb2ff;
+    color: #15171c;
+}
+
+/* ===== Panel chrome ===== */
+QHeaderView::section, QFrame#panelHeader {
+    background-color: #272b34;
+    color: #c2c7d0;
+    border: none;
+    border-bottom: 1px solid #3b414d;
+    padding: 4px 8px;
+}
+
+/* ===== Status-bar semantic classes (consumed by M17 widgets) ===== */
+QLabel[class="status-idle"]         { color: #c2c7d0; }
+QLabel[class="status-connecting"]   { color: #ffd166; }
+QLabel[class="status-connected"]    { color: #68d979; }
+QLabel[class="status-disconnecting"]{ color: #ffd166; }
+QLabel[class="status-error"]        { color: #ff6b5f; }
+QLabel[class="mode-live"]           { color: #68d979; }
+QLabel[class="mode-recording"]      { color: #ff6b5f; }
+QLabel[class="mode-replay"]         { color: #7fb2ff; }
+QLabel[class="mode-paused"]         { color: #ffd166; }
+QLabel[class="mode-ended"]          { color: #c2c7d0; }
+QLabel[class="severity-info"]       { color: #c2c7d0; }
+QLabel[class="severity-warning"]    { color: #ffd166; }
+QLabel[class="severity-error"]      { color: #ff6b5f; }
+
+/* ===== Typography hooks ===== */
+QLabel[class="display"]  { font-size: 18px; font-weight: 500; }
+QLabel[class="heading"]  { font-size: 14px; font-weight: 500; }
+QLabel[class="caption"]  { font-size: 11px; color: #c2c7d0; }
+QLabel[class="mono"]     { font-family: "JetBrains Mono"; font-size: 12px; }

@@ -1,0 +1,13 @@
+{
+  "regions": [
+    {
+      "x": 395,
+      "y": 778,
+      "w": 245,
+      "h": 22,
+      "rationale": "Recording close-confirm workflow state includes the live recording status-bar counter (elapsed time and byte count). The confirmation dialog is the assertion target; status counter values vary by capture timing and are masked per visual-diff-contract.md Step 3.",
+      "approved_by": "operator@2026-05-25 (M20 close — stable workflow modal coverage with runtime recording counter masked)",
+      "review_at": "When recording status-bar architecture is redesigned or close-confirm visual fixture stops using a live recording."
+    }
+  ]
+}

@@ -148,6 +148,8 @@ int main(int argc, char** argv) {
     const QString autoConfigSaveStatusArg = flagValue(argc, argv, "--auto-config-save-status");
     const QString autoConnectionStateArg = flagValue(argc, argv, "--auto-connection-state");
     const QString autoM19ModalArg = flagValue(argc, argv, "--auto-m19-modal");
+    const QString autoFocusWidgetArg = flagValue(argc, argv, "--auto-focus-widget");
+    const QString themeArg = flagValue(argc, argv, "--theme");
 
     // M15 S3 Round 4 menu/dialog baseline-capture flags. Full-screen
     // capture (`--capture-fullscreen-*`) captures top-level windows
@@ -188,6 +190,16 @@ int main(int argc, char** argv) {
     // (0.12 % / 0.30 %) carries through. See
     // docs/v0.3/spike-result.md §6 for the design path.
     signalforge::app::SignalForgeStyle::applyAtStartup(&app);
+    if (!themeArg.isEmpty()) {
+        bool themeOk = false;
+        const auto theme = signalforge::app::SignalForgeStyle::themeFromName(themeArg, &themeOk);
+        if (themeOk) {
+            signalforge::app::SignalForgeStyle::setActiveTheme(theme);
+        } else {
+            SF_LOG_ERROR("SignalForge: --theme '{}' unknown (expected light|dark|high_contrast)",
+                         themeArg.toStdString());
+        }
+    }
 
     // M16 S5 — standalone env-dump mode: emit sidecar then exit.
     // No MainWindow construction (the dump only needs QApplication
@@ -328,6 +340,13 @@ int main(int argc, char** argv) {
         QTimer::singleShot(2000, &app, [&window, autoM19ModalArg]() {
             if (!window.autoShowM19ModalForVisualTest(autoM19ModalArg)) {
                 SF_LOG_ERROR("SignalForge: --auto-m19-modal '{}' failed", autoM19ModalArg.toStdString());
+            }
+        });
+    }
+    if (!autoFocusWidgetArg.isEmpty()) {
+        QTimer::singleShot(900, &app, [&window, autoFocusWidgetArg]() {
+            if (!window.autoFocusWidgetForVisualTest(autoFocusWidgetArg)) {
+                SF_LOG_ERROR("SignalForge: --auto-focus-widget '{}' failed", autoFocusWidgetArg.toStdString());
             }
         });
     }

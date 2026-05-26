@@ -162,6 +162,9 @@ public:
     /// M19 visual harness: show deterministic modal/fault-flow windows.
     [[nodiscard]] bool autoShowM19ModalForVisualTest(const QString& modal);
 
+    /// M20 visual harness: focus a named keyboard-reachable control.
+    [[nodiscard]] bool autoFocusWidgetForVisualTest(const QString& name);
+
     /// M15 S3 Round 3: seek replay to ``percent`` of the loaded
     /// session's duration (0–100). Returns false on out-of-range
     /// input or null playback controller.
@@ -245,6 +248,8 @@ private:
     void buildConnectionUi();
     void buildSessionUi();
     void buildReplayUi();
+    void buildThemeUi();
+    void applyThemeFromAction(QAction* action);
     void updateReplayActionStates();
     void updateRecordingStatusLabel();
     void updateWorkflowModeLabel();
@@ -317,6 +322,11 @@ private:
     QAction* replayExitAction_ = nullptr;
     QLabel* replayStatusLabel_ = nullptr;
     bool replaySliderUserDriven_ = true;
+
+    // M20 theme runtime toggle.
+    QAction* lightThemeAction_ = nullptr;
+    QAction* darkThemeAction_ = nullptr;
+    QAction* highContrastThemeAction_ = nullptr;
 };
 
 }  // namespace signalforge::app

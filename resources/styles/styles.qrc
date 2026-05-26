@@ -7,5 +7,7 @@
          signalforge binary (lockstep with build); loaded at
          QApplication init by SignalForgeStyle. -->
     <file>tokens.qss</file>
+    <file>tokens-dark.qss</file>
+    <file>tokens-high-contrast.qss</file>
   </qresource>
 </RCC>

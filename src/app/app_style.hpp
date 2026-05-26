@@ -39,13 +39,11 @@ namespace signalforge::app {
 
 class SignalForgeStyle {
 public:
-    /// Theme variants. M16 ships `Light` only; `Dark` slot
-    /// defined for M20 dark-theme implementation. Calling
-    /// `setActiveTheme(Dark)` at M16 logs a `qWarning` +
-    /// falls back to `Light` (per `M16-concerns.md` §C9).
+    /// Theme variants shipped by M20.
     enum class Theme {
         Light,
-        Dark,  // M20 slot — M16 falls back to Light with warning
+        Dark,
+        HighContrast,
     };
 
     /// Establish the M16 rendering contract on `app`. Must be
@@ -69,13 +67,15 @@ public:
     /// `qFatal`s on mismatch.
     static void applyAtStartup(QApplication* app);
 
-    /// Currently-active theme. M16 ships Light only.
+    /// Currently-active theme.
     [[nodiscard]] static Theme activeTheme() noexcept;
 
-    /// M16: only Light supported. Calling with Dark logs
-    /// warning + remains on Light (Dark implementation at M20).
-    /// Per `docs/v0.3/visual-identity.md` §4 theme context.
+    /// Apply a theme at runtime. Re-applies palette + bundled QSS and
+    /// emits QApplication palette/style changes for already-created widgets.
     static void setActiveTheme(Theme t);
+
+    [[nodiscard]] static QString themeName(Theme t);
+    [[nodiscard]] static Theme themeFromName(const QString& name, bool* ok = nullptr);
 
     /// Runtime introspection of the M16 rendering contract.
     /// Reads back `QApplication::style()->objectName()`,
@@ -100,9 +100,10 @@ public:
     /// Internal — exposed for unit-test inspection. Builds the
     /// 18-ColorRole light palette from
     /// `generated_style_tokens.hpp` and applies it to `app`.
+    static void applyPalette(QApplication* app, Theme theme);
     static void applyLightPalette(QApplication* app);
 
-    /// Internal — loads `:/styles/tokens.qss` and applies via
+    /// Internal — loads the active theme QSS and applies via
     /// `QApplication::setStyleSheet`.
     static void applyGlobalStylesheet(QApplication* app);
 

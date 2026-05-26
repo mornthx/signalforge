@@ -2,7 +2,7 @@
 Generator: tools/generate_style_assets.py
 Run `--check` to verify freshness (M16 R15 / H12)
 
-tokens.json version 1.0
+tokens.json version 1.1
 
 Consume design tokens from Python test code. Manifesto principles +
 token rationale: see resources/styles/tokens.json `_manifesto_refs`
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Final
 
-VERSION: Final[str] = "1.0"
+VERSION: Final[str] = "1.1"
 
 # ----- Light theme tokens --------------------------------------------
 
@@ -74,5 +74,179 @@ LIGHT_ICON: Final[dict[str, int]] = {
     "size.sm": 16,
     "size.md": 20,
     "size.lg": 32,
+}
+
+THEMES: Final[dict[str, dict[str, dict[str, object]]]] = {
+    "light": {
+        "color": {
+            "bg.elevated": '#f5f5f4',
+            "bg.primary": '#fbfbfa',
+            "bg.surface": '#ffffff',
+            "border": '#d6d6d4',
+            "border.focus": '#3b7ddd',
+            "mode.ended": '#5a5d63',
+            "mode.live": '#2d8a3e',
+            "mode.paused": '#d4a72c',
+            "mode.recording": '#c8392a',
+            "mode.replay": '#3b7ddd',
+            "severity.error": '#c8392a',
+            "severity.info": '#5a5d63',
+            "severity.warning": '#d4a72c',
+            "signal.0": '#2d6cb3',
+            "signal.1": '#c8392a',
+            "signal.2": '#2d8a3e',
+            "signal.3": '#d4a72c',
+            "signal.4": '#7e3eb3',
+            "signal.5": '#2da3a3',
+            "signal.6": '#d4622c',
+            "signal.7": '#5a5d63',
+            "status.connected": '#2d8a3e',
+            "status.connecting": '#d4a72c',
+            "status.disconnecting": '#d4a72c',
+            "status.error": '#c8392a',
+            "status.idle": '#5a5d63',
+            "text.disabled": '#9ea1a7',
+            "text.primary": '#1a1d23',
+            "text.secondary": '#5a5d63',
+        },
+        "font": {
+            "family.mono": 'JetBrains Mono',
+            "family.sans": 'Inter',
+            "size.body": 12,
+            "size.caption": 11,
+            "size.display": 18,
+            "size.heading": 14,
+            "size.mono": 12,
+            "weight.bold": 700,
+            "weight.medium": 500,
+            "weight.regular": 400,
+        },
+        "spacing": {
+            "lg": 24,
+            "md": 16,
+            "sm": 8,
+            "xl": 32,
+            "xs": 4,
+        },
+        "icon": {
+            "size.lg": 32,
+            "size.md": 20,
+            "size.sm": 16,
+        },
+    },
+    "dark": {
+        "color": {
+            "bg.elevated": '#272b34',
+            "bg.primary": '#15171c',
+            "bg.surface": '#1d2027',
+            "border": '#3b414d',
+            "border.focus": '#7fb2ff',
+            "mode.ended": '#c2c7d0',
+            "mode.live": '#68d979',
+            "mode.paused": '#ffd166',
+            "mode.recording": '#ff6b5f',
+            "mode.replay": '#7fb2ff',
+            "severity.error": '#ff6b5f',
+            "severity.info": '#c2c7d0',
+            "severity.warning": '#ffd166',
+            "signal.0": '#6cb6ff',
+            "signal.1": '#ff6b5f',
+            "signal.2": '#68d979',
+            "signal.3": '#ffd166',
+            "signal.4": '#c594ff',
+            "signal.5": '#5de0e6',
+            "signal.6": '#ff9f5a',
+            "signal.7": '#d6dae2',
+            "status.connected": '#68d979',
+            "status.connecting": '#ffd166',
+            "status.disconnecting": '#ffd166',
+            "status.error": '#ff6b5f',
+            "status.idle": '#c2c7d0',
+            "text.disabled": '#777f8d',
+            "text.primary": '#f4f6f8',
+            "text.secondary": '#c2c7d0',
+        },
+        "font": {
+            "family.mono": 'JetBrains Mono',
+            "family.sans": 'Inter',
+            "size.body": 12,
+            "size.caption": 11,
+            "size.display": 18,
+            "size.heading": 14,
+            "size.mono": 12,
+            "weight.bold": 700,
+            "weight.medium": 500,
+            "weight.regular": 400,
+        },
+        "spacing": {
+            "lg": 24,
+            "md": 16,
+            "sm": 8,
+            "xl": 32,
+            "xs": 4,
+        },
+        "icon": {
+            "size.lg": 32,
+            "size.md": 20,
+            "size.sm": 16,
+        },
+    },
+    "high_contrast": {
+        "color": {
+            "bg.elevated": '#101010',
+            "bg.primary": '#000000',
+            "bg.surface": '#050505',
+            "border": '#ffffff',
+            "border.focus": '#00e5ff',
+            "mode.ended": '#ffffff',
+            "mode.live": '#00ff66',
+            "mode.paused": '#ffff00',
+            "mode.recording": '#ff4040',
+            "mode.replay": '#00e5ff',
+            "severity.error": '#ff4040',
+            "severity.info": '#ffffff',
+            "severity.warning": '#ffff00',
+            "signal.0": '#00e5ff',
+            "signal.1": '#ff4040',
+            "signal.2": '#00ff66',
+            "signal.3": '#ffff00',
+            "signal.4": '#ff66ff',
+            "signal.5": '#66ffff',
+            "signal.6": '#ff9f00',
+            "signal.7": '#ffffff',
+            "status.connected": '#00ff66',
+            "status.connecting": '#ffff00',
+            "status.disconnecting": '#ffff00',
+            "status.error": '#ff4040',
+            "status.idle": '#ffffff',
+            "text.disabled": '#a8a8a8',
+            "text.primary": '#ffffff',
+            "text.secondary": '#e8e8e8',
+        },
+        "font": {
+            "family.mono": 'JetBrains Mono',
+            "family.sans": 'Inter',
+            "size.body": 12,
+            "size.caption": 11,
+            "size.display": 18,
+            "size.heading": 14,
+            "size.mono": 12,
+            "weight.bold": 700,
+            "weight.medium": 500,
+            "weight.regular": 400,
+        },
+        "spacing": {
+            "lg": 24,
+            "md": 16,
+            "sm": 8,
+            "xl": 32,
+            "xs": 4,
+        },
+        "icon": {
+            "size.lg": 32,
+            "size.md": 20,
+            "size.sm": 16,
+        },
+    },
 }
 

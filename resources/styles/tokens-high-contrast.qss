@@ -1,0 +1,87 @@
+/*
+ * GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY
+ * Generator: tools/generate_style_assets.py
+ * Run `--check` to verify freshness (M16 R15 / H12)
+ * tokens.json version 1.1; theme=high_contrast
+ *
+ * M16 S2: token snippet scaffold. S4 SignalForgeStyle loads this
+ * via QApplication::setStyleSheet after Fusion + palette init.
+ * QSS discipline (per manifesto + spec §3 M16.4): objectName /
+ * class-name / dynamic-property selectors only; no `*` or deep
+ * descendants; no hot-path setStyleSheet.
+ */
+
+/* ===== Top-level surfaces ===== */
+QMainWindow {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+QDockWidget {
+    background-color: #050505;
+    color: #ffffff;
+}
+
+QStatusBar {
+    background-color: #000000;
+    color: #e8e8e8;
+    border-top: 1px solid #ffffff;
+}
+
+/* ===== Controls ===== */
+QPushButton {
+    background-color: #101010;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+    padding: 4px 8px;
+}
+QPushButton:focus {
+    border: 2px solid #00e5ff;
+}
+QPushButton:disabled {
+    color: #a8a8a8;
+}
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #050505;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+    padding: 4px 8px;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QSlider:focus, QToolButton:focus, QListWidget:focus, QTreeView:focus {
+    border: 2px solid #00e5ff;
+}
+QMenuBar::item:selected, QMenu::item:selected {
+    background-color: #00e5ff;
+    color: #000000;
+}
+
+/* ===== Panel chrome ===== */
+QHeaderView::section, QFrame#panelHeader {
+    background-color: #101010;
+    color: #e8e8e8;
+    border: none;
+    border-bottom: 1px solid #ffffff;
+    padding: 4px 8px;
+}
+
+/* ===== Status-bar semantic classes (consumed by M17 widgets) ===== */
+QLabel[class="status-idle"]         { color: #ffffff; }
+QLabel[class="status-connecting"]   { color: #ffff00; }
+QLabel[class="status-connected"]    { color: #00ff66; }
+QLabel[class="status-disconnecting"]{ color: #ffff00; }
+QLabel[class="status-error"]        { color: #ff4040; }
+QLabel[class="mode-live"]           { color: #00ff66; }
+QLabel[class="mode-recording"]      { color: #ff4040; }
+QLabel[class="mode-replay"]         { color: #00e5ff; }
+QLabel[class="mode-paused"]         { color: #ffff00; }
+QLabel[class="mode-ended"]          { color: #ffffff; }
+QLabel[class="severity-info"]       { color: #ffffff; }
+QLabel[class="severity-warning"]    { color: #ffff00; }
+QLabel[class="severity-error"]      { color: #ff4040; }
+
+/* ===== Typography hooks ===== */
+QLabel[class="display"]  { font-size: 18px; font-weight: 500; }
+QLabel[class="heading"]  { font-size: 14px; font-weight: 500; }
+QLabel[class="caption"]  { font-size: 11px; color: #e8e8e8; }
+QLabel[class="mono"]     { font-family: "JetBrains Mono"; font-size: 12px; }

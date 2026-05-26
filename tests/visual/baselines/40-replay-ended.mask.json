@@ -1,0 +1,13 @@
+{
+  "regions": [
+    {
+      "x": 250,
+      "y": 778,
+      "w": 1005,
+      "h": 22,
+      "rationale": "Replay-ended workflow state includes runtime status-bar counters (chart FPS / dropped frames / buffer usage). The replay-ended mode and transport controls are the assertion target; these counters vary by capture timing and are masked per visual-diff-contract.md Step 3.",
+      "approved_by": "operator@2026-05-26 (M20 close — replay-ended workflow keeps live diagnostics visible)",
+      "review_at": "When status-bar live diagnostics or replay-ended visual fixture is redesigned."
+    }
+  ]
+}

@@ -17,7 +17,9 @@
 
 #include <QByteArray>
 #include <QColor>
+#include <QGuiApplication>
 #include <QMouseEvent>
+#include <QPalette>
 #include <QPoint>
 #include <QRectF>
 #include <QSGFlatColorMaterial>
@@ -401,8 +403,9 @@ QSGNode* Chart::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* /*data*/)
     const double h = static_cast<double>(height());
     const double yRangeSpan = (impl_->yMax - impl_->yMin > 0.0) ? (impl_->yMax - impl_->yMin) : 1.0;
 
-    const QColor gridColor = signalforge::tokens::light::border();
-    const QColor borderColor = signalforge::tokens::light::textDisabled();
+    const QPalette palette = QGuiApplication::palette();
+    const QColor gridColor = palette.color(QPalette::Mid);
+    const QColor borderColor = palette.color(QPalette::PlaceholderText);
     constexpr int kVerticalGridLines = 6;
     constexpr int kHorizontalGridLines = 4;
     const int neededGridNodes = (kVerticalGridLines - 1) + (kHorizontalGridLines - 1);
