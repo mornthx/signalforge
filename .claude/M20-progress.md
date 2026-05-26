@@ -11,6 +11,8 @@
 - Implemented `SignalForgeStyle::Theme::{Light,Dark,HighContrast}` with
   runtime palette/QSS reapplication and startup `--theme` support.
 - Added View -> Theme menu with `Ctrl+Alt+1/2/3` shortcuts.
+- Follow-up UI direction: default startup theme is Dark to match the
+  modern analysis-workbench direction; Light remains a runtime option.
 - Added explicit primary tab order and focus-ring visual hook.
 - Made `QQuickWidget` chart clear color and chart grid/border colors follow
   the active palette.

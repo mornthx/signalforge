@@ -33,7 +33,7 @@ namespace signalforge::app {
 
 namespace {
 
-SignalForgeStyle::Theme g_active_theme = SignalForgeStyle::Theme::Light;
+SignalForgeStyle::Theme g_active_theme = SignalForgeStyle::Theme::Dark;
 
 struct ThemeTokens {
     const char* bgPrimary;
