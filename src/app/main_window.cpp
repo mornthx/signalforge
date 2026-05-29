@@ -249,6 +249,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     replayModeManager_ =
         std::make_unique<signalforge::replay::ReplayModeManager>(*connectionManager_, *playbackController_, this);
 
+    buildMenuBar();
     buildChartUi();
     buildConnectionUi();
     buildSessionUi();
@@ -270,6 +271,28 @@ MainWindow::~MainWindow() {
         connectionManager_->disconnect(this);
     }
     pipelineManager_.reset();
+}
+
+void MainWindow::buildMenuBar() {
+    // M26 (DR-001 #4): one owned, conventionally-ordered menu bar
+    // (File | Connections | Session | View | Help). Feature modules register
+    // their actions into these menus rather than each calling addMenu() in an
+    // arbitrary order. Names are kept stable for the visual harness.
+    menuFile_ = menuBar()->addMenu(tr("&File"));
+    menuConnections_ = menuBar()->addMenu(tr("&Connections"));
+    menuSession_ = menuBar()->addMenu(tr("&Session"));
+    menuView_ = menuBar()->addMenu(tr("&View"));
+    menuHelp_ = menuBar()->addMenu(tr("&Help"));
+
+    auto* aboutAction = menuHelp_->addAction(tr("&About SignalForge"));
+    connect(aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
+}
+
+void MainWindow::onAbout() {
+    QMessageBox::about(this, tr("About SignalForge"),
+                       tr("<b>SignalForge</b><br>A desktop workbench for embedded-device "
+                          "bring-up — connect a source, build a dashboard of panels, record "
+                          "and replay sessions."));
 }
 
 void MainWindow::buildChartUi() {
@@ -417,12 +440,13 @@ void MainWindow::buildChartUi() {
 }
 
 void MainWindow::buildConnectionUi() {
-    // Connections menu.
-    auto* menu = menuBar()->addMenu(tr("&Connections"));
+    // Connections menu (created/owned by buildMenuBar).
+    auto* menu = menuConnections_;
 
     auto* addAction = menu->addAction(tr("&Add…"));
     addAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+M")));
     connect(addAction, &QAction::triggered, this, &MainWindow::onAddConnectionRequested);
+    menu->addSeparator();
 
     auto* connectAllAction = menu->addAction(tr("Connect &all"));
     connect(connectAllAction, &QAction::triggered, this, &MainWindow::onConnectAllAction);
@@ -483,8 +507,7 @@ void MainWindow::buildConnectionUi() {
 }
 
 void MainWindow::buildThemeUi() {
-    auto* viewMenu = menuBar()->addMenu(tr("&View"));
-    auto* themeMenu = viewMenu->addMenu(tr("&Theme"));
+    auto* themeMenu = menuView_->addMenu(tr("&Theme"));
     auto* group = new QActionGroup(this);
     group->setExclusive(true);
 
@@ -1454,9 +1477,9 @@ void MainWindow::onConfigurationSaveStateChanged(bool saved, const QString& path
 }
 
 void MainWindow::buildSessionUi() {
-    // "Session" menu with the Record action.
-    auto* menu = menuBar()->addMenu(tr("&Session"));
-    recordAction_ = menu->addAction(tr("&Record…"));
+    // Session menu (owned by buildMenuBar): record + open-replay co-located
+    // (DR-001 #4 — they were split across Session and File).
+    recordAction_ = menuSession_->addAction(tr("&Record…"));
     recordAction_->setShortcut(QKeySequence(tr("Ctrl+R")));
     connect(recordAction_, &QAction::triggered, this, &MainWindow::onRecordToggle);
 
@@ -1630,21 +1653,14 @@ void MainWindow::onRecordingError(const QString& message) {
 // ── M11 replay UI ─────────────────────────────────────────────
 
 void MainWindow::buildReplayUi() {
-    // File → Open Session… (Ctrl+O).
-    auto* fileMenu = menuBar()->addMenu(tr("&File"));
-    openSessionAction_ = fileMenu->addAction(tr("&Open Session…"));
+    // Session → Open Session… (Ctrl+O), co-located with Record (DR-001 #4).
+    openSessionAction_ = menuSession_->addAction(tr("&Open Session…"));
     openSessionAction_->setShortcut(QKeySequence(tr("Ctrl+O")));
     connect(openSessionAction_, &QAction::triggered, this, &MainWindow::onOpenSessionRequested);
 
-    // M14 F18: File → Quit (Ctrl+Q on Linux via QKeySequence::Quit).
-    // Pre-fix the only exit path was the window-X button; M13
-    // protocol §Test 9 ("Quit-while-recording prompt") could not be
-    // initiated via keyboard. close() routes through the existing
-    // closeEvent() handler so the recording-in-progress prompt + any
-    // future aboutToQuit-bound persistence still fires (ADR-013 F17
-    // defense-in-depth).
-    fileMenu->addSeparator();
-    auto* quitAction = fileMenu->addAction(tr("&Quit"));
+    // File → Quit (Ctrl+Q). close() routes through closeEvent() so the
+    // recording-in-progress prompt + config-save persistence still fire.
+    auto* quitAction = menuFile_->addAction(tr("&Quit"));
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &MainWindow::close);
 

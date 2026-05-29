@@ -47,6 +47,7 @@ enum class AppMode;
 }  // namespace signalforge::replay
 
 class QAction;
+class QMenu;
 class QSlider;
 class QToolBar;
 class QTimer;
@@ -260,8 +261,10 @@ private slots:
     void onReplayPositionChanged(std::int64_t timestampNs, std::size_t recordIndex);
     void onReplayStateChanged();
     void onReplayError(const QString& message);
+    void onAbout();
 
 private:
+    void buildMenuBar();
     void buildChartUi();
     void buildConnectionUi();
     void buildSessionUi();
@@ -284,6 +287,14 @@ private:
     std::unique_ptr<signalforge::decoder::DecoderRegistrar> decoderRegistrar_;
     std::unique_ptr<signalforge::connection::ConnectionManager> connectionManager_;
     std::unique_ptr<signalforge::session::SessionWriter> sessionWriter_;
+
+    // M26: menu bar owned by buildMenuBar() in one place (File | Connections |
+    // Session | View | Help); feature modules register their actions into these.
+    QMenu* menuFile_ = nullptr;
+    QMenu* menuConnections_ = nullptr;
+    QMenu* menuSession_ = nullptr;
+    QMenu* menuView_ = nullptr;
+    QMenu* menuHelp_ = nullptr;
 
     // M23 dashboard surface (owns its own TimeAxisManager; the legacy
     // ChartManager/Chart are no longer used by the app).
