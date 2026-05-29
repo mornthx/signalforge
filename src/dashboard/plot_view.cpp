@@ -119,6 +119,10 @@ bool PlotView::hasData() const {
 void PlotView::recomputeRanges() {
     const auto start = timeAxis_->visibleStart();
     const auto end = timeAxis_->visibleEnd();
+    // Capture the window so paintEvent maps samples against the SAME bounds
+    // the query used (the live axis advances between recompute and paint).
+    queryStart_ = start;
+    queryEnd_ = end;
     const auto targetPx = static_cast<std::size_t>(std::max(1, width() - kMarginLeft - kMarginRight));
 
     double lo = std::numeric_limits<double>::infinity();
@@ -233,7 +237,11 @@ void PlotView::paintEvent(QPaintEvent* /*event*/) {
     }
 
     // X axis time labels (relative seconds, 0 = now at the right edge).
-    const auto durNs = std::chrono::duration_cast<std::chrono::nanoseconds>(timeAxis_->visibleDuration()).count();
+    // Use the window captured by the last recompute(), NOT a fresh read of
+    // the (live, now()-tracking) axis — otherwise the query-time and
+    // paint-time windows differ and the oldest samples map to negative
+    // offsets, drifting the trace left onto the Y axis (M27 problem 1).
+    const auto durNs = std::chrono::duration_cast<std::chrono::nanoseconds>(queryEnd_ - queryStart_).count();
     const double durSec = static_cast<double>(durNs) / 1e9;
     for (int i = 0; i <= kXTicks; ++i) {
         const double x = plot.left() + (plotW * i) / kXTicks;
@@ -255,9 +263,14 @@ void PlotView::paintEvent(QPaintEvent* /*event*/) {
     p.setPen(QPen(borderColor, 1));
     p.drawRect(plot);
 
-    const auto axisStart = timeAxis_->visibleStart();
+    const auto axisStart = queryStart_;
     const double xScale = (durNs > 0) ? (plotW / static_cast<double>(durNs)) : 0.0;
     const double yspan = (yMax_ - yMin_ > 0.0) ? (yMax_ - yMin_) : 1.0;
+
+    // Clip series + cursor to the plot rect so nothing spills onto the
+    // axes/margins even at the window edges (M27 problem 1).
+    p.save();
+    p.setClipRect(plot);
 
     // Series polylines.
     for (const auto& s : series_) {
@@ -285,16 +298,16 @@ void PlotView::paintEvent(QPaintEvent* /*event*/) {
         p.drawPolyline(poly);
     }
 
-    // Live "now" cursor.
+    // Live "now" cursor at the captured window end (not a fresh now()).
     {
-        const auto nowOff =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - axisStart).count();
+        const auto nowOff = std::chrono::duration_cast<std::chrono::nanoseconds>(queryEnd_ - axisStart).count();
         const double cx = std::clamp(plot.left() + static_cast<double>(nowOff) * xScale, plot.left(), plot.right());
         QColor cursor = textColor;
         cursor.setAlpha(120);
         p.setPen(QPen(cursor, 1, Qt::DashLine));
         p.drawLine(QPointF(cx, plot.top()), QPointF(cx, plot.bottom()));
     }
+    p.restore();  // end plot-rect clip (legend/labels draw unclipped)
 
     // Legend (top strip).
     double lx = plot.left();

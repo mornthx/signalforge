@@ -93,6 +93,40 @@ TEST_CASE("M23 S1: PlotView Y range reflects data and explicit override", "[dash
     CHECK(hi2 == 100.0);
 }
 
+TEST_CASE("M27: plot trace stays within the plot rect (no Y-axis spill)", "[dashboard][m27][plotview]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/v"), dec::SignalType::Double, QStringLiteral("V"))});
+    ch::TimeAxisManager axis;
+    dash::PlotView view(reg, axis);
+    view.resize(400, 300);
+    view.addSignal(QStringLiteral("rig/v"));
+    pushN(reg, QStringLiteral("rig/v"), 24.7);
+    view.refresh();
+
+    const QImage img = view.grab().toImage();
+    REQUIRE_FALSE(img.isNull());
+    // A drifted trace shows up as a horizontal RUN of series-coloured pixels
+    // in the left margin (x < 52) within the plot body — distinct from the
+    // sparse anti-aliasing of the Y-axis tick labels. Flag any row with a run
+    // of >= 6 consecutive series-coloured pixels there.
+    const QColor series = view.colorFor(QStringLiteral("rig/v"));
+    auto isSeries = [&](const QColor& px) {
+        return std::abs(px.red() - series.red()) < 20 && std::abs(px.green() - series.green()) < 20 &&
+               std::abs(px.blue() - series.blue()) < 20;
+    };
+    int maxRun = 0;
+    for (int y = 30; y < img.height() - 30; ++y) {
+        int run = 0;
+        for (int x = 2; x < 52 && x < img.width(); ++x) {
+            run = isSeries(img.pixelColor(x, y)) ? run + 1 : 0;
+            maxRun = std::max(maxRun, run);
+        }
+    }
+    CHECK(maxRun < 6);
+}
+
 TEST_CASE("M23 S1: PlotView renders a non-empty image headlessly", "[dashboard][m23][plotview]") {
     app();
     buf::SignalBufferRegistry reg;

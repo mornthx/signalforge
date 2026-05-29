@@ -88,6 +88,10 @@ private:
     std::optional<double> explicitMax_;
     double yMin_ = -1.0;  ///< shared range used by the last refresh
     double yMax_ = 1.0;
+    // Visible window captured by the last recompute(); paintEvent maps
+    // samples against these (not a fresh axis read) so the trace can't drift.
+    std::chrono::steady_clock::time_point queryStart_{};
+    std::chrono::steady_clock::time_point queryEnd_{};
     int nextColorIndex_ = 0;
 };
 
