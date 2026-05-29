@@ -373,6 +373,14 @@ void MainWindow::buildChartUi() {
     addTableAction->setToolTip(tr("Add a table of every current signal's value"));
     connect(addTableAction, &QAction::triggered, this, &MainWindow::onAddTable);
 
+    auto* addBarAction = toolbar->addAction(tr("+ Bar"));
+    addBarAction->setToolTip(tr("Add a bar meter for the first signal"));
+    connect(addBarAction, &QAction::triggered, this, &MainWindow::onAddBar);
+
+    auto* addGaugeAction = toolbar->addAction(tr("+ Gauge"));
+    addGaugeAction->setToolTip(tr("Add a gauge for the first signal"));
+    connect(addGaugeAction, &QAction::triggered, this, &MainWindow::onAddGauge);
+
     fpsLabel_ = new QLabel(tr("Chart idle"));
     fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
     droppedLabel_ = new QLabel(tr("Drops 0"));
@@ -586,6 +594,22 @@ bool MainWindow::autoAddTablePanel() {
         return false;
     }
     onAddTable();
+    return true;
+}
+
+bool MainWindow::autoAddBarPanel() {
+    if (dashboard_ == nullptr || signalBufferRegistry_ == nullptr) {
+        return false;
+    }
+    onAddBar();
+    return true;
+}
+
+bool MainWindow::autoAddGaugePanel() {
+    if (dashboard_ == nullptr || signalBufferRegistry_ == nullptr) {
+        return false;
+    }
+    onAddGauge();
     return true;
 }
 
@@ -1206,6 +1230,30 @@ void MainWindow::onAddTable() {
         signalListPanel_->refresh();
     }
     SF_LOG_INFO("MainWindow: added table panel {}", panelId.toStdString());
+}
+
+void MainWindow::onAddBar() {
+    if (dashboard_ == nullptr || signalBufferRegistry_ == nullptr) {
+        return;
+    }
+    const auto ids = signalBufferRegistry_->signalIds();
+    const QString panelId = dashboard_->addBarPanel(ids.isEmpty() ? QString() : ids.first());
+    if (signalListPanel_ != nullptr) {
+        signalListPanel_->refresh();
+    }
+    SF_LOG_INFO("MainWindow: added bar panel {}", panelId.toStdString());
+}
+
+void MainWindow::onAddGauge() {
+    if (dashboard_ == nullptr || signalBufferRegistry_ == nullptr) {
+        return;
+    }
+    const auto ids = signalBufferRegistry_->signalIds();
+    const QString panelId = dashboard_->addGaugePanel(ids.isEmpty() ? QString() : ids.first());
+    if (signalListPanel_ != nullptr) {
+        signalListPanel_->refresh();
+    }
+    SF_LOG_INFO("MainWindow: added gauge panel {}", panelId.toStdString());
 }
 
 void MainWindow::updateEmptyStateVisibility() {

@@ -57,6 +57,10 @@ public:
     /// `signalIds` (the toolbar "+ Table" affordance).
     QString addTablePanel(const QStringList& signalIds);
 
+    /// Add a Bar / Gauge panel bound to `signalId` (empty = unbound).
+    QString addBarPanel(const QString& signalId);
+    QString addGaugePanel(const QString& signalId);
+
     /// Remove `signalId` from every panel; single-signal cards that
     /// become empty are removed, Plot panels are kept.
     void removeSignalEverywhere(const QString& signalId);

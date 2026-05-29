@@ -91,6 +91,11 @@ public:
     /// toolbar "+ Table" action does. Returns false if no dashboard.
     [[nodiscard]] bool autoAddTablePanel();
 
+    /// M24 visual harness: add a Bar / Gauge panel for the first registered
+    /// signal, as the toolbar "+ Bar" / "+ Gauge" actions do.
+    [[nodiscard]] bool autoAddBarPanel();
+    [[nodiscard]] bool autoAddGaugePanel();
+
     /// Grab the first chart-hosting QQuickWidget's framebuffer as a
     /// QImage. Returns a null QImage if no chart widget is laid out.
     [[nodiscard]] QImage grabChartImage() const;
@@ -237,6 +242,8 @@ private slots:
     void onDisconnectAllAction();
     void onAddChart();
     void onAddTable();
+    void onAddBar();
+    void onAddGauge();
     void onLiveToggleChanged(bool live);
     void onTimePresetChanged(int index);
     void refreshStatusBar();

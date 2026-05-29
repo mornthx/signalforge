@@ -100,6 +100,22 @@ TEST_CASE("M22: addTablePanel creates a wide table hosting N signals", "[dashboa
     CHECK(board.showsSignal(QStringLiteral("rig/alarm")));
 }
 
+TEST_CASE("M24: addBarPanel / addGaugePanel create meter panels", "[dashboard][m24]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/level"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+
+    const QString barId = board.addBarPanel(QStringLiteral("rig/level"));
+    REQUIRE(board.panel(barId) != nullptr);
+    CHECK(board.panel(barId)->type() == dash::PanelType::Bar);
+    CHECK(board.showsSignal(QStringLiteral("rig/level")));
+
+    const QString gaugeId = board.addGaugePanel(QStringLiteral("rig/level"));
+    CHECK(board.panel(gaugeId)->type() == dash::PanelType::Gauge);
+    CHECK(board.panelCount() == 2);
+}
+
 TEST_CASE("S4: removeSignalEverywhere drops single-signal cards", "[dashboard][s4]") {
     app();
     buf::SignalBufferRegistry reg;

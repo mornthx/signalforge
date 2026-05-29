@@ -5,6 +5,7 @@
 #include "buffer/signal_buffer.hpp"
 #include "buffer/signal_buffer_registry.hpp"
 #include "chart/time_axis_manager.hpp"
+#include "dashboard/meter_panel.hpp"
 #include "dashboard/numeric_panel.hpp"
 #include "dashboard/panel.hpp"
 #include "dashboard/panel_factory.hpp"
@@ -79,6 +80,10 @@ QString Dashboard::addPanel(PanelConfig config) {
     case PanelType::Plot:
         created = new PlotPanel(config, *registry_, *timeAxis_, this);
         break;
+    case PanelType::Bar:
+    case PanelType::Gauge:
+        created = new MeterPanel(config, *registry_, this);
+        break;
     }
 
     created->setEditMode(editMode_);
@@ -121,6 +126,24 @@ QString Dashboard::addTablePanel(const QStringList& signalIds) {
     PanelConfig cfg;
     cfg.type = PanelType::Table;
     cfg.signalIds = signalIds;
+    return addPanel(std::move(cfg));
+}
+
+QString Dashboard::addBarPanel(const QString& signalId) {
+    PanelConfig cfg;
+    cfg.type = PanelType::Bar;
+    if (!signalId.isEmpty()) {
+        cfg.signalIds << signalId;
+    }
+    return addPanel(std::move(cfg));
+}
+
+QString Dashboard::addGaugePanel(const QString& signalId) {
+    PanelConfig cfg;
+    cfg.type = PanelType::Gauge;
+    if (!signalId.isEmpty()) {
+        cfg.signalIds << signalId;
+    }
     return addPanel(std::move(cfg));
 }
 

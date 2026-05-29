@@ -103,6 +103,8 @@ int main(int argc, char** argv) {
     const QString autoSignalId = flagValue(argc, argv, "--auto-select-signal");
     const QString autoDashSignalsArg = flagValue(argc, argv, "--auto-dashboard-signals");
     const bool autoAddTableFlag = hasFlag(argc, argv, "--auto-add-table");
+    const bool autoAddBarFlag = hasFlag(argc, argv, "--auto-add-bar");
+    const bool autoAddGaugeFlag = hasFlag(argc, argv, "--auto-add-gauge");
     const QString dumpPngArg = flagValue(argc, argv, "--dump-chart-png-after-ms");
     const QString dumpPngPathArg = flagValue(argc, argv, "--dump-chart-png-path");
     const bool exitAfterDump = hasFlag(argc, argv, "--exit-after-dump");
@@ -444,6 +446,12 @@ int main(int argc, char** argv) {
     if (autoAddTableFlag) {
         // Defer so the connect path has registered signals into the registry.
         QTimer::singleShot(650, &app, [&window]() { (void)window.autoAddTablePanel(); });
+    }
+    if (autoAddBarFlag) {
+        QTimer::singleShot(650, &app, [&window]() { (void)window.autoAddBarPanel(); });
+    }
+    if (autoAddGaugeFlag) {
+        QTimer::singleShot(650, &app, [&window]() { (void)window.autoAddGaugePanel(); });
     }
     if (!autoRecordPath.isEmpty()) {
         // Defer recording start so connections have a chance to reach
