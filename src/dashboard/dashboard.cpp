@@ -50,6 +50,15 @@ Panel* Dashboard::panel(const QString& panelId) const {
     return panels_.value(panelId, nullptr);
 }
 
+bool Dashboard::showsSignal(const QString& signalId) const {
+    for (const QString& id : panelOrder_) {
+        if (panels_.value(id)->hasSignal(signalId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 QString Dashboard::addPanel(PanelConfig config) {
     if (config.id.isEmpty() || panels_.contains(config.id)) {
         config.id = nextPanelId();

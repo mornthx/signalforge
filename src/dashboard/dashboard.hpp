@@ -73,6 +73,10 @@ public:
     /// Look up a panel by id (nullptr if absent).
     [[nodiscard]] Panel* panel(const QString& panelId) const;
 
+    /// Whether any panel currently hosts `signalId`. Used by the signal
+    /// list to derive checkbox state from the dashboard (source of truth).
+    [[nodiscard]] bool showsSignal(const QString& signalId) const;
+
     /// Toggle editing affordances (remove buttons) across all panels.
     void setEditMode(bool on);
 

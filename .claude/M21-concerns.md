@@ -32,3 +32,14 @@ CLAUDE.md ambiguity rule #9.
   — bad for exactly the slow scalars NumericPanel targets. **Not fixed in P0** (the buffer is
   M6-frozen; the fix is the already-planned time-based flush, a buffer-tuning milestone).
   Logged here as the proper place; recommend prioritizing the time-based publish flush next.
+
+- **D5 (new dashboard-aware selector) — decided S5.** The frozen M8 `SignalSelector` routes
+  checkbox toggles to the ChartManager *active chart* and rebuilds checkbox state from it on
+  every `refresh()`. Reusing it for a dashboard would either (a) require editing the frozen
+  class (HALT #4) or (b) make checkboxes reset every ~1 s because the dashboard isn't its
+  source of truth. Per the milestone's parallel-additive philosophy I added a NEW
+  `SignalListPanel` (dashboard module) whose checkbox state derives from
+  `Dashboard::showsSignal` — so panel Remove buttons and the list stay in sync automatically.
+  The frozen `SignalSelector` is left untouched (still built, still has its tests) but is no
+  longer mounted in the central area. *Review: confirm dropping the old selector from the UI
+  is acceptable; it can be deleted in a later cleanup once the new one is proven.*
