@@ -44,7 +44,15 @@ CLAUDE.md ambiguity rule #9.
   longer mounted in the central area. *Review: confirm dropping the old selector from the UI
   is acceptable; it can be deleted in a later cleanup once the new one is proven.*
 
-- **C2 (PRE-EXISTING teardown segfault) — found during S5 verification, NOT caused by M21.**
+- **C2 — FIXED (commit after S6).** ~~PRE-EXISTING teardown segfault~~ Resolved: `~MainWindow`
+  now severs the connection→pipeline signal bridge and `pipelineManager_.reset()`s the pipelines
+  while the ConnectionManager-owned drivers are still alive (members can't be reordered —
+  construction has the opposite dependency). No frozen code touched. Verified rc=0 on all exit
+  paths (exit-after-ms, exit-after-dump, empty). Added a **Tier D crash-exit guard** to
+  `release_binary_smoke.sh` so a future SIGSEGV/SIGABRT on exit fails CI (the original masking
+  cause was that the smoke test never checked the exit code). Original analysis retained below.
+
+- **C2 (original analysis) — PRE-EXISTING teardown segfault, NOT caused by M21.**
   Running the binary to exit (e.g. `--exit-after-ms` / `--exit-after-dump`) under offscreen QPA
   segfaults at teardown in `FramePipeline::~FramePipeline` (`frame_pipeline.cpp:258`,
   `driver_->disconnect(...)`). Root cause: `MainWindow` declares `pipelineManager_` *before*

@@ -259,7 +259,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     buildThemeUi();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // M21 C2: FramePipeline::~FramePipeline disconnects from its driver, so
+    // the pipeline must be torn down while the ConnectionManager-owned
+    // drivers are still alive. Members destroy in reverse declaration order
+    // (which frees the ConnectionManager — and its drivers — before
+    // pipelineManager_), and we cannot reorder the members because
+    // construction has the opposite dependency (decoderRegistrar_ needs
+    // pipelineManager_; connectionManager_ needs decoderRegistrar_). So here,
+    // before automatic member teardown frees the drivers, sever the
+    // connection→pipeline signal bridge and destroy the pipelines explicitly.
+    if (connectionManager_ != nullptr) {
+        connectionManager_->disconnect(this);
+    }
+    pipelineManager_.reset();
+}
 
 void MainWindow::buildChartUi() {
     centralSplitter_ = new QSplitter(Qt::Horizontal, this);
