@@ -4,13 +4,14 @@
 #include "buffer/signal_buffer_registry.hpp"
 #include "chart/chart.hpp"
 #include "chart/chart_manager.hpp"
-#include "chart/signal_selector.hpp"
 #include "chart/time_axis_manager.hpp"
 #include "connection/connection.hpp"
 #include "connection/connection_dialog.hpp"
 #include "connection/connection_list_widget.hpp"
 #include "connection/connection_manager.hpp"
 #include "connection/connection_status_widget.hpp"
+#include "dashboard/dashboard.hpp"
+#include "dashboard/signal_list_panel.hpp"
 #include "decode/decoder_registrar.hpp"
 #include "observability/logging.hpp"
 #include "pipeline/pipeline_manager.hpp"
@@ -263,15 +264,59 @@ MainWindow::~MainWindow() = default;
 void MainWindow::buildChartUi() {
     centralSplitter_ = new QSplitter(Qt::Horizontal, this);
 
-    signalSelector_ = new signalforge::chart::SignalSelector(*signalBufferRegistry_, *chartManager_);
-    connect(signalSelector_, &signalforge::chart::SignalSelector::signalToggled, this,
-            [this](const QString&, bool) { updateEmptyStateVisibility(); });
-    centralSplitter_->addWidget(signalSelector_);
+    // M21: the central area is a Dashboard of heterogeneous panels backed
+    // by the (retained) ChartManager for plot panels. A dashboard-aware
+    // SignalListPanel drives it (replaces the frozen chart::SignalSelector
+    // in the UI; the selector class is untouched and still has its tests).
+    dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_, *chartManager_);
+    connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, this,
+            &MainWindow::updateEmptyStateVisibility);
 
+    signalListPanel_ = new signalforge::dashboard::SignalListPanel(*signalBufferRegistry_, *dashboard_);
+    connect(signalListPanel_, &signalforge::dashboard::SignalListPanel::signalToggled, this,
+            [this](const QString&, bool) { updateEmptyStateVisibility(); });
+    centralSplitter_->addWidget(signalListPanel_);
+
+    // Right pane: guided empty-state stacked above the dashboard grid.
     chartContainer_ = new QWidget;
     chartLayout_ = new QVBoxLayout(chartContainer_);
     chartLayout_->setContentsMargins(0, 0, 0, 0);
     chartLayout_->setSpacing(2);
+
+    chartEmptyState_ = new QFrame(chartContainer_);
+    chartEmptyState_->setObjectName(QStringLiteral("chartEmptyState"));
+    {
+        auto* emptyRoot = new QVBoxLayout(chartEmptyState_);
+        emptyRoot->setContentsMargins(24, 18, 24, 18);
+        emptyRoot->setSpacing(8);
+        auto* title = new QLabel(tr("Start a SignalForge workflow"), chartEmptyState_);
+        title->setProperty("class", QLatin1String("display"));
+        emptyRoot->addWidget(title);
+        auto* caption =
+            new QLabel(tr("Connect a live source and tick signals to build a dashboard, or open an existing replay."),
+                       chartEmptyState_);
+        caption->setProperty("class", QLatin1String("caption"));
+        caption->setWordWrap(true);
+        emptyRoot->addWidget(caption);
+        auto* actions = new QHBoxLayout();
+        actions->setSpacing(8);
+        emptyAddConnectionButton_ = new QPushButton(tr("Add connection"), chartEmptyState_);
+        emptyAddConnectionButton_->setProperty("class", QLatin1String("primary"));
+        emptyOpenSessionButton_ = new QPushButton(tr("Open session"), chartEmptyState_);
+        emptyOpenSessionButton_->setProperty("class", QLatin1String("primary"));
+        emptyLoadSchemaButton_ = new QPushButton(tr("Load schema"), chartEmptyState_);
+        emptyLoadSchemaButton_->setToolTip(tr("Decoder schemas are selected while adding or editing a connection."));
+        actions->addWidget(emptyAddConnectionButton_);
+        actions->addWidget(emptyOpenSessionButton_);
+        actions->addWidget(emptyLoadSchemaButton_);
+        actions->addStretch();
+        emptyRoot->addLayout(actions);
+        connect(emptyAddConnectionButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
+        connect(emptyOpenSessionButton_, &QPushButton::clicked, this, &MainWindow::onOpenSessionRequested);
+        connect(emptyLoadSchemaButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
+    }
+    chartLayout_->addWidget(chartEmptyState_, 0);
+    chartLayout_->addWidget(dashboard_, 1);
     centralSplitter_->addWidget(chartContainer_);
 
     centralSplitter_->setStretchFactor(0, 1);
@@ -309,7 +354,8 @@ void MainWindow::buildChartUi() {
     connect(timePresetCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onTimePresetChanged);
     toolbar->addWidget(timePresetCombo_);
 
-    auto* addChartAction = toolbar->addAction(tr("+ Chart"));
+    auto* addChartAction = toolbar->addAction(tr("+ Plot"));
+    addChartAction->setToolTip(tr("Add an empty plot panel"));
     connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
 
     fpsLabel_ = new QLabel(tr("Chart idle"));
@@ -342,7 +388,9 @@ void MainWindow::buildChartUi() {
     connect(statusTimer, &QTimer::timeout, this, &MainWindow::refreshStatusBar);
     statusTimer->start();
 
-    onAddChart();
+    // M21: start with an empty dashboard (the guided empty-state shows
+    // until the user ticks a signal or adds a plot) — no auto chart.
+    updateEmptyStateVisibility();
 }
 
 void MainWindow::buildConnectionUi() {
@@ -405,8 +453,8 @@ void MainWindow::buildConnectionUi() {
     // connection state change.
     connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::connectionStateChanged, this,
             [this](const QString&, signalforge::connection::Connection::State) {
-                if (signalSelector_ != nullptr) {
-                    signalSelector_->refresh();
+                if (signalListPanel_ != nullptr) {
+                    signalListPanel_->refresh();
                 }
             });
 }
@@ -446,10 +494,10 @@ void MainWindow::buildThemeUi() {
 
     connect(group, &QActionGroup::triggered, this, &MainWindow::applyThemeFromAction);
 
-    if (connectionList_ != nullptr && signalSelector_ != nullptr && liveToggle_ != nullptr &&
+    if (connectionList_ != nullptr && signalListPanel_ != nullptr && liveToggle_ != nullptr &&
         timePresetCombo_ != nullptr && replaySeekSlider_ != nullptr && replaySpeedCombo_ != nullptr) {
-        setTabOrder(connectionList_, signalSelector_);
-        setTabOrder(signalSelector_, liveToggle_);
+        setTabOrder(connectionList_, signalListPanel_);
+        setTabOrder(signalListPanel_, liveToggle_);
         setTabOrder(liveToggle_, timePresetCombo_);
         setTabOrder(timePresetCombo_, replaySeekSlider_);
         setTabOrder(replaySeekSlider_, replaySpeedCombo_);
@@ -489,12 +537,18 @@ bool MainWindow::autoLoadTestFixture(const QString& yamlPath) {
 }
 
 bool MainWindow::autoSelectSignal(const QString& signalId) {
-    if (chartManager_ == nullptr || signalId.isEmpty()) {
+    if (dashboard_ == nullptr || chartManager_ == nullptr || signalId.isEmpty()) {
         return false;
+    }
+    // M21: ensure a plot panel exists (so the signal renders as a trace,
+    // which the M14 smoke harness's framebuffer check expects), then add
+    // the signal to its backing chart.
+    if (chartManager_->chartIds().isEmpty()) {
+        (void)dashboard_->addPlotPanel();
     }
     const auto ids = chartManager_->chartIds();
     if (ids.isEmpty()) {
-        SF_LOG_ERROR("MainWindow: autoSelectSignal: no charts to attach signal '{}'", signalId.toStdString());
+        SF_LOG_ERROR("MainWindow: autoSelectSignal: no plot panel to attach signal '{}'", signalId.toStdString());
         return false;
     }
     auto* chart = chartManager_->chart(ids.first());
@@ -506,6 +560,20 @@ bool MainWindow::autoSelectSignal(const QString& signalId) {
     SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' added to chart '{}'", signalId.toStdString(),
                 ids.first().toStdString());
     return true;
+}
+
+bool MainWindow::autoAddDashboardSignal(const QString& signalId) {
+    if (dashboard_ == nullptr || signalId.isEmpty()) {
+        return false;
+    }
+    const QString panelId = dashboard_->addSignal(signalId);
+    if (signalListPanel_ != nullptr) {
+        signalListPanel_->refresh();
+    }
+    updateEmptyStateVisibility();
+    SF_LOG_INFO("MainWindow: autoAddDashboardSignal: '{}' -> panel '{}'", signalId.toStdString(),
+                panelId.toStdString());
+    return !panelId.isEmpty();
 }
 
 bool MainWindow::autoStartRecording(const QString& path) {
@@ -806,9 +874,8 @@ bool MainWindow::autoSetConfigSaveStatusForVisualTest(const QString& status) {
     }
     if (normalized == QStringLiteral("failed") || normalized == QStringLiteral("error")) {
         const QString visualPath = QStringLiteral("/tmp/signalforge-visual/connections.yaml");
-        onConfigurationSaveStateChanged(
-            false, visualPath,
-            tr("Could not save connection configuration to %1").arg(visualPath));
+        onConfigurationSaveStateChanged(false, visualPath,
+                                        tr("Could not save connection configuration to %1").arg(visualPath));
         return true;
     }
     SF_LOG_WARN("MainWindow::autoSetConfigSaveStatusForVisualTest: unknown status '{}'", status.toStdString());
@@ -931,8 +998,8 @@ bool MainWindow::autoFocusWidgetForVisualTest(const QString& name) {
     QWidget* target = nullptr;
     if (normalized == QStringLiteral("connection_list")) {
         target = connectionList_;
-    } else if (normalized == QStringLiteral("signal_selector")) {
-        target = signalSelector_;
+    } else if (normalized == QStringLiteral("signal_selector") || normalized == QStringLiteral("signal_list")) {
+        target = signalListPanel_;
     } else if (normalized == QStringLiteral("live_toggle")) {
         target = liveToggle_;
     } else if (normalized == QStringLiteral("time_preset")) {
@@ -995,17 +1062,13 @@ bool MainWindow::autoReplaySeekPercent(int percent) {
 }
 
 std::size_t MainWindow::autoAddCharts(int extra) {
-    if (chartManager_ == nullptr || extra <= 0) {
+    if (dashboard_ == nullptr || chartManager_ == nullptr || extra <= 0) {
         return chartManager_ != nullptr ? static_cast<std::size_t>(chartManager_->chartIds().size()) : 0;
     }
-    // Bulk-add: createChart() N times then rebuildChartWidgets()
-    // ONCE. Calling onAddChart() in a loop tears down + rebuilds
-    // all chart QQuickWidgets per iteration which races against
-    // QML scene-graph init under headless timing.
+    // M21: each plot panel creates a backing chart in chartManager_.
     for (int i = 0; i < extra; ++i) {
-        (void)chartManager_->createChart();
+        (void)dashboard_->addPlotPanel();
     }
-    rebuildChartWidgets();
     const auto count = static_cast<std::size_t>(chartManager_->chartIds().size());
     SF_LOG_INFO("MainWindow: autoAddCharts: +{} -> total {}", extra, count);
     return count;
@@ -1171,166 +1234,22 @@ void MainWindow::onDisconnectAllAction() {
 }
 
 void MainWindow::onAddChart() {
-    if (chartManager_ == nullptr) {
+    if (dashboard_ == nullptr) {
         return;
     }
-    const QString chartId = chartManager_->createChart();
-    chartManager_->setActiveChartId(chartId);
-    rebuildChartWidgets();
-    SF_LOG_INFO("MainWindow: created chart {}", chartId.toStdString());
-}
-
-void MainWindow::rebuildChartWidgets() {
-    if (chartLayout_ == nullptr || chartManager_ == nullptr) {
-        return;
-    }
-    while (auto* item = chartLayout_->takeAt(0)) {
-        if (auto* w = item->widget()) {
-            w->deleteLater();
-        }
-        delete item;
-    }
-
-    chartEmptyState_ = new QFrame(chartContainer_);
-    chartEmptyState_->setObjectName(QStringLiteral("chartEmptyState"));
-    auto* emptyRoot = new QVBoxLayout(chartEmptyState_);
-    emptyRoot->setContentsMargins(24, 18, 24, 18);
-    emptyRoot->setSpacing(8);
-
-    auto* title = new QLabel(tr("Start a SignalForge workflow"), chartEmptyState_);
-    title->setProperty("class", QLatin1String("display"));
-    emptyRoot->addWidget(title);
-
-    auto* caption = new QLabel(
-        tr("Connect a live source, select signals, record a session, or open an existing replay."), chartEmptyState_);
-    caption->setProperty("class", QLatin1String("caption"));
-    caption->setWordWrap(true);
-    emptyRoot->addWidget(caption);
-
-    auto* actions = new QHBoxLayout();
-    actions->setSpacing(8);
-    emptyAddConnectionButton_ = new QPushButton(tr("Add connection"), chartEmptyState_);
-    emptyAddConnectionButton_->setProperty("class", QLatin1String("primary"));
-    emptyOpenSessionButton_ = new QPushButton(tr("Open session"), chartEmptyState_);
-    emptyOpenSessionButton_->setProperty("class", QLatin1String("primary"));
-    emptyLoadSchemaButton_ = new QPushButton(tr("Load schema"), chartEmptyState_);
-    emptyLoadSchemaButton_->setToolTip(tr("Decoder schemas are selected while adding or editing a connection."));
-    actions->addWidget(emptyAddConnectionButton_);
-    actions->addWidget(emptyOpenSessionButton_);
-    actions->addWidget(emptyLoadSchemaButton_);
-    actions->addStretch();
-    emptyRoot->addLayout(actions);
-
-    connect(emptyAddConnectionButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
-    connect(emptyOpenSessionButton_, &QPushButton::clicked, this, &MainWindow::onOpenSessionRequested);
-    connect(emptyLoadSchemaButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
-    chartLayout_->addWidget(chartEmptyState_, 0);
-
-    for (const auto& id : chartManager_->chartIds()) {
-        auto* chart = chartManager_->chart(id);
-        if (chart == nullptr) {
-            continue;
-        }
-        // ADR-010: load the QML host scene so QQuickWidget exposes a
-        // non-null rootObject(). Without it, setParentItem(nullptr)
-        // orphans Chart and nothing renders. setSource is synchronous
-        // for qrc:/ URLs, so rootObject() is ready immediately.
-        auto* chartFrame = new QFrame(chartContainer_);
-        chartFrame->setObjectName(QStringLiteral("chartFrame"));
-        auto* frameLayout = new QVBoxLayout(chartFrame);
-        frameLayout->setContentsMargins(0, 0, 0, 0);
-        frameLayout->setSpacing(0);
-
-        auto* header = new QFrame(chartFrame);
-        header->setObjectName(QStringLiteral("panelHeader"));
-        auto* headerLayout = new QHBoxLayout(header);
-        headerLayout->setContentsMargins(8, 4, 8, 4);
-        auto* title = new QLabel(chart->config().title.isEmpty() ? id : chart->config().title, header);
-        title->setProperty("class", QLatin1String("heading"));
-        auto* legend = new QLabel(header);
-        legend->setProperty("class", QLatin1String("caption"));
-        auto updateLegend = [chart, legend]() {
-            const auto visibleSignalIds = chart->visibleSignals();
-            legend->setText(
-                visibleSignalIds.isEmpty()
-                    ? QObject::tr("No signals selected")
-                    : QObject::tr("%1 signal(s): %2").arg(visibleSignalIds.size()).arg(visibleSignalIds.join(", ")));
-        };
-        updateLegend();
-        auto* removeButton = new QPushButton(tr("Remove"), header);
-        removeButton->setToolTip(tr("Remove this chart"));
-        headerLayout->addWidget(title);
-        headerLayout->addWidget(legend, 1);
-        headerLayout->addWidget(removeButton);
-        frameLayout->addWidget(header);
-
-        auto* hostWidget = new QQuickWidget(chartFrame);
-        hostWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
-        applyChartHostTheme(hostWidget);
-        // QQuickWidget's default size policy is Preferred/Preferred and
-        // its sizeHint() can be invalid until a scene is loaded; under
-        // a QVBoxLayout that means the layout gives it 0 width even
-        // with a stretch factor. Force Expanding/Expanding so the
-        // layout fills the chart pane horizontally + vertically.
-        hostWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        hostWidget->setMinimumSize(1, 1);
-        hostWidget->setSource(QUrl(QStringLiteral("qrc:/qml/ChartHost.qml")));
-        if (hostWidget->status() != QQuickWidget::Ready) {
-            SF_LOG_ERROR("MainWindow: ChartHost.qml failed to load (status={})",
-                         static_cast<int>(hostWidget->status()));
-            chartFrame->deleteLater();
-            continue;
-        }
-        auto* root = hostWidget->rootObject();
-        if (root == nullptr) {
-            SF_LOG_ERROR("MainWindow: ChartHost.qml loaded but rootObject() is null");
-            chartFrame->deleteLater();
-            continue;
-        }
-        chart->setParentItem(root);
-        connect(chart, &signalforge::chart::Chart::signalAdded, this, updateLegend);
-        connect(chart, &signalforge::chart::Chart::signalRemoved, this, updateLegend);
-        connect(removeButton, &QPushButton::clicked, this, [this, id]() {
-            if (chartManager_ == nullptr) {
-                return;
-            }
-            (void)chartManager_->removeChart(id);
-            if (chartManager_->chartIds().isEmpty()) {
-                (void)chartManager_->createChart();
-            }
-            rebuildChartWidgets();
-        });
-        // ADR-011: bind Chart's geometry to the host scene root.
-        // QQuickWidget::SizeRootObjectToView keeps `root` matched to the
-        // widget; ChartHost.qml's anchors.fill keeps the QML scene matched
-        // to root. The C++ chart child does NOT inherit either — it lands
-        // at the QQuickItem default 0×0 unless we bind explicitly here.
-        const auto syncSize = [chart, root]() { chart->setSize(QSizeF(root->width(), root->height())); };
-        syncSize();
-        connect(root, &QQuickItem::widthChanged, chart, syncSize);
-        connect(root, &QQuickItem::heightChanged, chart, syncSize);
-        frameLayout->addWidget(hostWidget, 1);
-        chartLayout_->addWidget(chartFrame, 1);
-    }
-    updateEmptyStateVisibility();
+    const QString panelId = dashboard_->addPlotPanel();
+    SF_LOG_INFO("MainWindow: added plot panel {}", panelId.toStdString());
 }
 
 void MainWindow::updateEmptyStateVisibility() {
     if (chartEmptyState_ == nullptr) {
         return;
     }
-    const bool hasAvailableSignals = signalBufferRegistry_ != nullptr && !signalBufferRegistry_->signalIds().isEmpty();
-    bool hasVisibleSignal = false;
-    if (chartManager_ != nullptr) {
-        for (const auto& id : chartManager_->chartIds()) {
-            auto* chart = chartManager_->chart(id);
-            if (chart != nullptr && !chart->visibleSignals().isEmpty()) {
-                hasVisibleSignal = true;
-                break;
-            }
-        }
-    }
-    chartEmptyState_->setVisible(!hasAvailableSignals && !hasVisibleSignal);
+    // M21: the guided empty-state shows only while the dashboard has no
+    // panels. Once the user ticks a signal or adds a plot, it hides — so
+    // the empty-state and an empty grid never appear together (DR-001).
+    const bool dashboardEmpty = dashboard_ == nullptr || dashboard_->panelCount() == 0;
+    chartEmptyState_->setVisible(dashboardEmpty);
 }
 
 void MainWindow::onLiveToggleChanged(bool live) {
@@ -1450,8 +1369,8 @@ void MainWindow::refreshStatusBar() {
             applyLabelClass(bufferBudgetLabel_, cls);
         }
     }
-    if (signalSelector_ != nullptr) {
-        signalSelector_->refresh();
+    if (signalListPanel_ != nullptr) {
+        signalListPanel_->refresh();
     }
     updateEmptyStateVisibility();
 }
@@ -1491,13 +1410,11 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         }
     }
     if (!configSaveHealthy_) {
-        const QString detail = lastConfigSaveMessage_.isEmpty()
-                                   ? tr("Connection configuration has not been saved.")
-                                   : lastConfigSaveMessage_;
+        const QString detail = lastConfigSaveMessage_.isEmpty() ? tr("Connection configuration has not been saved.")
+                                                                : lastConfigSaveMessage_;
         const auto button =
-            QMessageBox::warning(this, tr("Configuration not saved"),
-                                 tr("%1\n\nExit anyway?").arg(detail), QMessageBox::Yes | QMessageBox::Cancel,
-                                 QMessageBox::Cancel);
+            QMessageBox::warning(this, tr("Configuration not saved"), tr("%1\n\nExit anyway?").arg(detail),
+                                 QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
         if (button != QMessageBox::Yes) {
             event->ignore();
             return;
@@ -2027,9 +1944,7 @@ void MainWindow::updateReplayStatusLabel() {
                                        .arg(formatReplayPosition(playbackController_->currentPositionNs()))
                                        .arg(formatReplayPosition(playbackController_->durationNs()))
                                        .arg(playbackController_->totalRecords()));
-    const char* cls = st == S::Paused  ? "mode-paused"
-                      : st == S::Ended ? "mode-ended"
-                                       : "mode-replay";
+    const char* cls = st == S::Paused ? "mode-paused" : st == S::Ended ? "mode-ended" : "mode-replay";
     applyLabelClass(replayStatusLabel_, cls);
 }
 
@@ -2062,9 +1977,7 @@ void MainWindow::onReplayPositionChanged(std::int64_t timestampNs, std::size_t r
                                            .arg(formatReplayPosition(playbackController_->durationNs()))
                                            .arg(recordIndex)
                                            .arg(playbackController_->totalRecords()));
-        const char* cls = st == S::Paused  ? "mode-paused"
-                          : st == S::Ended ? "mode-ended"
-                                           : "mode-replay";
+        const char* cls = st == S::Paused ? "mode-paused" : st == S::Ended ? "mode-ended" : "mode-replay";
         applyLabelClass(replayStatusLabel_, cls);
     }
 }

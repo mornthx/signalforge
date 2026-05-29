@@ -34,11 +34,14 @@ PlotPanel::PlotPanel(PanelConfig config, signalforge::chart::Chart* chart, QWidg
     }
     if (chart_ != nullptr) {
         chart_->setParentItem(root);
-        // ADR-011: bind the chart's geometry to the host scene root.
-        const auto syncSize = [chart = chart_, root]() { chart->setSize(QSizeF(root->width(), root->height())); };
+        // ADR-011: bind the chart's geometry to the host scene root. The
+        // chart is the connection context, so Qt auto-disconnects (and the
+        // lambda stops firing) if the chart is destroyed.
+        auto* chartPtr = chart_.data();
+        const auto syncSize = [chartPtr, root]() { chartPtr->setSize(QSizeF(root->width(), root->height())); };
         syncSize();
-        connect(root, &QQuickItem::widthChanged, chart_, syncSize);
-        connect(root, &QQuickItem::heightChanged, chart_, syncSize);
+        connect(root, &QQuickItem::widthChanged, chartPtr, syncSize);
+        connect(root, &QQuickItem::heightChanged, chartPtr, syncSize);
 
         // Reflect any pre-configured signals into both the chart and the
         // panel binding so config()/hasSignal() stay consistent.
@@ -56,6 +59,10 @@ PlotPanel::~PlotPanel() {
     if (chart_ != nullptr) {
         chart_->setParentItem(nullptr);
     }
+}
+
+signalforge::chart::Chart* PlotPanel::chart() const noexcept {
+    return chart_.data();
 }
 
 void PlotPanel::detachChart() {

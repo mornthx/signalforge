@@ -23,6 +23,7 @@ target_link_libraries(signalforge_app_ui
         signalforge_decoder
         signalforge_buffer
         signalforge_chart
+        signalforge_dashboard
         signalforge_connection
         signalforge_session
         signalforge_replay

@@ -9,7 +9,8 @@ Branch: `milestone/M21` (local; not pushed). Baseline: `main` @ a647ecf, debug b
 | S2 — Numeric + State panels | done | numeric+state panels + value_format; 4 cases/22 assertions (Debug+Release); surfaced concern C1 (slow-signal publish latency) |
 | S3 — PlotPanel (wrap legacy Chart) | done | hosts QQuickWidget+Chart, detaches on dtor (no double-free); 2 cases/13 assertions (Debug+Release) |
 | S4 — Dashboard container | done | reflow grid + 15Hz refresh + auto-suggest addSignal + plot/chart lifecycle; 3 cases/16 assertions (Debug+Release) |
-| S5 — MainWindow integration | todo | |
+| S5a — dashboard-aware signal list | done | SignalListPanel + showsSignal; 2 cases/11 assertions |
+| S5b — MainWindow integration | done | dashboard mounted in central splitter, selector→dashboard routing, +Plot, hooks repointed, QPointer chart-safety, 00-empty-launch rebaselined; full ctest green (662/662); GUI smoke green; found pre-existing teardown UAF (C2) |
 | S6 — Close-out (format/docs/full ctest) | todo | |
 
 ## Log

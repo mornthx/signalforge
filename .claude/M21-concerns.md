@@ -43,3 +43,23 @@ CLAUDE.md ambiguity rule #9.
   The frozen `SignalSelector` is left untouched (still built, still has its tests) but is no
   longer mounted in the central area. *Review: confirm dropping the old selector from the UI
   is acceptable; it can be deleted in a later cleanup once the new one is proven.*
+
+- **C2 (PRE-EXISTING teardown segfault) — found during S5 verification, NOT caused by M21.**
+  Running the binary to exit (e.g. `--exit-after-ms` / `--exit-after-dump`) under offscreen QPA
+  segfaults at teardown in `FramePipeline::~FramePipeline` (`frame_pipeline.cpp:258`,
+  `driver_->disconnect(...)`). Root cause: `MainWindow` declares `pipelineManager_` *before*
+  `connectionManager_`, so members destroy in reverse order → `connectionManager_` (owns the
+  drivers) dies first, leaving `driver_` dangling when `~FramePipeline` runs. The member order
+  is **unchanged by M21**; this UAF predates this milestone. It stays hidden because the GUI
+  smoke test captures `APP_RC` but `exit 0`s regardless (release_binary_smoke.sh:272) — no test
+  asserts a clean exit. **Out of P0 scope** (touches frozen-era plumbing lifetime). Recommended
+  fix: reorder so `pipelineManager_` is destroyed before `connectionManager_`, or explicitly
+  `pipelineManager_.reset()` first in `~MainWindow`. Flagging for a dedicated follow-up.
+
+- **C3 (visual baseline rebaselined) — S5.** The intended UI change (empty chart grid → clean
+  guided empty-state) made `00-empty-launch` diff 40% from its baseline. I promoted the new
+  capture via `scripts/accept-baseline.sh 00-empty-launch ""` (PNG + env sidecar). *Review the
+  committed `tests/visual/baselines/00-empty-launch.png`.* Other visual baselines were within
+  tolerance and unchanged. Live S5 verification screenshots (in /tmp, not committed): clean
+  empty launch; dashboard with a live Numeric card reading "22.490 °C / min 20.140 max 22.490"
+  plus heterogeneous State/Numeric cards laid out in the grid.

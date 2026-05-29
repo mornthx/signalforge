@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
     // assert that decoded signals reach the chart QQuickWidget framebuffer.
     const QString fixturePath = flagValue(argc, argv, "--auto-load-test-fixture");
     const QString autoSignalId = flagValue(argc, argv, "--auto-select-signal");
+    const QString autoDashSignalsArg = flagValue(argc, argv, "--auto-dashboard-signals");
     const QString dumpPngArg = flagValue(argc, argv, "--dump-chart-png-after-ms");
     const QString dumpPngPathArg = flagValue(argc, argv, "--dump-chart-png-path");
     const bool exitAfterDump = hasFlag(argc, argv, "--exit-after-dump");
@@ -331,8 +332,7 @@ int main(int argc, char** argv) {
     if (!autoConnectionStateArg.isEmpty()) {
         QTimer::singleShot(500, &app, [&window, autoConnectionStateArg]() {
             if (!window.autoSetConnectionStateForVisualTest(autoConnectionStateArg)) {
-                SF_LOG_ERROR("SignalForge: --auto-connection-state '{}' failed",
-                             autoConnectionStateArg.toStdString());
+                SF_LOG_ERROR("SignalForge: --auto-connection-state '{}' failed", autoConnectionStateArg.toStdString());
             }
         });
     }
@@ -428,6 +428,15 @@ int main(int argc, char** argv) {
         QTimer::singleShot(500, &app, [&window, autoSignalId]() {
             if (!window.autoSelectSignal(autoSignalId)) {
                 SF_LOG_ERROR("SignalForge: --auto-select-signal '{}' failed", autoSignalId.toStdString());
+            }
+        });
+    }
+    if (!autoDashSignalsArg.isEmpty()) {
+        // Defer so connect/registration has populated the registry, then add
+        // each signal to the dashboard via the auto-suggest path.
+        QTimer::singleShot(600, &app, [&window, autoDashSignalsArg]() {
+            for (const QString& id : autoDashSignalsArg.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                (void)window.autoAddDashboardSignal(id.trimmed());
             }
         });
     }

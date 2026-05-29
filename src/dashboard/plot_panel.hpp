@@ -3,6 +3,8 @@
 
 #include "dashboard/panel.hpp"
 
+#include <QPointer>
+
 class QQuickWidget;
 
 namespace signalforge::chart {
@@ -42,13 +44,14 @@ public:
     /// Called by `Dashboard::removePanel` before `ChartManager::removeChart`.
     void detachChart();
 
-    /// The hosted chart (not owned).
-    [[nodiscard]] signalforge::chart::Chart* chart() const noexcept {
-        return chart_;
-    }
+    /// The hosted chart (not owned). May be null if the chart was
+    /// destroyed (e.g. during app teardown).
+    [[nodiscard]] signalforge::chart::Chart* chart() const noexcept;
 
 private:
-    signalforge::chart::Chart* chart_;
+    // QPointer so a chart destroyed out from under us (the ChartManager
+    // owns it and may be torn down first) auto-nulls instead of dangling.
+    QPointer<signalforge::chart::Chart> chart_;
     QQuickWidget* host_ = nullptr;
 };
 

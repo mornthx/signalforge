@@ -27,8 +27,11 @@ class DecoderRegistrar;
 }
 namespace signalforge::chart {
 class ChartManager;
-class SignalSelector;
 }  // namespace signalforge::chart
+namespace signalforge::dashboard {
+class Dashboard;
+class SignalListPanel;
+}  // namespace signalforge::dashboard
 namespace signalforge::connection {
 class ConnectionManager;
 class ConnectionListWidget;
@@ -80,6 +83,12 @@ public:
     /// Add `signalId` to the first chart in `chartManager_`. Returns
     /// false if no chart exists or the signal id is empty.
     [[nodiscard]] bool autoSelectSignal(const QString& signalId);
+
+    /// M21 visual harness: add `signalId` to the dashboard via the normal
+    /// auto-suggest path (Numeric/State card or reused panel), as if the
+    /// user ticked it in the signal list. Returns false if empty/no
+    /// dashboard. Used to capture heterogeneous-panel baselines.
+    [[nodiscard]] bool autoAddDashboardSignal(const QString& signalId);
 
     /// Grab the first chart-hosting QQuickWidget's framebuffer as a
     /// QImage. Returns a null QImage if no chart widget is laid out.
@@ -257,7 +266,6 @@ private:
     void updateEmptyStateVisibility();
     void onConfigurationSaveStateChanged(bool saved, const QString& path, const QString& message);
     [[nodiscard]] bool confirmExitReplayForClose();
-    void rebuildChartWidgets();
     [[nodiscard]] QStringList enumerateAvailableSchemaIds() const;
 
     // Plumbing.
@@ -268,9 +276,11 @@ private:
     std::unique_ptr<signalforge::connection::ConnectionManager> connectionManager_;
     std::unique_ptr<signalforge::session::SessionWriter> sessionWriter_;
 
-    // M8 chart UI.
+    // Chart backing (legacy ChartManager retained as PlotPanel's store) +
+    // M21 dashboard surface.
     std::unique_ptr<signalforge::chart::ChartManager> chartManager_;
-    signalforge::chart::SignalSelector* signalSelector_ = nullptr;
+    signalforge::dashboard::Dashboard* dashboard_ = nullptr;
+    signalforge::dashboard::SignalListPanel* signalListPanel_ = nullptr;
     QSplitter* centralSplitter_ = nullptr;
     QWidget* chartContainer_ = nullptr;
     QWidget* chartEmptyState_ = nullptr;
