@@ -76,10 +76,6 @@ public:
     virtual void addSignal(const QString& signalId) {}
     virtual void removeSignal(const QString& signalId) {}
 
-    /// Release any externally-owned resource before the panel is deleted
-    /// (PlotPanel detaches its manager-owned chart). Base no-op.
-    virtual void detachChart() {}
-
     /// Show or hide editing affordances (the remove button).
     void setEditMode(bool on);
 

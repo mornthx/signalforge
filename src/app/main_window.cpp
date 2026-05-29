@@ -2,8 +2,6 @@
 
 #include "app_style.hpp"
 #include "buffer/signal_buffer_registry.hpp"
-#include "chart/chart.hpp"
-#include "chart/chart_manager.hpp"
 #include "chart/time_axis_manager.hpp"
 #include "connection/connection.hpp"
 #include "connection/connection_dialog.hpp"
@@ -11,6 +9,7 @@
 #include "connection/connection_manager.hpp"
 #include "connection/connection_status_widget.hpp"
 #include "dashboard/dashboard.hpp"
+#include "dashboard/plot_view.hpp"
 #include "dashboard/signal_list_panel.hpp"
 #include "decode/decoder_registrar.hpp"
 #include "observability/logging.hpp"
@@ -242,8 +241,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
 
-    chartManager_ = std::make_unique<signalforge::chart::ChartManager>(*signalBufferRegistry_, this);
-
     // M11 replay plumbing. PlaybackController dispatches signals
     // back into the same SignalBufferRegistry the live path uses,
     // so charts work uniformly across modes. ReplayModeManager
@@ -279,10 +276,10 @@ void MainWindow::buildChartUi() {
     centralSplitter_ = new QSplitter(Qt::Horizontal, this);
 
     // M21: the central area is a Dashboard of heterogeneous panels backed
-    // by the (retained) ChartManager for plot panels. A dashboard-aware
-    // SignalListPanel drives it (replaces the frozen chart::SignalSelector
-    // in the UI; the selector class is untouched and still has its tests).
-    dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_, *chartManager_);
+    // by the new QPainter PlotView (M23) over a TimeAxisManager the
+    // Dashboard owns. A dashboard-aware SignalListPanel drives it (replaces
+    // the frozen chart::SignalSelector in the UI; that class is untouched).
+    dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_);
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, this,
             &MainWindow::updateEmptyStateVisibility);
 
@@ -555,29 +552,19 @@ bool MainWindow::autoLoadTestFixture(const QString& yamlPath) {
 }
 
 bool MainWindow::autoSelectSignal(const QString& signalId) {
-    if (dashboard_ == nullptr || chartManager_ == nullptr || signalId.isEmpty()) {
+    if (dashboard_ == nullptr || signalId.isEmpty()) {
         return false;
     }
-    // M21: ensure a plot panel exists (so the signal renders as a trace,
-    // which the M14 smoke harness's framebuffer check expects), then add
-    // the signal to its backing chart.
-    if (chartManager_->chartIds().isEmpty()) {
-        (void)dashboard_->addPlotPanel();
+    // M23: create a plot panel showing the signal (the M14 smoke harness's
+    // pixel check expects a rendered trace). PlotView renders via QPainter,
+    // so grabChartImage captures it.
+    const QString panelId = dashboard_->addPlotPanel({signalId});
+    if (signalListPanel_ != nullptr) {
+        signalListPanel_->refresh();
     }
-    const auto ids = chartManager_->chartIds();
-    if (ids.isEmpty()) {
-        SF_LOG_ERROR("MainWindow: autoSelectSignal: no plot panel to attach signal '{}'", signalId.toStdString());
-        return false;
-    }
-    auto* chart = chartManager_->chart(ids.first());
-    if (chart == nullptr) {
-        return false;
-    }
-    chart->addSignal(signalId);
     updateEmptyStateVisibility();
-    SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' added to chart '{}'", signalId.toStdString(),
-                ids.first().toStdString());
-    return true;
+    SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' -> plot panel '{}'", signalId.toStdString(), panelId.toStdString());
+    return !panelId.isEmpty();
 }
 
 bool MainWindow::autoAddDashboardSignal(const QString& signalId) {
@@ -1088,15 +1075,14 @@ bool MainWindow::autoReplaySeekPercent(int percent) {
 }
 
 std::size_t MainWindow::autoAddCharts(int extra) {
-    if (dashboard_ == nullptr || chartManager_ == nullptr || extra <= 0) {
-        return chartManager_ != nullptr ? static_cast<std::size_t>(chartManager_->chartIds().size()) : 0;
+    if (dashboard_ == nullptr || extra <= 0) {
+        return dashboard_ != nullptr ? static_cast<std::size_t>(dashboard_->panelCount()) : 0;
     }
-    // M21: each plot panel creates a backing chart in chartManager_.
     for (int i = 0; i < extra; ++i) {
         (void)dashboard_->addPlotPanel();
     }
-    const auto count = static_cast<std::size_t>(chartManager_->chartIds().size());
-    SF_LOG_INFO("MainWindow: autoAddCharts: +{} -> total {}", extra, count);
+    const auto count = static_cast<std::size_t>(dashboard_->panelCount());
+    SF_LOG_INFO("MainWindow: autoAddCharts: +{} -> total {} panels", extra, count);
     return count;
 }
 
@@ -1124,78 +1110,22 @@ bool MainWindow::captureScreenshot(const QString& path) {
 }
 
 QImage MainWindow::grabChartImage() const {
-    if (chartContainer_ == nullptr) {
+    if (dashboard_ == nullptr) {
         return {};
     }
-    const auto widgets = chartContainer_->findChildren<QQuickWidget*>();
-    if (widgets.isEmpty()) {
-        SF_LOG_WARN("MainWindow::grabChartImage: no QQuickWidget children of chartContainer_");
+    // M23: the plot is now a QPainter `PlotView` (a plain QWidget), so a
+    // direct QWidget::grab() captures it — no more QQuickWidget RHI
+    // framebuffer dance (M14 §F4).
+    auto* view = dashboard_->findChild<signalforge::dashboard::PlotView*>();
+    if (view == nullptr) {
+        SF_LOG_WARN("MainWindow::grabChartImage: no PlotView in the dashboard");
         return {};
     }
-    auto* qqw = widgets.first();
-    SF_LOG_INFO("MainWindow::grabChartImage: QQuickWidget size={}x{} root={}", qqw->width(), qqw->height(),
-                qqw->rootObject() == nullptr ? "null" : "ok");
-    if (chartManager_ != nullptr) {
-        for (const auto& cid : chartManager_->chartIds()) {
-            auto* c = chartManager_->chart(cid);
-            if (c == nullptr) {
-                continue;
-            }
-            const auto sigs = c->visibleSignals();
-            const auto st = c->stats();
-            SF_LOG_INFO("MainWindow::grabChartImage: chart='{}' size={}x{} pos=({},{}) "
-                        "visible={} enabled={} opacity={} signals={} redraws={} dropped={}",
-                        cid.toStdString(), c->width(), c->height(), c->x(), c->y(), c->isVisible(), c->isEnabled(),
-                        c->opacity(), sigs.size(), st.totalRedraws, st.droppedFrames);
-            // Defensive: ensure visible + opacity 1 in case parent QML scene
-            // didn't propagate. Diagnostic only — won't change anything if
-            // already correct.
-            if (!c->isVisible() || c->opacity() < 0.99) {
-                c->setVisible(true);
-                c->setOpacity(1.0);
-                SF_LOG_INFO("MainWindow::grabChartImage: forced visible+opacity for chart '{}'", cid.toStdString());
-            }
-        }
-        if (signalBufferRegistry_ != nullptr) {
-            SF_LOG_INFO("MainWindow::grabChartImage: SignalBufferRegistry has {} signal id(s)",
-                        signalBufferRegistry_->signalIds().size());
-        }
-    }
-    // First, prefer grabFramebuffer() — it captures the QQuickWidget's
-    // RHI scene-graph output. Force a synchronous update + event
-    // processing pass so the most recent chart redraw lands in the
-    // framebuffer before we grab.
-    qqw->update();
-    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
-    QImage img = qqw->grabFramebuffer();
-    bool useFramebuffer = !img.isNull() && img.width() > 0 && img.height() > 0;
-    if (useFramebuffer) {
-        // Sanity-check: framebuffer must contain non-clear pixels OR we
-        // should not trust it (some platform plugins return a successful
-        // but stale/white image even when scene graph rendered).
-        // We always log the framebuffer count separately so the harness
-        // sees both paths.
-        std::uint64_t fbNonWhite = 0;
-        for (int y = 0; y < img.height(); ++y) {
-            for (int x = 0; x < img.width(); ++x) {
-                const QRgb px = img.pixel(x, y);
-                if (qRed(px) != 255 || qGreen(px) != 255 || qBlue(px) != 255) {
-                    ++fbNonWhite;
-                }
-            }
-        }
-        SF_LOG_INFO("MainWindow::grabChartImage: framebuffer path: non_white={} size={}x{}", fbNonWhite, img.width(),
-                    img.height());
-        if (fbNonWhite == 0) {
-            // Framebuffer returned all-white; fall through to QWidget::grab().
-            useFramebuffer = false;
-        }
-    }
-    if (!useFramebuffer) {
-        SF_LOG_INFO("MainWindow::grabChartImage: falling back to QWidget::grab()");
-        const QPixmap pm = qqw->grab();
-        img = pm.toImage();
-    }
+    view->refresh();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    const QImage img = view->grab().toImage();
+    SF_LOG_INFO("MainWindow::grabChartImage: PlotView {}x{} signals={}", img.width(), img.height(),
+                view->signalIds().size());
     return img;
 }
 
@@ -1290,10 +1220,10 @@ void MainWindow::updateEmptyStateVisibility() {
 }
 
 void MainWindow::onLiveToggleChanged(bool live) {
-    if (chartManager_ == nullptr) {
+    if (dashboard_ == nullptr) {
         return;
     }
-    auto& axis = chartManager_->timeAxis();
+    auto& axis = dashboard_->timeAxis();
     if (live) {
         axis.resume();
         liveToggle_->setText(tr("● Live"));
@@ -1304,11 +1234,11 @@ void MainWindow::onLiveToggleChanged(bool live) {
 }
 
 void MainWindow::onTimePresetChanged(int index) {
-    if (chartManager_ == nullptr) {
+    if (dashboard_ == nullptr) {
         return;
     }
     using TP = signalforge::chart::TimeAxisManager::TimePreset;
-    auto& axis = chartManager_->timeAxis();
+    auto& axis = dashboard_->timeAxis();
     switch (index) {
     case 0:
         axis.setPreset(TP::Sec1);
@@ -1334,35 +1264,19 @@ void MainWindow::onTimePresetChanged(int index) {
 }
 
 void MainWindow::refreshStatusBar() {
-    if (chartManager_ == nullptr) {
+    if (dashboard_ == nullptr) {
         return;
     }
-    std::uint64_t totalRedraws = 0;
-    std::uint64_t totalDropped = 0;
-    int chartCount = 0;
-    for (const auto& id : chartManager_->chartIds()) {
-        auto* chart = chartManager_->chart(id);
-        if (chart == nullptr) {
-            continue;
-        }
-        const auto stats = chart->stats();
-        totalRedraws += stats.totalRedraws;
-        totalDropped += stats.droppedFrames;
-        ++chartCount;
-    }
+    const int panelCount = dashboard_->panelCount();
     if (fpsLabel_ != nullptr) {
-        if (chartCount > 0) {
-            fpsLabel_->setText(tr("%1 Hz").arg(30));
-        } else {
-            fpsLabel_->setText(tr("idle"));
-        }
-        fpsLabel_->setToolTip(chartCount > 0 ? tr("Chart render cadence") : tr("No chart render activity"));
+        fpsLabel_->setText(panelCount > 0 ? tr("%1 Hz").arg(15) : tr("idle"));
+        fpsLabel_->setToolTip(panelCount > 0 ? tr("Dashboard refresh cadence") : tr("No panels"));
         applyLabelClass(fpsLabel_, "severity-info");
     }
     if (droppedLabel_ != nullptr) {
-        droppedLabel_->setText(tr("Drops %1").arg(totalDropped));
-        droppedLabel_->setToolTip(tr("Chart frames dropped while rendering"));
-        applyLabelClass(droppedLabel_, totalDropped > 0 ? "severity-warning" : "severity-info");
+        droppedLabel_->setText(tr("Drops %1").arg(0));
+        droppedLabel_->setToolTip(tr("Dashboard render drops"));
+        applyLabelClass(droppedLabel_, "severity-info");
     }
     if (throttledLabel_ != nullptr) {
         if (!chartStatusOverrideText_.isEmpty()) {

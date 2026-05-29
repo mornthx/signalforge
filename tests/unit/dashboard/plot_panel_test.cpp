@@ -1,20 +1,17 @@
 // tests/unit/dashboard/plot_panel_test.cpp
 //
-// M21 S3 — PlotPanel wraps a legacy chart::Chart: hosts a QQuickWidget,
-// delegates add/removeSignal to the chart, is "wide", and does not
-// delete the manager-owned chart on destruction.
+// M23 — PlotPanel hosts a PlotView, delegates add/removeSignal, is wide
+// + multi-signal, and reflects preconfigured signals.
 
 #include "buffer/signal_buffer_registry.hpp"
-#include "chart/chart.hpp"
-#include "chart/chart_manager.hpp"
+#include "chart/time_axis_manager.hpp"
 #include "dashboard/panel_types.hpp"
 #include "dashboard/plot_panel.hpp"
+#include "dashboard/plot_view.hpp"
 #include "decode/decoder_interface.hpp"
 
 #include <QApplication>
-#include <QQuickWidget>
 #include <catch2/catch_test_macros.hpp>
-#include <memory>
 
 namespace dash = signalforge::dashboard;
 namespace ch = signalforge::chart;
@@ -47,48 +44,38 @@ dash::PanelConfig plotCfg() {
 
 }  // namespace
 
-TEST_CASE("S3: PlotPanel hosts a chart and delegates signal add/remove", "[dashboard][s3][plot]") {
+TEST_CASE("M23: PlotPanel hosts a PlotView and delegates add/remove", "[dashboard][m23][plot]") {
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"),
                             {makeMeta(QStringLiteral("rig/temperature"), dec::SignalType::Double)});
-    ch::ChartManager manager(reg);
-    const QString chartId = manager.createChart();
-    auto* chart = manager.chart(chartId);
-    REQUIRE(chart != nullptr);
+    ch::TimeAxisManager axis;
 
-    auto panel = std::make_unique<dash::PlotPanel>(plotCfg(), chart);
-    CHECK(panel->isWide());
-    CHECK(panel->chart() == chart);
-    CHECK(panel->findChild<QQuickWidget*>() != nullptr);
+    dash::PlotPanel panel(plotCfg(), reg, axis);
+    CHECK(panel.isWide());
+    CHECK(panel.isMultiSignal());
+    REQUIRE(panel.view() != nullptr);
 
-    panel->addSignal(QStringLiteral("rig/temperature"));
-    CHECK(panel->hasSignal(QStringLiteral("rig/temperature")));
-    CHECK(chart->visibleSignals().contains(QStringLiteral("rig/temperature")));
-    // Idempotent.
-    panel->addSignal(QStringLiteral("rig/temperature"));
-    CHECK(chart->visibleSignals().size() == 1);
+    panel.addSignal(QStringLiteral("rig/temperature"));
+    CHECK(panel.hasSignal(QStringLiteral("rig/temperature")));
+    CHECK(panel.view()->hasSignal(QStringLiteral("rig/temperature")));
+    panel.addSignal(QStringLiteral("rig/temperature"));  // idempotent
+    CHECK(panel.view()->signalIds().size() == 1);
 
-    panel->removeSignal(QStringLiteral("rig/temperature"));
-    CHECK_FALSE(panel->hasSignal(QStringLiteral("rig/temperature")));
-    CHECK(chart->visibleSignals().isEmpty());
-
-    // Destroying the panel must NOT delete the manager-owned chart.
-    panel.reset();
-    CHECK(manager.chart(chartId) == chart);
+    panel.removeSignal(QStringLiteral("rig/temperature"));
+    CHECK_FALSE(panel.hasSignal(QStringLiteral("rig/temperature")));
+    CHECK(panel.view()->signalIds().isEmpty());
 }
 
-TEST_CASE("S3: PlotPanel reflects preconfigured signals into the chart", "[dashboard][s3][plot]") {
+TEST_CASE("M23: PlotPanel reflects preconfigured signals into the view", "[dashboard][m23][plot]") {
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double)});
-    ch::ChartManager manager(reg);
-    auto* chart = manager.chart(manager.createChart());
-    REQUIRE(chart != nullptr);
+    ch::TimeAxisManager axis;
 
     auto cfg = plotCfg();
     cfg.signalIds << QStringLiteral("rig/pressure");
-    dash::PlotPanel panel(cfg, chart);
+    dash::PlotPanel panel(cfg, reg, axis);
     CHECK(panel.hasSignal(QStringLiteral("rig/pressure")));
-    CHECK(chart->visibleSignals().contains(QStringLiteral("rig/pressure")));
+    CHECK(panel.view()->hasSignal(QStringLiteral("rig/pressure")));
 }

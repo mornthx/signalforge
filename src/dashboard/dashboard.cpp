@@ -4,7 +4,7 @@
 
 #include "buffer/signal_buffer.hpp"
 #include "buffer/signal_buffer_registry.hpp"
-#include "chart/chart_manager.hpp"
+#include "chart/time_axis_manager.hpp"
 #include "dashboard/numeric_panel.hpp"
 #include "dashboard/panel.hpp"
 #include "dashboard/panel_factory.hpp"
@@ -23,9 +23,8 @@ namespace {
 constexpr int kRefreshIntervalMs = 66;  ///< ~15 Hz; Numeric/State cards.
 }
 
-Dashboard::Dashboard(signalforge::buffer::SignalBufferRegistry& registry,
-                     signalforge::chart::ChartManager& chartManager, QWidget* parent)
-    : QWidget(parent), registry_(&registry), chartManager_(&chartManager) {
+Dashboard::Dashboard(signalforge::buffer::SignalBufferRegistry& registry, QWidget* parent)
+    : QWidget(parent), registry_(&registry), timeAxis_(std::make_unique<signalforge::chart::TimeAxisManager>()) {
     setObjectName(QStringLiteral("dashboardSurface"));
     grid_ = new QGridLayout(this);
     grid_->setContentsMargins(0, 0, 0, 0);
@@ -77,16 +76,9 @@ QString Dashboard::addPanel(PanelConfig config) {
     case PanelType::Table:
         created = new TablePanel(config, *registry_, this);
         break;
-    case PanelType::Plot: {
-        signalforge::chart::ChartConfig chartCfg;
-        chartCfg.title = config.title;
-        const QString chartId = chartManager_->createChart(chartCfg);
-        chartManager_->setActiveChartId(chartId);
-        auto* chart = chartManager_->chart(chartId);
-        created = new PlotPanel(config, chart, this);
-        plotChartIds_.insert(id, chartId);
+    case PanelType::Plot:
+        created = new PlotPanel(config, *registry_, *timeAxis_, this);
         break;
-    }
     }
 
     created->setEditMode(editMode_);
@@ -118,9 +110,10 @@ QString Dashboard::addSignal(const QString& signalId) {
     return addPanel(std::move(cfg));
 }
 
-QString Dashboard::addPlotPanel() {
+QString Dashboard::addPlotPanel(const QStringList& signalIds) {
     PanelConfig cfg;
     cfg.type = PanelType::Plot;
+    cfg.signalIds = signalIds;
     return addPanel(std::move(cfg));
 }
 
@@ -157,14 +150,6 @@ void Dashboard::removePanel(const QString& panelId) {
     Panel* p = it.value();
     panels_.erase(it);
     panelOrder_.removeAll(panelId);
-
-    // Detach any externally-owned resource (PlotPanel's chart) before
-    // deleting the panel, then drop its backing chart if it had one. Both
-    // are polymorphic / map-keyed, so no downcast is needed.
-    p->detachChart();
-    if (const QString chartId = plotChartIds_.take(panelId); !chartId.isEmpty()) {
-        (void)chartManager_->removeChart(chartId);
-    }
     p->deleteLater();
     relayout();
     Q_EMIT panelsChanged();
@@ -175,6 +160,10 @@ void Dashboard::setEditMode(bool on) {
     for (const QString& id : panelOrder_) {
         panels_.value(id)->setEditMode(on);
     }
+}
+
+signalforge::chart::TimeAxisManager& Dashboard::timeAxis() {
+    return *timeAxis_;
 }
 
 void Dashboard::refreshAll() {
@@ -188,9 +177,14 @@ void Dashboard::relayout() {
     while (QLayoutItem* item = grid_->takeAt(0)) {
         delete item;  // frees the layout item, not the widget.
     }
+    // Reset row stretches from the previous layout (QGridLayout keeps them).
+    for (int r = 0; r < 64; ++r) {
+        grid_->setRowStretch(r, 0);
+    }
 
     int row = 0;
     int col = 0;
+    bool anyWide = false;
     for (const QString& id : panelOrder_) {
         Panel* p = panels_.value(id);
         if (p->isWide()) {
@@ -199,6 +193,8 @@ void Dashboard::relayout() {
                 col = 0;
             }
             grid_->addWidget(p, row, 0, 1, columns_);
+            grid_->setRowStretch(row, 1);  // plots/tables fill vertical space
+            anyWide = true;
             ++row;
         } else {
             grid_->addWidget(p, row, col, 1, 1);
@@ -208,8 +204,10 @@ void Dashboard::relayout() {
             }
         }
     }
-    // Push panels to the top-left; trailing row absorbs slack.
-    grid_->setRowStretch(row + 1, 1);
+    // With only small cards, a trailing row absorbs slack so they pack top.
+    if (!anyWide) {
+        grid_->setRowStretch(row + 1, 1);
+    }
 }
 
 }  // namespace signalforge::dashboard

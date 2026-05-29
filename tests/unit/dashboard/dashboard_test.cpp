@@ -4,7 +4,6 @@
 // plot panels, and panel/chart removal.
 
 #include "buffer/signal_buffer_registry.hpp"
-#include "chart/chart_manager.hpp"
 #include "dashboard/dashboard.hpp"
 #include "dashboard/panel.hpp"
 #include "dashboard/panel_types.hpp"
@@ -44,8 +43,7 @@ TEST_CASE("S4: addSignal auto-suggests panel type and dedups", "[dashboard][s4]"
                                                        makeMeta(QStringLiteral("rig/alarm"), dec::SignalType::Bool),
                                                        makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
                                                    });
-    ch::ChartManager manager(reg);
-    dash::Dashboard board(reg, manager);
+    dash::Dashboard board(reg);
     CHECK(board.panelCount() == 0);
 
     const QString boolPanel = board.addSignal(QStringLiteral("rig/alarm"));
@@ -63,22 +61,18 @@ TEST_CASE("S4: addSignal auto-suggests panel type and dedups", "[dashboard][s4]"
     CHECK(board.panelCount() == 2);
 }
 
-TEST_CASE("S4: addPlotPanel creates a wide plot backed by a chart", "[dashboard][s4][plot]") {
+TEST_CASE("S4: addPlotPanel creates a wide plot", "[dashboard][s4][plot]") {
     app();
     buf::SignalBufferRegistry reg;
-    ch::ChartManager manager(reg);
-    dash::Dashboard board(reg, manager);
+    dash::Dashboard board(reg);
 
     const QString plotId = board.addPlotPanel();
     REQUIRE(board.panel(plotId) != nullptr);
     CHECK(board.panel(plotId)->type() == dash::PanelType::Plot);
     CHECK(board.panel(plotId)->isWide());
-    CHECK(manager.chartIds().size() == 1);
 
-    // Removing the plot panel also removes its backing chart.
     board.removePanel(plotId);
     CHECK(board.panelCount() == 0);
-    CHECK(manager.chartIds().isEmpty());
 }
 
 TEST_CASE("M22: addTablePanel creates a wide table hosting N signals", "[dashboard][m22][table]") {
@@ -88,8 +82,7 @@ TEST_CASE("M22: addTablePanel creates a wide table hosting N signals", "[dashboa
                                                        makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
                                                        makeMeta(QStringLiteral("rig/alarm"), dec::SignalType::Bool),
                                                    });
-    ch::ChartManager manager(reg);
-    dash::Dashboard board(reg, manager);
+    dash::Dashboard board(reg);
 
     const QString tableId = board.addTablePanel({QStringLiteral("rig/temp"), QStringLiteral("rig/alarm")});
     auto* p = board.panel(tableId);
@@ -111,8 +104,7 @@ TEST_CASE("S4: removeSignalEverywhere drops single-signal cards", "[dashboard][s
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/alarm"), dec::SignalType::Bool)});
-    ch::ChartManager manager(reg);
-    dash::Dashboard board(reg, manager);
+    dash::Dashboard board(reg);
 
     board.addSignal(QStringLiteral("rig/alarm"));
     REQUIRE(board.panelCount() == 1);

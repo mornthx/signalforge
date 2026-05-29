@@ -15,7 +15,7 @@ namespace signalforge::buffer {
 class SignalBufferRegistry;
 }
 namespace signalforge::chart {
-class ChartManager;
+class TimeAxisManager;
 }
 
 namespace signalforge::dashboard {
@@ -34,8 +34,7 @@ class Dashboard : public QWidget {
     Q_OBJECT
 
 public:
-    Dashboard(signalforge::buffer::SignalBufferRegistry& registry, signalforge::chart::ChartManager& chartManager,
-              QWidget* parent = nullptr);
+    explicit Dashboard(signalforge::buffer::SignalBufferRegistry& registry, QWidget* parent = nullptr);
     ~Dashboard() override;
 
     Dashboard(const Dashboard&) = delete;
@@ -50,8 +49,9 @@ public:
     /// auto-suggested type for the signal. Returns the hosting panel id.
     QString addSignal(const QString& signalId);
 
-    /// Add an empty Plot panel (the toolbar "+ Panel" affordance).
-    QString addPlotPanel();
+    /// Add a Plot panel (empty by default; optionally pre-bound to
+    /// `signalIds`). The toolbar "+ Plot" uses the empty form.
+    QString addPlotPanel(const QStringList& signalIds = {});
 
     /// Add a Table panel listing the current value of each signal in
     /// `signalIds` (the toolbar "+ Table" affordance).
@@ -87,6 +87,9 @@ public:
     /// Re-read all panels' data immediately (also invoked by the timer).
     void refreshAll();
 
+    /// Shared time axis driving every plot panel (toolbar Live/preset).
+    [[nodiscard]] signalforge::chart::TimeAxisManager& timeAxis();
+
 Q_SIGNALS:
     /// Emitted whenever a panel is added or removed.
     void panelsChanged();
@@ -96,14 +99,13 @@ private:
     [[nodiscard]] QString nextPanelId();
 
     signalforge::buffer::SignalBufferRegistry* registry_;
-    signalforge::chart::ChartManager* chartManager_;
+    std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
     QGridLayout* grid_ = nullptr;
     QTimer* refreshTimer_ = nullptr;
 
-    QHash<QString, Panel*> panels_;         ///< id -> panel (Qt-parented to this).
-    QHash<QString, QString> plotChartIds_;  ///< plot panel id -> backing chart id.
-    QStringList panelOrder_;                ///< layout order.
-    int columns_ = 3;                       ///< small-card columns per row.
+    QHash<QString, Panel*> panels_;  ///< id -> panel (Qt-parented to this).
+    QStringList panelOrder_;         ///< layout order.
+    int columns_ = 3;                ///< small-card columns per row.
     int nextPanelSuffix_ = 1;
     bool editMode_ = false;
 };

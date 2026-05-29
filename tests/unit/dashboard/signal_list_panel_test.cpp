@@ -5,7 +5,6 @@
 // stays consistent across refresh()).
 
 #include "buffer/signal_buffer_registry.hpp"
-#include "chart/chart_manager.hpp"
 #include "dashboard/dashboard.hpp"
 #include "dashboard/signal_list_panel.hpp"
 #include "decode/decoder_interface.hpp"
@@ -59,8 +58,7 @@ TEST_CASE("S5a: SignalListPanel populates and toggles into the dashboard", "[das
                                                        makeMeta(QStringLiteral("rig/alarm"), dec::SignalType::Bool),
                                                        makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
                                                    });
-    ch::ChartManager manager(reg);
-    dash::Dashboard board(reg, manager);
+    dash::Dashboard board(reg);
     dash::SignalListPanel list(reg, board);
 
     auto* tree = list.findChild<QTreeWidget*>();
@@ -91,8 +89,7 @@ TEST_CASE("S5a: removing a panel unchecks the signal on next refresh", "[dashboa
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double)});
-    ch::ChartManager manager(reg);
-    dash::Dashboard board(reg, manager);
+    dash::Dashboard board(reg);
     dash::SignalListPanel list(reg, board);
 
     const QString panelId = board.addSignal(QStringLiteral("rig/temp"));

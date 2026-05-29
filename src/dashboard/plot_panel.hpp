@@ -3,61 +3,47 @@
 
 #include "dashboard/panel.hpp"
 
-#include <QPointer>
-
-class QQuickWidget;
-
+namespace signalforge::buffer {
+class SignalBufferRegistry;
+}
 namespace signalforge::chart {
-class Chart;
+class TimeAxisManager;
 }
 
 namespace signalforge::dashboard {
 
-/// Panel hosting a time-series trend. P0 wraps the legacy
-/// `chart::Chart` (a QQuickItem) inside a `QQuickWidget` — the hosting
-/// logic that previously lived in `MainWindow::rebuildChartWidgets`.
-///
-/// Ownership: the `Chart` is owned by the caller's `ChartManager`, NOT
-/// by this panel. PlotPanel only hosts it visually; the destructor
-/// detaches it (`setParentItem(nullptr)`) so destroying the panel's
-/// QQuickWidget never deletes the manager-owned chart.
+class PlotView;
+
+/// Panel hosting a readable time-series trend. P2: backed by the new
+/// QPainter `PlotView` (parallel to the frozen legacy `chart::Chart`,
+/// which the app no longer uses). Multi-signal; the shared time window
+/// comes from a `TimeAxisManager` owned by the Dashboard.
 class PlotPanel : public Panel {
     Q_OBJECT
 
 public:
-    PlotPanel(PanelConfig config, signalforge::chart::Chart* chart, QWidget* parent = nullptr);
+    PlotPanel(PanelConfig config, signalforge::buffer::SignalBufferRegistry& registry,
+              signalforge::chart::TimeAxisManager& timeAxis, QWidget* parent = nullptr);
     ~PlotPanel() override;
 
-    /// Plot occupies a full grid row.
     [[nodiscard]] bool isWide() const override {
         return true;
     }
-
-    /// Plot hosts N signals.
     [[nodiscard]] bool isMultiSignal() const override {
         return true;
     }
 
-    /// Add a signal to the underlying chart and the panel binding.
     void addSignal(const QString& signalId) override;
-
-    /// Remove a signal from the underlying chart and the panel binding.
     void removeSignal(const QString& signalId) override;
+    void refresh() override;
 
-    /// Detach the hosted chart (visually unparent it and drop our
-    /// pointer) so the owner can safely delete the chart afterwards.
-    /// Called by `Dashboard::removePanel` before `ChartManager::removeChart`.
-    void detachChart() override;
-
-    /// The hosted chart (not owned). May be null if the chart was
-    /// destroyed (e.g. during app teardown).
-    [[nodiscard]] signalforge::chart::Chart* chart() const noexcept;
+    /// The hosted plot view (not owned by callers).
+    [[nodiscard]] PlotView* view() const noexcept {
+        return view_;
+    }
 
 private:
-    // QPointer so a chart destroyed out from under us (the ChartManager
-    // owns it and may be torn down first) auto-nulls instead of dangling.
-    QPointer<signalforge::chart::Chart> chart_;
-    QQuickWidget* host_ = nullptr;
+    PlotView* view_ = nullptr;
 };
 
 }  // namespace signalforge::dashboard

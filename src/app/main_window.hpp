@@ -25,9 +25,6 @@ class SignalBufferRegistry;
 namespace signalforge::decoder {
 class DecoderRegistrar;
 }
-namespace signalforge::chart {
-class ChartManager;
-}  // namespace signalforge::chart
 namespace signalforge::dashboard {
 class Dashboard;
 class SignalListPanel;
@@ -281,9 +278,8 @@ private:
     std::unique_ptr<signalforge::connection::ConnectionManager> connectionManager_;
     std::unique_ptr<signalforge::session::SessionWriter> sessionWriter_;
 
-    // Chart backing (legacy ChartManager retained as PlotPanel's store) +
-    // M21 dashboard surface.
-    std::unique_ptr<signalforge::chart::ChartManager> chartManager_;
+    // M23 dashboard surface (owns its own TimeAxisManager; the legacy
+    // ChartManager/Chart are no longer used by the app).
     signalforge::dashboard::Dashboard* dashboard_ = nullptr;
     signalforge::dashboard::SignalListPanel* signalListPanel_ = nullptr;
     QSplitter* centralSplitter_ = nullptr;
