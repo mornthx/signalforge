@@ -102,6 +102,7 @@ int main(int argc, char** argv) {
     const QString fixturePath = flagValue(argc, argv, "--auto-load-test-fixture");
     const QString autoSignalId = flagValue(argc, argv, "--auto-select-signal");
     const QString autoDashSignalsArg = flagValue(argc, argv, "--auto-dashboard-signals");
+    const bool autoAddTableFlag = hasFlag(argc, argv, "--auto-add-table");
     const QString dumpPngArg = flagValue(argc, argv, "--dump-chart-png-after-ms");
     const QString dumpPngPathArg = flagValue(argc, argv, "--dump-chart-png-path");
     const bool exitAfterDump = hasFlag(argc, argv, "--exit-after-dump");
@@ -439,6 +440,10 @@ int main(int argc, char** argv) {
                 (void)window.autoAddDashboardSignal(id.trimmed());
             }
         });
+    }
+    if (autoAddTableFlag) {
+        // Defer so the connect path has registered signals into the registry.
+        QTimer::singleShot(650, &app, [&window]() { (void)window.autoAddTablePanel(); });
     }
     if (!autoRecordPath.isEmpty()) {
         // Defer recording start so connections have a chance to reach

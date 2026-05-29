@@ -372,6 +372,10 @@ void MainWindow::buildChartUi() {
     addChartAction->setToolTip(tr("Add an empty plot panel"));
     connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
 
+    auto* addTableAction = toolbar->addAction(tr("+ Table"));
+    addTableAction->setToolTip(tr("Add a table of every current signal's value"));
+    connect(addTableAction, &QAction::triggered, this, &MainWindow::onAddTable);
+
     fpsLabel_ = new QLabel(tr("Chart idle"));
     fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
     droppedLabel_ = new QLabel(tr("Drops 0"));
@@ -588,6 +592,14 @@ bool MainWindow::autoAddDashboardSignal(const QString& signalId) {
     SF_LOG_INFO("MainWindow: autoAddDashboardSignal: '{}' -> panel '{}'", signalId.toStdString(),
                 panelId.toStdString());
     return !panelId.isEmpty();
+}
+
+bool MainWindow::autoAddTablePanel() {
+    if (dashboard_ == nullptr || signalBufferRegistry_ == nullptr) {
+        return false;
+    }
+    onAddTable();
+    return true;
 }
 
 bool MainWindow::autoStartRecording(const QString& path) {
@@ -1253,6 +1265,17 @@ void MainWindow::onAddChart() {
     }
     const QString panelId = dashboard_->addPlotPanel();
     SF_LOG_INFO("MainWindow: added plot panel {}", panelId.toStdString());
+}
+
+void MainWindow::onAddTable() {
+    if (dashboard_ == nullptr || signalBufferRegistry_ == nullptr) {
+        return;
+    }
+    const QString panelId = dashboard_->addTablePanel(signalBufferRegistry_->signalIds());
+    if (signalListPanel_ != nullptr) {
+        signalListPanel_->refresh();
+    }
+    SF_LOG_INFO("MainWindow: added table panel {}", panelId.toStdString());
 }
 
 void MainWindow::updateEmptyStateVisibility() {

@@ -90,6 +90,10 @@ public:
     /// dashboard. Used to capture heterogeneous-panel baselines.
     [[nodiscard]] bool autoAddDashboardSignal(const QString& signalId);
 
+    /// M22 visual harness: add a Table panel of every current signal, as the
+    /// toolbar "+ Table" action does. Returns false if no dashboard.
+    [[nodiscard]] bool autoAddTablePanel();
+
     /// Grab the first chart-hosting QQuickWidget's framebuffer as a
     /// QImage. Returns a null QImage if no chart widget is laid out.
     [[nodiscard]] QImage grabChartImage() const;
@@ -235,6 +239,7 @@ private slots:
     void onConnectAllAction();
     void onDisconnectAllAction();
     void onAddChart();
+    void onAddTable();
     void onLiveToggleChanged(bool live);
     void onTimePresetChanged(int index);
     void refreshStatusBar();

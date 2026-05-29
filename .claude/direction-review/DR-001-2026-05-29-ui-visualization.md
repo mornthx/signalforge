@@ -64,6 +64,13 @@ plot readability (P2), menu-bar order (#4) and status-bar accretion (#5) — sep
 This DR stays **Open** until those land. New issues surfaced during M21: concern C1 (slow-signal
 publish latency) and C2 (pre-existing teardown UAF) — see `.claude/M21-concerns.md`.
 
+**Update 2026-05-29 — C2 fixed + P1 landed (M22, local).** C2 teardown UAF fixed (`~MainWindow`
+tears down the pipeline before drivers) with a Tier-D crash-exit guard added to the GUI smoke
+test so it can't silently regress. P1: the **Table/DataGrid panel** ("is this device sane?"
+per-driver live-value view) shipped — `+ Table` toolbar action, multi-signal table of
+Signal/Value/Unit/Updated. Chain `main → M21(P0+C2) → M22(P1)` is local/unpushed. Still open:
+P2 plot readability, P3 Bar/Gauge, menu (#4) + status-bar (#5) IA, and C1 (slow-signal latency).
+
 ## Process note
 
 This is the first direction review. It exists because no M8–M20 milestone-local review could
