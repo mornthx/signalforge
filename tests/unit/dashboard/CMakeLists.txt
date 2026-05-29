@@ -49,3 +49,23 @@ target_link_libraries(plot_panel_test
         signalforge_decoder
 )
 catch_discover_tests(plot_panel_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(dashboard_test
+    dashboard_test.cpp
+    ${CMAKE_SOURCE_DIR}/resources/qml.qrc
+)
+set_target_properties(dashboard_test PROPERTIES AUTORCC ON)
+target_link_libraries(dashboard_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::Quick
+        Qt6::QuickWidgets
+        signalforge_dashboard
+        signalforge_chart
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(dashboard_test DISCOVERY_MODE PRE_TEST)

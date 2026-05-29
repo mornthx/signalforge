@@ -8,7 +8,7 @@ Branch: `milestone/M21` (local; not pushed). Baseline: `main` @ a647ecf, debug b
 | S1 — Panel abstraction + factory | done | panel base + factory; 4 test cases / 26 assertions green (Debug+Release) |
 | S2 — Numeric + State panels | done | numeric+state panels + value_format; 4 cases/22 assertions (Debug+Release); surfaced concern C1 (slow-signal publish latency) |
 | S3 — PlotPanel (wrap legacy Chart) | done | hosts QQuickWidget+Chart, detaches on dtor (no double-free); 2 cases/13 assertions (Debug+Release) |
-| S4 — Dashboard container | todo | |
+| S4 — Dashboard container | done | reflow grid + 15Hz refresh + auto-suggest addSignal + plot/chart lifecycle; 3 cases/16 assertions (Debug+Release) |
 | S5 — MainWindow integration | todo | |
 | S6 — Close-out (format/docs/full ctest) | todo | |
 

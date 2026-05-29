@@ -11,6 +11,8 @@ add_library(signalforge_dashboard STATIC
     state_panel.hpp
     plot_panel.cpp
     plot_panel.hpp
+    dashboard.cpp
+    dashboard.hpp
 )
 set_target_properties(signalforge_dashboard PROPERTIES AUTOMOC ON)
 target_include_directories(signalforge_dashboard PUBLIC ${CMAKE_SOURCE_DIR}/src)

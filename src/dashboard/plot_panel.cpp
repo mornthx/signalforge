@@ -58,6 +58,13 @@ PlotPanel::~PlotPanel() {
     }
 }
 
+void PlotPanel::detachChart() {
+    if (chart_ != nullptr) {
+        chart_->setParentItem(nullptr);
+        chart_ = nullptr;
+    }
+}
+
 void PlotPanel::addSignal(const QString& signalId) {
     if (signalId.isEmpty() || config_.signalIds.contains(signalId)) {
         return;

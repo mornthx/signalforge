@@ -37,6 +37,11 @@ public:
     /// Remove a signal from the underlying chart and the panel binding.
     void removeSignal(const QString& signalId);
 
+    /// Detach the hosted chart (visually unparent it and drop our
+    /// pointer) so the owner can safely delete the chart afterwards.
+    /// Called by `Dashboard::removePanel` before `ChartManager::removeChart`.
+    void detachChart();
+
     /// The hosted chart (not owned).
     [[nodiscard]] signalforge::chart::Chart* chart() const noexcept {
         return chart_;
