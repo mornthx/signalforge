@@ -81,6 +81,32 @@ TEST_CASE("S4: addPlotPanel creates a wide plot backed by a chart", "[dashboard]
     CHECK(manager.chartIds().isEmpty());
 }
 
+TEST_CASE("M22: addTablePanel creates a wide table hosting N signals", "[dashboard][m22][table]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {
+                                                       makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
+                                                       makeMeta(QStringLiteral("rig/alarm"), dec::SignalType::Bool),
+                                                   });
+    ch::ChartManager manager(reg);
+    dash::Dashboard board(reg, manager);
+
+    const QString tableId = board.addTablePanel({QStringLiteral("rig/temp"), QStringLiteral("rig/alarm")});
+    auto* p = board.panel(tableId);
+    REQUIRE(p != nullptr);
+    CHECK(p->type() == dash::PanelType::Table);
+    CHECK(p->isWide());
+    CHECK(p->isMultiSignal());
+    CHECK(board.showsSignal(QStringLiteral("rig/temp")));
+    CHECK(board.showsSignal(QStringLiteral("rig/alarm")));
+
+    // Unticking a tabled signal drops its row, not the whole panel.
+    board.removeSignalEverywhere(QStringLiteral("rig/temp"));
+    CHECK(board.panelCount() == 1);
+    CHECK_FALSE(board.showsSignal(QStringLiteral("rig/temp")));
+    CHECK(board.showsSignal(QStringLiteral("rig/alarm")));
+}
+
 TEST_CASE("S4: removeSignalEverywhere drops single-signal cards", "[dashboard][s4]") {
     app();
     buf::SignalBufferRegistry reg;

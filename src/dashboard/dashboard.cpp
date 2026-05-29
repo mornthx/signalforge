@@ -10,6 +10,7 @@
 #include "dashboard/panel_factory.hpp"
 #include "dashboard/plot_panel.hpp"
 #include "dashboard/state_panel.hpp"
+#include "dashboard/table_panel.hpp"
 #include "decode/decoder_interface.hpp"
 
 #include <QGridLayout>
@@ -73,6 +74,9 @@ QString Dashboard::addPanel(PanelConfig config) {
     case PanelType::State:
         created = new StatePanel(config, *registry_, this);
         break;
+    case PanelType::Table:
+        created = new TablePanel(config, *registry_, this);
+        break;
     case PanelType::Plot: {
         signalforge::chart::ChartConfig chartCfg;
         chartCfg.title = config.title;
@@ -120,6 +124,13 @@ QString Dashboard::addPlotPanel() {
     return addPanel(std::move(cfg));
 }
 
+QString Dashboard::addTablePanel(const QStringList& signalIds) {
+    PanelConfig cfg;
+    cfg.type = PanelType::Table;
+    cfg.signalIds = signalIds;
+    return addPanel(std::move(cfg));
+}
+
 void Dashboard::removeSignalEverywhere(const QString& signalId) {
     // Copy the order: removePanel mutates panelOrder_.
     const QStringList order = panelOrder_;
@@ -128,8 +139,9 @@ void Dashboard::removeSignalEverywhere(const QString& signalId) {
         if (p == nullptr || !p->hasSignal(signalId)) {
             continue;
         }
-        if (p->type() == PanelType::Plot) {
-            static_cast<PlotPanel*>(p)->removeSignal(signalId);
+        if (p->isMultiSignal()) {
+            // Plot / Table: drop just this signal's trace/row, keep the panel.
+            p->removeSignal(signalId);
         } else {
             // Single-signal card: removing its signal removes the card.
             removePanel(id);
@@ -146,14 +158,12 @@ void Dashboard::removePanel(const QString& panelId) {
     panels_.erase(it);
     panelOrder_.removeAll(panelId);
 
-    if (p->type() == PanelType::Plot) {
-        // Detach the chart from the panel, then delete the chart, so the
-        // panel's QQuickWidget never touches a deleted chart.
-        static_cast<PlotPanel*>(p)->detachChart();
-        const QString chartId = plotChartIds_.take(panelId);
-        if (!chartId.isEmpty()) {
-            (void)chartManager_->removeChart(chartId);
-        }
+    // Detach any externally-owned resource (PlotPanel's chart) before
+    // deleting the panel, then drop its backing chart if it had one. Both
+    // are polymorphic / map-keyed, so no downcast is needed.
+    p->detachChart();
+    if (const QString chartId = plotChartIds_.take(panelId); !chartId.isEmpty()) {
+        (void)chartManager_->removeChart(chartId);
     }
     p->deleteLater();
     relayout();

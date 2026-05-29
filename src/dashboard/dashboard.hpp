@@ -53,6 +53,10 @@ public:
     /// Add an empty Plot panel (the toolbar "+ Panel" affordance).
     QString addPlotPanel();
 
+    /// Add a Table panel listing the current value of each signal in
+    /// `signalIds` (the toolbar "+ Table" affordance).
+    QString addTablePanel(const QStringList& signalIds);
+
     /// Remove `signalId` from every panel; single-signal cards that
     /// become empty are removed, Plot panels are kept.
     void removeSignalEverywhere(const QString& signalId);
