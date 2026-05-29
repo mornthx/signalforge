@@ -9,8 +9,30 @@
 #include "dashboard/panel_types.hpp"
 #include "decode/decoder_interface.hpp"
 
+#include <QAction>
 #include <QApplication>
+#include <QMenu>
 #include <catch2/catch_test_macros.hpp>
+
+namespace {
+/// Recursively find a menu action whose text contains `needle`.
+QAction* findAction(QMenu* menu, const QString& needle) {
+    if (menu == nullptr) {
+        return nullptr;
+    }
+    for (QAction* a : menu->actions()) {
+        if (a->text().contains(needle)) {
+            return a;
+        }
+        if (a->menu() != nullptr) {
+            if (auto* sub = findAction(a->menu(), needle)) {
+                return sub;
+            }
+        }
+    }
+    return nullptr;
+}
+}  // namespace
 
 namespace dash = signalforge::dashboard;
 namespace ch = signalforge::chart;
@@ -114,6 +136,86 @@ TEST_CASE("M24: addBarPanel / addGaugePanel create meter panels", "[dashboard][m
     const QString gaugeId = board.addGaugePanel(QStringLiteral("rig/level"));
     CHECK(board.panel(gaugeId)->type() == dash::PanelType::Gauge);
     CHECK(board.panelCount() == 2);
+}
+
+TEST_CASE("M27: panel ⋮ menu changes type, assigns signal, moves, removes", "[dashboard][m27][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {
+                                makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
+                                makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double),
+                                makeMeta(QStringLiteral("rig/alarm"), dec::SignalType::Bool),
+                            });
+    dash::Dashboard board(reg);
+    const QString p1 = board.addSignal(QStringLiteral("rig/temp"));      // Numeric (D1)
+    const QString p2 = board.addSignal(QStringLiteral("rig/pressure"));  // Numeric
+    REQUIRE(board.panel(p1)->type() == dash::PanelType::Numeric);
+    CHECK(board.panelIds() == QStringList{p1, p2});
+
+    // "Show as ▸ Plot" — change the widget type, preserving the signal.
+    {
+        QMenu* m = board.buildPanelMenu(p1);
+        QAction* a = findAction(m, QStringLiteral("Plot"));
+        REQUIRE(a != nullptr);
+        a->trigger();
+        delete m;
+    }
+    REQUIRE(board.panel(p1) != nullptr);
+    CHECK(board.panel(p1)->type() == dash::PanelType::Plot);
+    CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/temp")));  // signal preserved
+
+    // "Signals ▸ rig/alarm" — assign a second signal to the (multi) plot.
+    {
+        QMenu* m = board.buildPanelMenu(p1);
+        QAction* a = findAction(m, QStringLiteral("rig/alarm"));
+        REQUIRE(a != nullptr);
+        a->trigger();
+        delete m;
+    }
+    CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/alarm")));
+    CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/temp")));
+
+    // "Move right" — reorder the panel in the layout.
+    {
+        QMenu* m = board.buildPanelMenu(p1);
+        QAction* a = findAction(m, QStringLiteral("Move right"));
+        REQUIRE(a != nullptr);
+        a->trigger();
+        delete m;
+    }
+    CHECK(board.panelIds() == QStringList{p2, p1});
+
+    // "Remove panel" — remove via the menu.
+    {
+        QMenu* m = board.buildPanelMenu(p2);
+        QAction* a = findAction(m, QStringLiteral("Remove panel"));
+        REQUIRE(a != nullptr);
+        a->trigger();
+        delete m;
+    }
+    CHECK(board.panel(p2) == nullptr);
+    CHECK(board.panelCount() == 1);
+}
+
+TEST_CASE("M27: single-signal panel's menu reassigns to one signal", "[dashboard][m27][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {
+                                makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
+                                makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double),
+                            });
+    dash::Dashboard board(reg);
+    const QString id = board.addSignal(QStringLiteral("rig/temp"));  // Numeric
+    {
+        QMenu* m = board.buildPanelMenu(id);
+        findAction(m, QStringLiteral("rig/pressure"))->trigger();  // pick a specific signal
+        delete m;
+    }
+    // Single-signal widget: now shows pressure, not temp.
+    CHECK(board.panel(id)->hasSignal(QStringLiteral("rig/pressure")));
+    CHECK_FALSE(board.panel(id)->hasSignal(QStringLiteral("rig/temp")));
 }
 
 TEST_CASE("S4: removeSignalEverywhere drops single-signal cards", "[dashboard][s4]") {

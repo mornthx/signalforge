@@ -9,6 +9,7 @@
 #include <memory>
 
 class QGridLayout;
+class QMenu;
 class QTimer;
 
 namespace signalforge::buffer {
@@ -68,6 +69,9 @@ public:
     /// Remove a panel by id (and its backing chart, for Plot panels).
     void removePanel(const QString& panelId);
 
+    /// Show the per-panel ⋮ menu (invoked by a panel's config button).
+    void showPanelMenu(const QString& panelId);
+
     /// Panel ids in layout order.
     [[nodiscard]] QStringList panelIds() const {
         return panelOrder_;
@@ -85,8 +89,17 @@ public:
     /// list to derive checkbox state from the dashboard (source of truth).
     [[nodiscard]] bool showsSignal(const QString& signalId) const;
 
-    /// Toggle editing affordances (remove buttons) across all panels.
-    void setEditMode(bool on);
+    // --- per-panel configuration (driven by the panel ⋮ menu) ---
+    /// Change a panel's widget type in place (preserving id, position, and
+    /// — truncated for single-signal types — its signals).
+    void setPanelType(const QString& panelId, PanelType type);
+    /// Replace a panel's bound signals (assign specific data to a widget).
+    void setPanelSignals(const QString& panelId, const QStringList& signalIds);
+    /// Move a panel left/right in the layout order by `delta` positions.
+    void movePanel(const QString& panelId, int delta);
+    /// Build the per-panel context menu (Show as / Signals / Move / Remove).
+    /// Returned menu is owned by the dashboard; used live and by tests.
+    [[nodiscard]] QMenu* buildPanelMenu(const QString& panelId);
 
     /// Re-read all panels' data immediately (also invoked by the timer).
     void refreshAll();
@@ -101,6 +114,8 @@ Q_SIGNALS:
 private:
     void relayout();
     [[nodiscard]] QString nextPanelId();
+    [[nodiscard]] Panel* makePanel(const PanelConfig& config);
+    void recreatePanel(const QString& panelId, PanelConfig newConfig);
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
@@ -111,7 +126,6 @@ private:
     QStringList panelOrder_;         ///< layout order.
     int columns_ = 3;                ///< small-card columns per row.
     int nextPanelSuffix_ = 1;
-    bool editMode_ = false;
 };
 
 }  // namespace signalforge::dashboard

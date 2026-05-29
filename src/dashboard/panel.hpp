@@ -76,12 +76,13 @@ public:
     virtual void addSignal(const QString& signalId) {}
     virtual void removeSignal(const QString& signalId) {}
 
-    /// Show or hide editing affordances (the remove button).
-    void setEditMode(bool on);
+    /// The always-visible "⋮" config button (for interaction tests).
+    [[nodiscard]] QPushButton* configButton() const;
 
 Q_SIGNALS:
-    /// Emitted when the user clicks this panel's remove button.
-    void removeRequested(const QString& panelId);
+    /// Emitted when the user clicks this panel's ⋮ config button. The owning
+    /// Dashboard responds by showing the per-panel menu.
+    void configureRequested(const QString& panelId);
 
 protected:
     /// Install the subclass's content widget below the header. Replaces
@@ -96,7 +97,7 @@ protected:
 private:
     QVBoxLayout* rootLayout_ = nullptr;
     QLabel* titleLabel_ = nullptr;
-    QPushButton* removeButton_ = nullptr;
+    QPushButton* configButton_ = nullptr;
     QWidget* body_ = nullptr;
 };
 

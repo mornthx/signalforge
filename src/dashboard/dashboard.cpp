@@ -14,9 +14,14 @@
 #include "dashboard/table_panel.hpp"
 #include "decode/decoder_interface.hpp"
 
+#include <QAction>
+#include <QCursor>
 #include <QGridLayout>
 #include <QLayoutItem>
+#include <QMenu>
+#include <QPushButton>
 #include <QTimer>
+#include <algorithm>
 
 namespace signalforge::dashboard {
 
@@ -60,34 +65,31 @@ bool Dashboard::showsSignal(const QString& signalId) const {
     return false;
 }
 
+Panel* Dashboard::makePanel(const PanelConfig& config) {
+    switch (config.type) {
+    case PanelType::Numeric:
+        return new NumericPanel(config, *registry_, this);
+    case PanelType::State:
+        return new StatePanel(config, *registry_, this);
+    case PanelType::Table:
+        return new TablePanel(config, *registry_, this);
+    case PanelType::Plot:
+        return new PlotPanel(config, *registry_, *timeAxis_, this);
+    case PanelType::Bar:
+    case PanelType::Gauge:
+        return new MeterPanel(config, *registry_, this);
+    }
+    return new NumericPanel(config, *registry_, this);
+}
+
 QString Dashboard::addPanel(PanelConfig config) {
     if (config.id.isEmpty() || panels_.contains(config.id)) {
         config.id = nextPanelId();
     }
     const QString id = config.id;
 
-    Panel* created = nullptr;
-    switch (config.type) {
-    case PanelType::Numeric:
-        created = new NumericPanel(config, *registry_, this);
-        break;
-    case PanelType::State:
-        created = new StatePanel(config, *registry_, this);
-        break;
-    case PanelType::Table:
-        created = new TablePanel(config, *registry_, this);
-        break;
-    case PanelType::Plot:
-        created = new PlotPanel(config, *registry_, *timeAxis_, this);
-        break;
-    case PanelType::Bar:
-    case PanelType::Gauge:
-        created = new MeterPanel(config, *registry_, this);
-        break;
-    }
-
-    created->setEditMode(editMode_);
-    connect(created, &Panel::removeRequested, this, &Dashboard::removePanel);
+    Panel* created = makePanel(config);
+    connect(created, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
     panels_.insert(id, created);
     panelOrder_.append(id);
     relayout();
@@ -178,11 +180,142 @@ void Dashboard::removePanel(const QString& panelId) {
     Q_EMIT panelsChanged();
 }
 
-void Dashboard::setEditMode(bool on) {
-    editMode_ = on;
-    for (const QString& id : panelOrder_) {
-        panels_.value(id)->setEditMode(on);
+namespace {
+bool isSingleSignalType(PanelType t) {
+    return t == PanelType::Numeric || t == PanelType::State || t == PanelType::Bar || t == PanelType::Gauge;
+}
+}  // namespace
+
+void Dashboard::recreatePanel(const QString& panelId, PanelConfig newConfig) {
+    const int idx = panelOrder_.indexOf(panelId);
+    if (idx < 0) {
+        return;
     }
+    newConfig.id = panelId;
+    Panel* old = panels_.value(panelId);
+    Panel* fresh = makePanel(newConfig);
+    connect(fresh, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
+    panels_.insert(panelId, fresh);  // replace in the hash
+    if (old != nullptr) {
+        old->deleteLater();
+    }
+    relayout();  // panelOrder_ position is unchanged (same id at same index)
+    Q_EMIT panelsChanged();
+}
+
+void Dashboard::setPanelType(const QString& panelId, PanelType type) {
+    Panel* p = panels_.value(panelId, nullptr);
+    if (p == nullptr || p->type() == type) {
+        return;
+    }
+    PanelConfig cfg = p->config();
+    cfg.type = type;
+    // Single-signal widgets keep at most one signal.
+    if (isSingleSignalType(type) && cfg.signalIds.size() > 1) {
+        cfg.signalIds = {cfg.signalIds.first()};
+    }
+    recreatePanel(panelId, std::move(cfg));
+}
+
+void Dashboard::setPanelSignals(const QString& panelId, const QStringList& signalIds) {
+    Panel* p = panels_.value(panelId, nullptr);
+    if (p == nullptr) {
+        return;
+    }
+    PanelConfig cfg = p->config();
+    cfg.signalIds = signalIds;
+    if (isSingleSignalType(cfg.type) && cfg.signalIds.size() > 1) {
+        cfg.signalIds = {cfg.signalIds.first()};
+    }
+    recreatePanel(panelId, std::move(cfg));
+}
+
+void Dashboard::movePanel(const QString& panelId, int delta) {
+    const int idx = panelOrder_.indexOf(panelId);
+    if (idx < 0) {
+        return;
+    }
+    const int target = std::clamp(idx + delta, 0, static_cast<int>(panelOrder_.size()) - 1);
+    if (target == idx) {
+        return;
+    }
+    panelOrder_.move(idx, target);
+    relayout();
+}
+
+QMenu* Dashboard::buildPanelMenu(const QString& panelId) {
+    auto* menu = new QMenu(this);
+    Panel* p = panels_.value(panelId, nullptr);
+    if (p == nullptr) {
+        return menu;
+    }
+    const PanelType cur = p->type();
+
+    auto* showAs = menu->addMenu(tr("Show as"));
+    struct TypeEntry {
+        PanelType type;
+        QString label;
+    };
+    const TypeEntry entries[] = {{PanelType::Numeric, tr("Numeric")}, {PanelType::State, tr("State")},
+                                 {PanelType::Plot, tr("Plot")},       {PanelType::Bar, tr("Bar")},
+                                 {PanelType::Gauge, tr("Gauge")},     {PanelType::Table, tr("Table")}};
+    for (const auto& e : entries) {
+        QAction* a = showAs->addAction(e.label);
+        a->setCheckable(true);
+        a->setChecked(e.type == cur);
+        const PanelType t = e.type;
+        connect(a, &QAction::triggered, this, [this, panelId, t]() { setPanelType(panelId, t); });
+    }
+
+    auto* sigMenu = menu->addMenu(tr("Signals"));
+    const QStringList all = registry_->signalIds();
+    if (all.isEmpty()) {
+        QAction* none = sigMenu->addAction(tr("(no signals available)"));
+        none->setEnabled(false);
+    }
+    const bool single = isSingleSignalType(cur);
+    for (const QString& sid : all) {
+        QAction* a = sigMenu->addAction(sid);
+        a->setCheckable(true);
+        a->setChecked(p->hasSignal(sid));
+        connect(a, &QAction::triggered, this, [this, panelId, sid, single]() {
+            Panel* pp = panels_.value(panelId, nullptr);
+            if (pp == nullptr) {
+                return;
+            }
+            QStringList sigs = pp->signalIds();
+            if (single) {
+                sigs = {sid};
+            } else if (sigs.contains(sid)) {
+                sigs.removeAll(sid);
+            } else {
+                sigs.append(sid);
+            }
+            setPanelSignals(panelId, sigs);
+        });
+    }
+
+    menu->addSeparator();
+    connect(menu->addAction(tr("Move ◀ left")), &QAction::triggered, this,
+            [this, panelId]() { movePanel(panelId, -1); });
+    connect(menu->addAction(tr("Move right ▶")), &QAction::triggered, this,
+            [this, panelId]() { movePanel(panelId, 1); });
+    menu->addSeparator();
+    connect(menu->addAction(tr("Remove panel")), &QAction::triggered, this,
+            [this, panelId]() { removePanel(panelId); });
+    return menu;
+}
+
+void Dashboard::showPanelMenu(const QString& panelId) {
+    Panel* p = panels_.value(panelId, nullptr);
+    if (p == nullptr) {
+        return;
+    }
+    QMenu* menu = buildPanelMenu(panelId);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    QPushButton* btn = p->configButton();
+    const QPoint pos = (btn != nullptr) ? btn->mapToGlobal(QPoint(0, btn->height())) : QCursor::pos();
+    menu->popup(pos);
 }
 
 signalforge::chart::TimeAxisManager& Dashboard::timeAxis() {

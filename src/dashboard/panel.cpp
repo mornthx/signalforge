@@ -74,10 +74,16 @@ Panel::Panel(PanelConfig config, QWidget* parent) : QFrame(parent), config_(std:
     headerLayout->addWidget(titleLabel_);
     headerLayout->addStretch(1);
 
-    removeButton_ = new QPushButton(tr("Remove"), header);
-    removeButton_->setToolTip(tr("Remove this panel"));
-    headerLayout->addWidget(removeButton_);
-    connect(removeButton_, &QPushButton::clicked, this, [this]() { Q_EMIT removeRequested(config_.id); });
+    // Always-visible per-panel config button (⋮). The owning Dashboard
+    // builds the menu (change type / assign signals / move / remove) — it
+    // knows the available signals and layout. (M27 #2/#3.)
+    configButton_ = new QPushButton(QStringLiteral("⋮"), header);
+    configButton_->setObjectName(QStringLiteral("panelMenuButton"));
+    configButton_->setToolTip(tr("Configure this panel"));
+    configButton_->setFlat(true);
+    configButton_->setFixedWidth(24);
+    headerLayout->addWidget(configButton_);
+    connect(configButton_, &QPushButton::clicked, this, [this]() { Q_EMIT configureRequested(config_.id); });
 
     rootLayout_->addWidget(header);
 }
@@ -88,10 +94,8 @@ bool Panel::hasSignal(const QString& signalId) const {
     return config_.signalIds.contains(signalId);
 }
 
-void Panel::setEditMode(bool on) {
-    if (removeButton_ != nullptr) {
-        removeButton_->setVisible(on);
-    }
+QPushButton* Panel::configButton() const {
+    return configButton_;
 }
 
 void Panel::setBody(QWidget* body) {

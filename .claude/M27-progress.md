@@ -5,7 +5,7 @@ Branch: `milestone/M27` (local, off `milestone/M26`; not pushed).
 | Subtask | Status | Commit |
 |---------|--------|--------|
 | S1 — plot drift fix (#1) | done | capture window once + clip; run-length spill guard test |
-| S2 — per-panel config menu + interaction tests (#2/#3) | todo | |
+| S2 — per-panel ⋮ config menu (type/signal/move/remove) + QTest interaction tests | done | always-visible ⋮ button; menu-driven ops; 7 dashboard cases/44 assertions |
 | S3 — relaunch + close-out | todo | |
 
 ## Log

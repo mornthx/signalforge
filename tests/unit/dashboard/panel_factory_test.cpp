@@ -11,6 +11,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QtTest/QTest>
 #include <catch2/catch_test_macros.hpp>
 
 namespace dash = signalforge::dashboard;
@@ -58,7 +59,7 @@ TEST_CASE("S1: PanelConfig zero-config defaults", "[dashboard][s1][config]") {
     CHECK(cfg.decimals == 3);
 }
 
-TEST_CASE("S1: Panel exposes config and emits removeRequested", "[dashboard][s1][panel]") {
+TEST_CASE("S1: Panel exposes config and its ⋮ button emits configureRequested", "[dashboard][s1][panel]") {
     app();
     dash::PanelConfig cfg;
     cfg.id = QStringLiteral("panel-7");
@@ -73,10 +74,12 @@ TEST_CASE("S1: Panel exposes config and emits removeRequested", "[dashboard][s1]
     CHECK_FALSE(panel.hasSignal(QStringLiteral("udp:rig/pressure")));
     CHECK_FALSE(panel.isWide());
 
-    QSignalSpy spy(&panel, &dash::Panel::removeRequested);
-    auto* removeButton = panel.findChild<QPushButton*>();
-    REQUIRE(removeButton != nullptr);
-    removeButton->click();
+    // Simulate a real click on the always-visible ⋮ config button.
+    QSignalSpy spy(&panel, &dash::Panel::configureRequested);
+    auto* btn = panel.configButton();
+    REQUIRE(btn != nullptr);
+    CHECK(btn->isVisibleTo(&panel));
+    QTest::mouseClick(btn, Qt::LeftButton);
     REQUIRE(spy.count() == 1);
     CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("panel-7"));
 }
