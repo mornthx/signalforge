@@ -4,6 +4,11 @@ add_library(signalforge_dashboard STATIC
     panel.hpp
     panel_factory.cpp
     panel_factory.hpp
+    value_format.hpp
+    numeric_panel.cpp
+    numeric_panel.hpp
+    state_panel.cpp
+    state_panel.hpp
 )
 set_target_properties(signalforge_dashboard PROPERTIES AUTOMOC ON)
 target_include_directories(signalforge_dashboard PUBLIC ${CMAKE_SOURCE_DIR}/src)
