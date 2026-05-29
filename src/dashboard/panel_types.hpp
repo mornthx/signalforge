@@ -15,6 +15,8 @@ enum class PanelType {
     Numeric,  ///< Big current value + unit (single signal).
     State,    ///< Boolean ●/○ or string/enum state (single signal).
     Table,    ///< Current values of N signals, one row each (P1).
+    Bar,      ///< Single scalar as a horizontal bar vs a range (P3).
+    Gauge,    ///< Single scalar as an arc gauge with a needle (P3).
 };
 
 /// Stable lowercase token for a panel type (config / diagnostics).

@@ -23,6 +23,10 @@ QString panelTypeName(PanelType type) {
         return QStringLiteral("state");
     case PanelType::Table:
         return QStringLiteral("table");
+    case PanelType::Bar:
+        return QStringLiteral("bar");
+    case PanelType::Gauge:
+        return QStringLiteral("gauge");
     }
     return QStringLiteral("numeric");
 }
@@ -40,6 +44,12 @@ std::optional<PanelType> panelTypeFromName(const QString& name) {
     }
     if (n == QStringLiteral("table")) {
         return PanelType::Table;
+    }
+    if (n == QStringLiteral("bar")) {
+        return PanelType::Bar;
+    }
+    if (n == QStringLiteral("gauge")) {
+        return PanelType::Gauge;
     }
     return std::nullopt;
 }

@@ -19,6 +19,10 @@ add_library(signalforge_dashboard STATIC
     table_panel.hpp
     plot_view.cpp
     plot_view.hpp
+    meter_view.cpp
+    meter_view.hpp
+    meter_panel.cpp
+    meter_panel.hpp
 )
 set_target_properties(signalforge_dashboard PROPERTIES AUTOMOC ON)
 target_include_directories(signalforge_dashboard PUBLIC ${CMAKE_SOURCE_DIR}/src)
