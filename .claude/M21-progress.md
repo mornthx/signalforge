@@ -5,7 +5,7 @@ Branch: `milestone/M21` (local; not pushed). Baseline: `main` @ a647ecf, debug b
 | Subtask | Status | Commit |
 |---------|--------|--------|
 | Planning (understanding/plan/concerns) | done | (this commit) |
-| S1 — Panel abstraction + factory | todo | |
+| S1 — Panel abstraction + factory | done | panel base + factory; 4 test cases / 26 assertions green (Debug+Release) |
 | S2 — Numeric + State panels | todo | |
 | S3 — PlotPanel (wrap legacy Chart) | todo | |
 | S4 — Dashboard container | todo | |
