@@ -27,3 +27,25 @@ target_link_libraries(panels_test
         signalforge_decoder
 )
 catch_discover_tests(panels_test DISCOVERY_MODE PRE_TEST)
+
+# PlotPanel hosts qrc:/qml/ChartHost.qml, so this test binary embeds the
+# shared qml.qrc itself (the app binary gets it via signalforge_app_ui).
+add_executable(plot_panel_test
+    plot_panel_test.cpp
+    ${CMAKE_SOURCE_DIR}/resources/qml.qrc
+)
+set_target_properties(plot_panel_test PROPERTIES AUTORCC ON)
+target_link_libraries(plot_panel_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::Quick
+        Qt6::QuickWidgets
+        signalforge_dashboard
+        signalforge_chart
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(plot_panel_test DISCOVERY_MODE PRE_TEST)
