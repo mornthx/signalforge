@@ -64,6 +64,13 @@ plot readability (P2), menu-bar order (#4) and status-bar accretion (#5) — sep
 This DR stays **Open** until those land. New issues surfaced during M21: concern C1 (slow-signal
 publish latency) and C2 (pre-existing teardown UAF) — see `.claude/M21-concerns.md`.
 
+**RESOLVED 2026-05-30 (M26).** All DR-001 findings are now addressed (local, unpushed):
+value/state display + dashboard (P0/M21), Table (P1/M22), readable PlotPanel (P2/M23),
+Bar/Gauge (P3/M24), slow-signal latency (C1/M25), teardown crash (C2/M21), and the menu-bar
+(#4) + status-bar (#5) IA rewrite (M26: one owned `buildMenuBar()`
+`File|Connections|Session|View|Help` + de-doubled status cells). Remaining nice-to-haves
+(not blockers): drag-to-add, per-panel signal/type selection UI. **This DR is closed.**
+
 **Update 2026-05-29 — C2 fixed + P1 landed (M22, local).** C2 teardown UAF fixed (`~MainWindow`
 tears down the pipeline before drivers) with a Tier-D crash-exit guard added to the GUI smoke
 test so it can't silently regress. P1: the **Table/DataGrid panel** ("is this device sane?"

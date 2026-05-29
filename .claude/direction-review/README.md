@@ -74,4 +74,4 @@ Score each as OK / Drifting / Off-course and justify in one line.
 
 | ID | Date | Scope | Headline verdict | Status |
 |----|------|-------|------------------|--------|
-| [DR-001](DR-001-2026-05-29-ui-visualization.md) | 2026-05-29 | UI / menu / visualization | Off-course: single-plot shell; dashboard redesign approved (additive, parallel `PlotPanel`) | Open — redesign pending |
+| [DR-001](DR-001-2026-05-29-ui-visualization.md) | 2026-05-29 | UI / menu / visualization | Off-course: single-plot shell; full redesign landed (M21–M26) | **Resolved** (local, unpushed) |
