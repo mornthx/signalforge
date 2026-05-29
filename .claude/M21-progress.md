@@ -11,7 +11,7 @@ Branch: `milestone/M21` (local; not pushed). Baseline: `main` @ a647ecf, debug b
 | S4 — Dashboard container | done | reflow grid + 15Hz refresh + auto-suggest addSignal + plot/chart lifecycle; 3 cases/16 assertions (Debug+Release) |
 | S5a — dashboard-aware signal list | done | SignalListPanel + showsSignal; 2 cases/11 assertions |
 | S5b — MainWindow integration | done | dashboard mounted in central splitter, selector→dashboard routing, +Plot, hooks repointed, QPointer chart-safety, 00-empty-launch rebaselined; full ctest green (662/662); GUI smoke green; found pre-existing teardown UAF (C2) |
-| S6 — Close-out (format/docs/full ctest) | todo | |
+| S6 — Close-out (format/docs/full ctest) | done | clang-tidy fix (bugprone-optional), M21-done.md, full ctest 662/662 |
 
 ## Log
 

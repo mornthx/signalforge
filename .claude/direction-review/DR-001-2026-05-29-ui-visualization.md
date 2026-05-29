@@ -54,8 +54,15 @@ interface is broken** (so no HALT #4 gate):
    frozen `SignalMetadata` is untouched.
 3. In-place Edit toggle approved **provisionally** — judged by real-use feel.
 
-Target design: `docs/v0.3/dashboard-interaction-design.md` (§9 records these). This DR stays
-**Open** until the redesign actually lands in the product.
+Target design: `docs/v0.3/dashboard-interaction-design.md` (§9 records these).
+
+**Update 2026-05-29 — P0 landed (milestone M21, local).** The dashboard-of-panels redesign's
+first phase is implemented: Numeric/State cards + wrapped PlotPanel in a reflow grid, driven by
+a dashboard-aware signal list; empty-launch decluttered (findings #2/#3/#10 addressed for
+value/state display; the empty-grid clutter is gone). Remaining DR-001 findings still open:
+plot readability (P2), menu-bar order (#4) and status-bar accretion (#5) — separate IA work.
+This DR stays **Open** until those land. New issues surfaced during M21: concern C1 (slow-signal
+publish latency) and C2 (pre-existing teardown UAF) — see `.claude/M21-concerns.md`.
 
 ## Process note
 

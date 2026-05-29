@@ -88,11 +88,13 @@ void NumericPanel::refresh() {
 
     const double d = valueToDouble(latest->value);
     if (std::isfinite(d)) {
-        observedMin_ = observedMin_.has_value() ? std::min(*observedMin_, d) : d;
-        observedMax_ = observedMax_.has_value() ? std::max(*observedMax_, d) : d;
+        const double lo = observedMin_.has_value() ? std::min(*observedMin_, d) : d;
+        const double hi = observedMax_.has_value() ? std::max(*observedMax_, d) : d;
+        observedMin_ = lo;
+        observedMax_ = hi;
         rangeLabel_->setText(tr("min %1  max %2")
-                                 .arg(QString::number(*observedMin_, 'f', config_.decimals))
-                                 .arg(QString::number(*observedMax_, 'f', config_.decimals)));
+                                 .arg(QString::number(lo, 'f', config_.decimals))
+                                 .arg(QString::number(hi, 'f', config_.decimals)));
     } else {
         rangeLabel_->clear();
     }
