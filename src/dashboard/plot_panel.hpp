@@ -33,16 +33,21 @@ public:
         return true;
     }
 
+    /// Plot hosts N signals.
+    [[nodiscard]] bool isMultiSignal() const override {
+        return true;
+    }
+
     /// Add a signal to the underlying chart and the panel binding.
-    void addSignal(const QString& signalId);
+    void addSignal(const QString& signalId) override;
 
     /// Remove a signal from the underlying chart and the panel binding.
-    void removeSignal(const QString& signalId);
+    void removeSignal(const QString& signalId) override;
 
     /// Detach the hosted chart (visually unparent it and drop our
     /// pointer) so the owner can safely delete the chart afterwards.
     /// Called by `Dashboard::removePanel` before `ChartManager::removeChart`.
-    void detachChart();
+    void detachChart() override;
 
     /// The hosted chart (not owned). May be null if the chart was
     /// destroyed (e.g. during app teardown).

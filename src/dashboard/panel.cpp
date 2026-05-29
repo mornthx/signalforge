@@ -21,6 +21,8 @@ QString panelTypeName(PanelType type) {
         return QStringLiteral("numeric");
     case PanelType::State:
         return QStringLiteral("state");
+    case PanelType::Table:
+        return QStringLiteral("table");
     }
     return QStringLiteral("numeric");
 }
@@ -35,6 +37,9 @@ std::optional<PanelType> panelTypeFromName(const QString& name) {
     }
     if (n == QStringLiteral("state")) {
         return PanelType::State;
+    }
+    if (n == QStringLiteral("table")) {
+        return PanelType::Table;
     }
     return std::nullopt;
 }

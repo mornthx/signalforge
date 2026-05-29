@@ -64,6 +64,22 @@ public:
     /// driven by the owning `Dashboard`'s refresh tick.
     virtual void refresh() {}
 
+    /// True for panels that host more than one signal (Plot, Table). The
+    /// Dashboard uses this to decide whether unticking a signal removes a
+    /// row (multi-signal) or the whole card (single-signal). Default false.
+    [[nodiscard]] virtual bool isMultiSignal() const {
+        return false;
+    }
+
+    /// Add / remove a signal. Meaningful only for multi-signal panels;
+    /// base is a no-op (single-signal cards bind their signal at construction).
+    virtual void addSignal(const QString& signalId) {}
+    virtual void removeSignal(const QString& signalId) {}
+
+    /// Release any externally-owned resource before the panel is deleted
+    /// (PlotPanel detaches its manager-owned chart). Base no-op.
+    virtual void detachChart() {}
+
     /// Show or hide editing affordances (the remove button).
     void setEditMode(bool on);
 

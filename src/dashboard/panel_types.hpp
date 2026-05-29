@@ -14,6 +14,7 @@ enum class PanelType {
     Plot,     ///< Time-series trend (wraps the legacy chart for P0).
     Numeric,  ///< Big current value + unit (single signal).
     State,    ///< Boolean ●/○ or string/enum state (single signal).
+    Table,    ///< Current values of N signals, one row each (P1).
 };
 
 /// Stable lowercase token for a panel type (config / diagnostics).
