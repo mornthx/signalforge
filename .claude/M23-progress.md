@@ -5,7 +5,7 @@ Branch: `milestone/M23` (local, off `milestone/M22`; not pushed).
 | Subtask | Status | Commit |
 |---------|--------|--------|
 | Planning | done | (this commit) |
-| S1 — PlotView (QPainter) | todo | |
+| S1 — PlotView (QPainter) | done | axes/labels/legend/per-signal-Y, theme-aware, queryRange LOD-empty fallback; 3 cases/13 assertions (Debug+Release) |
 | S2 — PlotPanel hosts PlotView; Dashboard owns time axis | todo | |
 | S3 — MainWindow rewire + close-out | todo | |
 

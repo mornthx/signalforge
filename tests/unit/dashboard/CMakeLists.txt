@@ -104,3 +104,19 @@ target_link_libraries(table_panel_test
         signalforge_decoder
 )
 catch_discover_tests(table_panel_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(plot_view_test
+    plot_view_test.cpp
+)
+target_link_libraries(plot_view_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        signalforge_dashboard
+        signalforge_chart
+        signalforge_buffer
+        signalforge_decoder
+)
+catch_discover_tests(plot_view_test DISCOVERY_MODE PRE_TEST)
