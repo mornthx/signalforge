@@ -24,6 +24,12 @@ CLAUDE.md ambiguity rule #9.
 
 ## Open items surfaced during execution
 
+- **C1 — FIXED in M25.** Time-based publish flush added to the buffer's internal publish path
+  (`kPublishFlushInterval` = 200 ms of sample-time, lazy-anchored on the first push so the
+  100-sample cadence still governs clustered fast pushes). A 1 Hz signal now appears after the
+  2nd sample (~1 s) instead of ~100 s. Internal change (TypedBuffer is outside the M6 freeze
+  surface); all 48 buffer tests still pass. Original analysis below.
+
 - **C1 (slow-signal display latency) — surfaced S2.** The M6 `SignalBuffer` publishes to
   readers only every `kDefaultPublishCadence` = **100 samples**; the time-based publish
   fallback is an explicit deferred TODO in `signal_buffer.cpp` (~line 37). So a NumericPanel /

@@ -39,6 +39,13 @@ constexpr auto kPrefixQueryUs = QLatin1String("signal_buffer_query_us_");
 /// tuning pass per plan §S4 note.
 constexpr int kDefaultPublishCadence = 100;
 
+/// M25 (C1): also publish when this much *sample-time* has elapsed since the
+/// last publish, so slow signals become visible to readers without waiting
+/// for `kDefaultPublishCadence` samples (a 1 Hz signal would otherwise take
+/// ~100 s). 200 ms sits above the existing publish-cadence tests' densest
+/// spacing, so those still publish strictly on the sample count.
+constexpr auto kPublishFlushInterval = std::chrono::milliseconds(200);
+
 /// LOD bin sizes per spec §3.4. Three decimation levels above raw.
 constexpr std::uint64_t kLodBinSize1 = 10;
 constexpr std::uint64_t kLodBinSize2 = 100;
@@ -421,9 +428,19 @@ struct SignalBuffer::TypedBuffer {
         // current state and atomic-store it for readers. Memory-bytes gauge
         // is also updated here (rather than per push) since publish is the
         // natural amortization point for accounting work.
-        if (++pushesSincePublish_ >= publishCadence_) {
+        // Anchor the time-flush window to the first sample so clustered fast
+        // pushes (e.g. tests microseconds apart) still publish on the sample
+        // cadence, not on the very first push.
+        if (!publishAnchorValid_) {
+            lastPublishTime_ = t;
+            publishAnchorValid_ = true;
+        }
+        const bool cadenceHit = (++pushesSincePublish_ >= publishCadence_);
+        const bool timeHit = (t - lastPublishTime_) >= kPublishFlushInterval;
+        if (cadenceHit || timeHit) {
             publishSegment();
             pushesSincePublish_ = 0;
+            lastPublishTime_ = t;
             ++publishCount_;
             if (publishesMetric_ != nullptr) {
                 publishesMetric_->add(1);
@@ -578,6 +595,12 @@ protected:
     int publishCadence_ = kDefaultPublishCadence;
     int pushesSincePublish_ = 0;
     std::uint64_t publishCount_ = 0;
+
+    // M25 (C1): time-based publish flush. `lastPublishTime_` is anchored to
+    // the first sample's timestamp (lazily, via `publishAnchorValid_`) so
+    // clustered fast pushes still publish strictly on the sample cadence.
+    std::chrono::steady_clock::time_point lastPublishTime_{};
+    bool publishAnchorValid_ = false;
 };
 
 namespace {
@@ -788,10 +811,8 @@ public:
 
         if (level == 0) {
             // Raw range: binary search timestamps, copy values across.
-            const std::size_t lo =
-                snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
-            const std::size_t hi =
-                snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+            const std::size_t lo = snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
+            const std::size_t hi = snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
             if (hi <= lo) {
                 return out;
             }
