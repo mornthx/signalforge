@@ -123,10 +123,15 @@ QFrame* makeStatusCell(const QString& titleText, QWidget* valueWidget, QWidget* 
     auto* layout = new QHBoxLayout(frame);
     layout->setContentsMargins(8, 0, 8, 0);
     layout->setSpacing(6);
-    auto* title = new QLabel(titleText, frame);
-    title->setProperty("class", QLatin1String("caption"));
-    title->setToolTip(titleText);
-    layout->addWidget(title);
+    // DR-001 #5: omit the caption when empty — cells whose value already
+    // names itself ("Record idle", "Buffer 0% 0 MiB", …) skip the title to
+    // avoid the doubled "label: value" look.
+    if (!titleText.isEmpty()) {
+        auto* title = new QLabel(titleText, frame);
+        title->setProperty("class", QLatin1String("caption"));
+        title->setToolTip(titleText);
+        layout->addWidget(title);
+    }
     layout->addWidget(valueWidget);
     return frame;
 }
@@ -426,7 +431,7 @@ void MainWindow::buildChartUi() {
     statusStripLayout_->addWidget(makeStatusCell(tr("Mode"), workflowModeLabel_, statusStrip_));
     auto* chartStatusRow = makeStatusValueRow(statusStrip_, {fpsLabel_, droppedLabel_, throttledLabel_});
     statusStripLayout_->addWidget(makeStatusCell(tr("Chart"), chartStatusRow, statusStrip_));
-    statusStripLayout_->addWidget(makeStatusCell(tr("Buffer"), bufferBudgetLabel_, statusStrip_));
+    statusStripLayout_->addWidget(makeStatusCell(QString(), bufferBudgetLabel_, statusStrip_));
     statusBar()->addPermanentWidget(statusStrip_, 1);
 
     auto* statusTimer = new QTimer(this);
@@ -489,7 +494,7 @@ void MainWindow::buildConnectionUi() {
     configSaveStatusLabel_->setToolTip(tr("Connection configuration save status"));
     applyLabelClass(configSaveStatusLabel_, "severity-info");
     if (statusStripLayout_ != nullptr) {
-        statusStripLayout_->insertWidget(1, makeStatusCell(tr("Config"), configSaveStatusLabel_, statusStrip_));
+        statusStripLayout_->insertWidget(1, makeStatusCell(QString(), configSaveStatusLabel_, statusStrip_));
     }
     connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::configurationSaveStateChanged, this,
             &MainWindow::onConfigurationSaveStateChanged);
@@ -1345,9 +1350,9 @@ void MainWindow::refreshStatusBar() {
         applyLabelClass(fpsLabel_, "severity-info");
     }
     if (droppedLabel_ != nullptr) {
-        droppedLabel_->setText(tr("Drops %1").arg(0));
-        droppedLabel_->setToolTip(tr("Dashboard render drops"));
-        applyLabelClass(droppedLabel_, "severity-info");
+        // DR-001 #5: the dashboard doesn't drop frames, so don't show a
+        // permanent "Drops 0" at idle (it read as a standing warning).
+        droppedLabel_->setVisible(false);
     }
     if (throttledLabel_ != nullptr) {
         if (!chartStatusOverrideText_.isEmpty()) {
@@ -1489,7 +1494,7 @@ void MainWindow::buildSessionUi() {
     applyLabelClass(recordingStatusLabel_, "severity-info");
     recordingStatusLabel_->setToolTip(tr("Session recording status"));
     if (statusStripLayout_ != nullptr) {
-        statusStripLayout_->insertWidget(2, makeStatusCell(tr("Recording"), recordingStatusLabel_, statusStrip_));
+        statusStripLayout_->insertWidget(2, makeStatusCell(QString(), recordingStatusLabel_, statusStrip_));
     }
 
     if (sessionWriter_ != nullptr) {
@@ -1726,7 +1731,7 @@ void MainWindow::buildReplayUi() {
     replayStatusLabel_->setText(tr("Replay idle"));
     applyLabelClass(replayStatusLabel_, "severity-info");
     if (statusStripLayout_ != nullptr) {
-        statusStripLayout_->insertWidget(3, makeStatusCell(tr("Replay"), replayStatusLabel_, statusStrip_));
+        statusStripLayout_->insertWidget(3, makeStatusCell(QString(), replayStatusLabel_, statusStrip_));
     }
 
     // Wire PlaybackController + ReplayModeManager signals.
