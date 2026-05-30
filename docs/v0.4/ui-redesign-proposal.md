@@ -86,6 +86,44 @@ Two services make the whole thing feel like one product (these are the long-term
   widget) that every view observes. Selecting in one view highlights/scrolls in the others and feeds the
   **inspector**. This is what makes **drill-through** (§9) systematic rather than a pile of one-off jumps.
 
+## 5b. Division of labor — Raw vs Parsed vs Dashboard (SETTLED 2026-05-30)
+
+The owner asked the load-bearing question: if Raw dissects a packet in-place (Wireshark-style), what is
+Parsed *for*? Answer: **they differ by axis, not by "decoded vs not."**
+
+- **Raw's axis is the packet/time axis.** A row is *one message instance* in arrival order; selecting it
+  reveals *that packet's* fields (dissection) + bytes. It is about **discrete events on the wire**.
+- **Parsed's axis is the signal axis.** A row is *a named quantity* — a running entity with a current
+  value + history; it collapses thousands of packets into "each signal's live state."
+
+Both show decoded values, but Raw shows a value *as a property of one packet* (beside its bytes) and Parsed
+*as the live state of a signal* (rate, quality, trend, divorced from any packet). Wireshark has no Parsed
+equivalent because it's a packet analyzer, not a telemetry monitor — SignalForge is both.
+
+| | **Raw** | **Parsed** | **Dashboard** |
+|---|---|---|---|
+| A row is | a **packet** (a moment) | a **signal** (a named quantity) | a **widget** |
+| Ordered by | arrival time | signal (grouped/filtered) | spatial layout |
+| Select shows | this packet's fields + hex | this signal's stats + history | this widget's config |
+| Aggregation | none (per-instance) | across all packets (rate/min-max/trend/quality) | rendered |
+| **Job** | **debug the wire / decoding** | **monitor signal state** | **present chosen signals** |
+| Mirrors | Wireshark | watch-window / SCADA tag list | Serial Studio |
+
+This recovers the valid §7 split: **Raw = the "Decode" workspace** (frames + field structure, long-term the
+decode-rule editing surface — where decoding is made *correct*); **Parsed + Dashboard = "Observe"** (monitor,
+then present — where decoding is *consumed*).
+
+**Operation logic that follows:** bring-up → live in Raw (tune decode, verify per-packet, single-click =
+in-pane dissection + hex, no jump needed); decode trusted → Parsed (survey/monitor/filter all signals);
+worth watching → promote to Dashboard.
+
+**Drill-through direction (decided):** because Raw self-dissects, the jump *out of* Raw is the weak one. The
+primary link is **Parsed signal → "show source packets" → Raw filtered to that message** ("show me the
+bytes behind this signal"), plus **Dashboard widget → Parsed → Raw**. Double-click Raw packet → Parsed is
+*optional/secondary*. Newcomer confusion ("is Raw's dissection the parsed data?") is prevented by **visual
+framing**: Raw is unmistakably a packet stream (packet no. / timestamps / hex); Parsed is unmistakably a
+signal list (one row per signal name, current value, sparkline, rate).
+
 ## 6. Proposed frame (navigation & layout)
 
 **Recommendation: an activity-rail frame that expresses the pipeline.**
@@ -167,8 +205,9 @@ A **widget grid** with **view vs edit mode** (Grafana): in view mode it's a clea
 edit mode you get the **+widget palette**, drag/resize/push (M29), and per-widget config. A
 **dashboard-local toolbar** owns +widget / **time-range** / live / edit (owner's point #1, resolved).
 Widget types grow over time (gauge, bar, plot, numeric, state, table → later FFT, XY, LED, terminal, map)
-via an **extensible widget registry** (§10) — Serial Studio's real strength. Per-widget config: the M32
-modal is the start; long-term it can also surface in the right inspector.
+via an **extensible widget registry** (§10) — Serial Studio's real strength. **Per-widget config lives in
+the right inspector** (non-modal, live preview) — owner-decided; the M32 modal is retired into the
+inspector. (Lands back on what §7.3 #4 wanted.)
 
 ### 7.5 Control (future) & 7.6 Replay (future)
 First-class rail modes (today they're not surfaced). Control = command templates / macros / polling / ACK
@@ -225,19 +264,23 @@ To avoid another accretion of patches, the redesign rests on real infrastructure
 
 These are the things that make v1.x → v2 cheap instead of another rewrite.
 
-## 11. Open questions (owner-reserved — please weigh in)
+## 11. Decisions & remaining open questions
 
-1. **Drill-through gesture:** double-click raw packet → Parsed (highlight produced signals)? Or → Raw
-   dissection only, with a separate "jump to signals"? What exactly should the destination show?
-2. **Inspect grouping:** triad as a **segmented control inside one "Inspect" rail mode** (my rec), or
-   Raw/Parsed/Dashboard as **three separate rail items**?
-3. **Inspector vs modal for config:** M32 chose a modal. With a right inspector now in the frame, do
-   per-widget/per-signal config move into the inspector (non-modal, live preview), or stay modal?
-4. **Selection scope:** should selecting a signal in Parsed also auto-filter Raw to its packets, or only
-   highlight (less disruptive)?
-5. **Top bar vs menu bar:** replace the menu bar with the slim top bar + command palette, or keep both?
-6. **Density default:** Wireshark-dense everywhere, or dense tables + airy dashboard (my rec)?
-7. **Scope of v1 of the redesign:** how far down §7 (Control/Replay) do we build now vs. design-only?
+**Settled (owner, 2026-05-30):**
+- ✅ **Raw vs Parsed division of labor** — packet-axis vs signal-axis (§5b).
+- ✅ **Drill-through** — primary link is **Parsed signal → source packets in Raw** (Raw self-dissects, so
+  the raw→Parsed jump is optional/secondary). (§5b)
+- ✅ **Inspect grouping** — segmented `[Raw | Parsed | Dashboard]` inside one "Inspect" rail mode.
+- ✅ **Config surface** — per-widget/signal config in the **right inspector** (non-modal, live preview);
+  retire the M32 modal.
+- ✅ **Frame** — the activity-rail frame (§6).
+
+**Still open (please weigh in):**
+1. **Selection scope:** selecting a signal in Parsed → auto-filter Raw to its packets, or only highlight
+   (less disruptive, jump on explicit action)?
+2. **Top bar vs menu bar:** replace the menu bar with the slim top bar + command palette, or keep both?
+3. **Density default:** Wireshark-dense everywhere, or dense tables + airy dashboard (my rec)?
+4. **Scope of this redesign's v1:** how far (Control/Replay built now vs. design-only)?
 
 ## 12. Phased delivery (right sequence, not cheapest)
 
