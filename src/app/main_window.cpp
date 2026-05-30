@@ -13,7 +13,10 @@
 #include "dashboard/signal_list_panel.hpp"
 #include "decode/decoder_registrar.hpp"
 #include "inspect/parsed_signals_view.hpp"
+#include "inspect/raw_frame_tap.hpp"
+#include "inspect/raw_packet_view.hpp"
 #include "observability/logging.hpp"
+#include "pipeline/frame_pipeline.hpp"
 #include "pipeline/pipeline_manager.hpp"
 #include "replay/playback_controller.hpp"
 #include "replay/replay_mode_manager.hpp"
@@ -174,6 +177,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     pipelineManager_ = std::make_unique<signalforge::pipeline::PipelineManager>(this);
     signalBufferRegistry_ = std::make_unique<signalforge::buffer::SignalBufferRegistry>();
+
+    // M31: Tier-1 raw-packet tap — one tap shared across all pipelines, so the
+    // Raw view shows every driver's frames together. Registered on each
+    // pipeline as it attaches (read-only FrameSink; never mutates frames).
+    rawFrameTap_ = std::make_shared<signalforge::inspect::RawFrameTap>();
+    connect(pipelineManager_.get(), &signalforge::pipeline::PipelineManager::pipelineAttached, this,
+            [this](const QString&, signalforge::pipeline::FramePipeline* pipeline) {
+                if (pipeline != nullptr) {
+                    pipeline->addSink(rawFrameTap_);
+                }
+            });
 
     // M10 fan-out: route decoded signals through a TeeSink that
     // always feeds the SignalBufferRegistry (M6) and may
@@ -363,13 +377,15 @@ void MainWindow::buildChartUi() {
     // "Parsed" (a live table of every decoded signal) is the default landing
     // surface; the dashboard (Tier 3) sits on top as its own tab. M31 adds the
     // Tier 1 "Raw" packet tab to the left of these.
+    rawPacketView_ = new signalforge::inspect::RawPacketView(*rawFrameTap_);
     parsedView_ = new signalforge::inspect::ParsedSignalsView(*signalBufferRegistry_);
     workspaceTabs_ = new QTabWidget;
     workspaceTabs_->setObjectName(QStringLiteral("workspaceTabs"));
     workspaceTabs_->setDocumentMode(true);
-    workspaceTabs_->addTab(parsedView_, tr("Parsed"));
-    workspaceTabs_->addTab(chartContainer_, tr("Dashboard"));
-    workspaceTabs_->setCurrentWidget(parsedView_);  // raw/parsed data first
+    workspaceTabs_->addTab(rawPacketView_, tr("Raw"));         // Tier 1 (原报文)
+    workspaceTabs_->addTab(parsedView_, tr("Parsed"));         // Tier 2 (解析数据)
+    workspaceTabs_->addTab(chartContainer_, tr("Dashboard"));  // Tier 3
+    workspaceTabs_->setCurrentWidget(parsedView_);             // land on parsed signals, not the dashboard
     centralSplitter_->addWidget(workspaceTabs_);
 
     centralSplitter_->setStretchFactor(0, 1);

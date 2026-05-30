@@ -13,5 +13,9 @@
   over no/source/proto/len/seq/hex/ascii (reuses signalforge_query). Polls the tap; selecting a row
   shows a Wireshark-style hex dump. 3 cases / 15 assertions; clean exit under xcb (no clear-button).
 - Debug + Release green; clang-format clean.
-## S3 — wire the Raw workspace tab  ⏳
+## S3 — wire the Raw workspace tab  ✅
+- main_window creates one shared RawFrameTap, registers it on every pipeline via
+  PipelineManager::pipelineAttached (read-only sink). Raw tab added as workspace tab 0
+  (Raw | Parsed | Dashboard); default landing stays Parsed.
+- Visual: empty-launch baseline re-accepted (now 3 tabs). 705/705 ctest Debug + Release; fmt clean.
 ## Deferred: schema-driven dissection tree → M32 (documented).

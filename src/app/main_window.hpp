@@ -32,6 +32,8 @@ class SignalListPanel;
 }  // namespace signalforge::dashboard
 namespace signalforge::inspect {
 class ParsedSignalsView;
+class RawFrameTap;
+class RawPacketView;
 }  // namespace signalforge::inspect
 namespace signalforge::connection {
 class ConnectionManager;
@@ -308,6 +310,8 @@ private:
     signalforge::dashboard::Dashboard* dashboard_ = nullptr;
     signalforge::dashboard::SignalListPanel* signalListPanel_ = nullptr;
     signalforge::inspect::ParsedSignalsView* parsedView_ = nullptr;
+    std::shared_ptr<signalforge::inspect::RawFrameTap> rawFrameTap_;
+    signalforge::inspect::RawPacketView* rawPacketView_ = nullptr;
     QTabWidget* workspaceTabs_ = nullptr;
     QSplitter* centralSplitter_ = nullptr;
     QWidget* chartContainer_ = nullptr;
