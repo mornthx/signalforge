@@ -111,6 +111,12 @@ private:
         bool onDashboard = false;  ///< whether the signal is currently on the dashboard
     };
 
+protected:
+    /// Refresh immediately when the view becomes visible (e.g. switching to the
+    /// Parsed segment) so it isn't stale for up to one timer tick.
+    void showEvent(QShowEvent* event) override;
+
+private:
     void rebuild(const QStringList& ids);
     void applyFilter();
     void showRowMenu(const QPoint& pos);

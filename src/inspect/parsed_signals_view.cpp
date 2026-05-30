@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QShowEvent>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -137,13 +138,26 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
 
     refreshTimer_ = new QTimer(this);
     refreshTimer_->setInterval(kRefreshIntervalMs);
-    connect(refreshTimer_, &QTimer::timeout, this, &ParsedSignalsView::refresh);
+    // Only do the periodic per-row work when the view is actually on screen.
+    // When another segment (Raw / Dashboard) is showing, this view is hidden by
+    // the QStackedWidget and there's nothing to repaint — skipping the tick
+    // avoids needless 10 Hz table churn behind the dashboard.
+    connect(refreshTimer_, &QTimer::timeout, this, [this]() {
+        if (isVisible()) {
+            refresh();
+        }
+    });
     refreshTimer_->start();
 
     refresh();
 }
 
 ParsedSignalsView::~ParsedSignalsView() = default;
+
+void ParsedSignalsView::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    refresh();
+}
 
 void ParsedSignalsView::setFilter(const QString& text) {
     auto result = signalforge::query::FilterExpr::parse(text);
