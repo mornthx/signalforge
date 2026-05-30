@@ -6,6 +6,7 @@
 #include <QColor>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -45,6 +46,45 @@ QString hexPreview(const QByteArray& payload, int maxBytes = 16) {
         out += QStringLiteral(" …");
     }
     return out;
+}
+
+/// Interpret a dissected field's formatted value as a typed filter value:
+/// bool for "true"/"false", double when it parses numerically, else string.
+/// Mirrors ParsedSignalsView's typing so the two filter bars behave alike.
+std::optional<signalforge::query::FieldValue> fieldValueOf(const signalforge::decoder::DissectedField& f) {
+    if (f.truncated || f.value.isEmpty() || f.value == QStringLiteral("—")) {
+        return std::nullopt;
+    }
+    if (f.value == QLatin1String("true")) {
+        return signalforge::query::FieldValue(true);
+    }
+    if (f.value == QLatin1String("false")) {
+        return signalforge::query::FieldValue(false);
+    }
+    bool ok = false;
+    const double d = f.value.toDouble(&ok);
+    if (ok) {
+        return signalforge::query::FieldValue(d);
+    }
+    return signalforge::query::FieldValue(f.value);
+}
+
+/// Index a dissected field (and its bitfield children) into a name→value map
+/// for display filtering. Each field is keyed by its lowercased leaf name; a
+/// bit slice is additionally keyed by `parent.child` (Wireshark dotted paths),
+/// so both `alarm` and `status.alarm` resolve.
+void collectFilterFields(const signalforge::decoder::DissectedField& f, const QString& prefix,
+                         QHash<QString, signalforge::query::FieldValue>& out) {
+    const QString leaf = f.name.toLower();
+    if (const auto val = fieldValueOf(f)) {
+        out.insert(leaf, *val);
+        if (!prefix.isEmpty()) {
+            out.insert(prefix + QLatin1Char('.') + leaf, *val);
+        }
+    }
+    for (const auto& child : f.children) {
+        collectFilterFields(child, leaf, out);
+    }
 }
 
 /// Display string for a node's byte range: "5–6", "9", or "9 [bit 0]".
@@ -90,7 +130,7 @@ RawPacketView::RawPacketView(RawFrameTap& tap, QWidget* parent) : QWidget(parent
 
     filterEdit_ = new QLineEdit(this);
     filterEdit_->setObjectName(QStringLiteral("rawFilterEdit"));
-    filterEdit_->setPlaceholderText(tr("Filter, e.g.  source == udp:rig && len > 8 && hex contains ff"));
+    filterEdit_->setPlaceholderText(tr("Filter, e.g.  len > 8 && temperature > 20 && status.alarm == 1"));
     connect(filterEdit_, &QLineEdit::textChanged, this, &RawPacketView::setFilter);
     body->addWidget(filterEdit_);
 
@@ -187,7 +227,29 @@ void RawPacketView::setFilter(const QString& text) {
 }
 
 bool RawPacketView::rowMatches(const CapturedFrame& frame) const {
-    const auto lookup = [&frame](const QString& f) -> std::optional<signalforge::query::FieldValue> {
+    // Dissected field values are resolved lazily: a filter that only references
+    // packet metadata (no/source/…) never pays for dissection. Filled on the
+    // first non-builtin field lookup and reused across the expression.
+    std::optional<QHash<QString, signalforge::query::FieldValue>> dissected;
+    const auto fieldsFor = [&]() -> const QHash<QString, signalforge::query::FieldValue>& {
+        if (!dissected) {
+            QHash<QString, signalforge::query::FieldValue> map;
+            if (dissectorProvider_) {
+                if (const auto* d = dissectorProvider_(frame.source)) {
+                    const signalforge::decoder::Dissection dis = d->dissect(frame.payload);
+                    if (dis.matched) {
+                        for (const auto& field : dis.fields) {
+                            collectFilterFields(field, QString(), map);
+                        }
+                    }
+                }
+            }
+            dissected = std::move(map);
+        }
+        return *dissected;
+    };
+
+    const auto lookup = [&](const QString& f) -> std::optional<signalforge::query::FieldValue> {
         const QString lf = f.toLower();
         if (lf == QLatin1String("no")) {
             return signalforge::query::FieldValue(static_cast<double>(frame.index));
@@ -209,6 +271,12 @@ bool RawPacketView::rowMatches(const CapturedFrame& frame) const {
         }
         if (lf == QLatin1String("ascii")) {
             return signalforge::query::FieldValue(QString::fromLatin1(frame.payload));
+        }
+        // Fall through to the selected frame's schema-dissected fields.
+        const auto& fm = fieldsFor();
+        const auto it = fm.find(lf);
+        if (it != fm.end()) {
+            return it.value();
         }
         return std::nullopt;
     };

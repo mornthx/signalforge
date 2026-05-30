@@ -28,8 +28,11 @@ namespace signalforge::inspect {
 ///   2. a schema-driven **dissection tree** for the selected frame (field →
 ///      decoded value → byte range, with bitfield children), and
 ///   3. a hex pane that highlights the byte range of the selected field.
-/// A display-filter bar (the `signalforge_query` engine over
-/// `no/source/proto/len/seq/hex/ascii`) narrows the list.
+/// A display-filter bar (the `signalforge_query` engine) narrows the list over
+/// packet metadata (`no/source/proto/len/seq/hex/ascii`) **and** the selected
+/// schema's dissected field names (e.g. `temperature > 20`, `status.alarm == 1`,
+/// dotted `parent.child` for bit slices) — resolved per row via the injected
+/// dissector, so field filters only cost dissection when actually used.
 ///
 /// Dissection is decoupled: the app injects a `DissectorProvider` that maps a
 /// frame's `source` to the `FrameDissector` for that driver's schema. With no

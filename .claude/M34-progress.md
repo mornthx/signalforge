@@ -193,3 +193,61 @@ readers every 100 ms (so the plot advanced ~10 Hz regardless). Two coupled chang
 `Dashboard::setRefreshRateHz` / `refreshRateHz()` (default 60, clamped [1, 144]) + a **View → Refresh rate**
 menu (15 / 30 / 60 Hz). 724/724 ctest Debug + Release. Future: per-panel rates (video panels will run at
 their own cadence — see [[heterogeneous_frame_rates]] / proposal §10).
+
+---
+
+# Phase 3 (P3) — Raw Wireshark dissection (§7.2)
+
+The Raw tier (原报文) becomes a real packet dissector: packet list → schema-driven dissection tree → hex
+pane with byte-range highlighting + field-level display filter. Deferred from M31 (the M31 Raw view was
+list + hex only).
+
+## P3 S1 — dissection core (`FrameDissector` + shared `field_codec`)  ✅
+- **`decode/field_codec.hpp`** (new, header-only): the byte-reading primitives (`readUnsigned`/`signExtend`/
+  `readFloat32`/`readFloat64`, encoding classifiers, `layoutMatches`) extracted out of `schema_decoder.cpp`'s
+  anonymous namespace into one shared, inline source of truth. **`SchemaDecoder` migrated onto them** (its
+  private `layoutMatches` now delegates) — no public-interface or schema change, so the M5 freeze holds; the
+  point is that the live decode path and the UI dissector can never disagree on how a byte becomes a value.
+- **`decode/frame_dissector.{hpp,cpp}`** (new): `FrameDissector(Schema)` → `dissect(payload)` returns a
+  `Dissection{matched, layoutName, diagnostic, payloadSize, fields[]}` where each `DissectedField` carries
+  `name / byteOffset / byteLength / bitStart / bitCount / rawHex / value / unit / typeLabel / truncated /
+  children`. Bitfields expand into bit-slice children; the magic fingerprint is a synthetic `(magic)` node so
+  every pinned byte is accounted for. **Unlike the decoder it does not bail on a malformed frame** — it
+  dissects every in-bounds field and marks the rest `truncated`, because a short/garbled frame is exactly
+  what the Raw view exists to explain.
+- Tests: 8 cases (per-field byte ranges + decoded values, bitfield children, big-endian + signed
+  sign-extension, float32 + fixed string, multi-layout first-match, unmatched/empty/malformed diagnostics).
+  732/732 ctest Debug + Release; clang-format clean. Commit `bbfd1ab`.
+
+## P3 S2 — dissection tree UI + byte highlighting  ✅
+- **`RawPacketView` → three panes** (list │ dissection tree │ hex, a vertical splitter 4:4:3). Selecting a
+  packet dissects it into a **Field · Value · Type · Bytes** `QTreeWidget` (bitfield children nested, magic
+  node first); selecting a tree node **highlights that field's byte range in both the hex and ASCII columns**
+  of the dump (extra-selection spans recorded as the dump is built) and scrolls it into view.
+- **Decoupled like the Parsed identity**: the app injects a `DissectorProvider` mapping a frame's `source` to
+  its dissector. `MainWindow` builds one `FrameDissector` **per driver type** (the source's `:`-prefix —
+  `udp`/`serial`/… — since a frame's self-reported `source` is `udp:127.0.0.1:port`, not the connection
+  driverId) from the connection's `decoderSchemaId` on connect, mirroring the `DecoderRegistrar`'s per-type,
+  last-config-wins model. With no schema for a source the tree shows a raw-bytes placeholder; the list + hex
+  panes still work (the Raw view never hard-depends on a decoder). `inspect` now links `signalforge_decoder`
+  (PUBLIC, no cycle).
+- Tests: 2 interaction cases (tree built with decoded values + byte-range highlight on field select;
+  placeholder when no dissector). **734/734 ctest Debug + Release, 11/11 visual** — Raw is not a captured
+  default state (landing is Parsed), so **no baseline change**. clang-format clean. Commit `d67914d`.
+
+## P3 S3 — field-level display filter  ✅
+- The Raw filter bar now resolves **dissected field names** in addition to packet metadata: `temperature >
+  20`, `status.alarm == 1`, dotted `parent.child` for bit slices (both `alarm` and `status.alarm` resolve).
+  Values are typed to match `ParsedSignalsView` (bool for true/false, double when numeric, else string).
+- **Lazy**: a filter that only references builtins (`len`, `source`, …) never pays for dissection; the
+  per-row field map is filled on the first non-builtin lookup and reused across the expression. Cost is
+  bounded (~µs/frame × visible rows, only when a field filter is active).
+- Test: filter narrows on a dissected numeric field, combined builtin + field, clear restores. Builtins win
+  on name collisions (documented). 734/734 ctest Debug + Release (non-visual; S3 changes no rendered output).
+  clang-format clean.
+
+### Still owed (later phases, per proposal §12)
+- **P4** Dashboard view/edit + widget registry (+ unify dashboard colours onto `SignalIdentity`).
+- **P5** right-inspector / bottom-drawer selection wiring (frame slots exist but mount empty) + top-bar
+  connection chip. The Raw dissection tree is a natural P5 inspector feeder (select a field → inspector).
+- **P2 remainder**: last-change column, group-by-driver.

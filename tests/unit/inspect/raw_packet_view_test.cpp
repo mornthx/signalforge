@@ -177,6 +177,37 @@ TEST_CASE("M34 P3: selecting a packet builds the dissection tree and highlights 
     CHECK_FALSE(view.hexView()->extraSelections().isEmpty());  // hex + ascii spans
 }
 
+TEST_CASE("M34 P3: display filter narrows on dissected field values", "[inspect][m34][rawview][interaction]") {
+    app();
+    insp::RawFrameTap tap;
+    // Three frames: b = 258, 5, 258. a = 7, 9, 7.
+    tap.onFrame(makeFrame(QStringLiteral("udp:rig"), QByteArray::fromHex("AA070201"), 1));  // b=258
+    tap.onFrame(makeFrame(QStringLiteral("udp:rig"), QByteArray::fromHex("AA090500"), 2));  // b=5
+    tap.onFrame(makeFrame(QStringLiteral("udp:rig"), QByteArray::fromHex("AA070201"), 3));  // b=258
+    insp::RawPacketView view(tap);
+
+    const signalforge::decoder::FrameDissector dissector(miniSchema());
+    view.setDissectorProvider([&dissector](const QString&) { return &dissector; });
+    view.refresh();
+    REQUIRE(view.totalRowCount() == 3);
+
+    // Filter on a dissected numeric field.
+    view.filterEdit()->setText(QStringLiteral("b > 100"));
+    CHECK(view.filterValid());
+    CHECK(view.visibleRowCount() == 2);  // the two b=258 frames
+
+    view.filterEdit()->setText(QStringLiteral("a == 9"));
+    CHECK(view.visibleRowCount() == 1);
+
+    // Builtin and dissected field combined.
+    view.filterEdit()->setText(QStringLiteral("len == 4 && b == 5"));
+    CHECK(view.visibleRowCount() == 1);
+
+    // Clearing restores all rows.
+    view.filterEdit()->setText(QString());
+    CHECK(view.visibleRowCount() == 3);
+}
+
 TEST_CASE("M34 P3: without a dissector, the tree shows a raw-bytes placeholder",
           "[inspect][m34][rawview][interaction]") {
     app();
