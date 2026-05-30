@@ -25,7 +25,7 @@
 namespace signalforge::dashboard {
 
 namespace {
-constexpr int kRefreshIntervalMs = 66;  ///< ~15 Hz; Numeric/State cards.
+constexpr int kRefreshIntervalMs = 33;  ///< ~30 Hz; Numeric/State cards.
 
 /// Fit `r` inside a `surface`-sized rectangle anchored at (0,0): shrink if
 /// larger, then translate so it lies fully within bounds.
