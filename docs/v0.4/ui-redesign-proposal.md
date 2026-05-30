@@ -268,6 +268,16 @@ To avoid another accretion of patches, the redesign rests on real infrastructure
   persist as a project (architecture already defines project files) — make save/restore first-class.
 - **Reuse of the `signalforge_query` engine** as the one filter/search core (Raw, Parsed, later command
   matching), extended with autocomplete + saved filters.
+- **Rendering cadence — design for heterogeneous, per-component frame rates (owner directive, 2026-05-31).**
+  The dashboard refresh rate is now configurable (`Dashboard::setRefreshRateHz`, default 60 Hz; View →
+  Refresh rate), but it is still a *single* `QTimer` driving every panel. That is fine for signal widgets;
+  it is **not** the model for **video**, which the owner will introduce later. A video panel runs at its own
+  cadence (stream/decoder/vsync-driven, e.g. 24/30/60 fps) and on a separate perf path (decode → texture →
+  present), almost certainly GPU/RHI rather than the current QPainter software raster (signal plots paint in
+  ~0.3–0.65 ms/frame — a different cost class from HD video). So the widget registry / dashboard work (P4)
+  must plan for **per-panel refresh ownership** (a panel declares or drives its own rate) and explicitly
+  **validate the architecture against video's throughput/latency/sync needs** before committing to the
+  single-timer model. See memory `heterogeneous_frame_rates`.
 
 These are the things that make v1.x → v2 cheap instead of another rewrite.
 
