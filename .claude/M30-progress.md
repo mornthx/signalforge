@@ -10,5 +10,15 @@
 - Tests: 10 cases / 83 assertions (operators, precedence, coercion, quotes, negation, parse errors).
   Debug + Release green. clang-format clean.
 
-## S2 — parsed-signals table (`src/inspect/`)  ⏳ (next)
-## S3 — tabbed workspace shell  ⏳
+## S2 — parsed-signals table (`src/inspect/`)  ✅
+- New module `signalforge_inspect`: `ParsedSignalsView` — a `QTableWidget` of every signal
+  (Name · Source · Value · Unit · Type · Age), 10 Hz refresh from the registry, with a filter bar
+  driving the S1 engine over fields `id/name/source/unit/type/value`.
+- Invalid filter → flagged (`invalid` property + tooltip), all rows stay visible; valid → narrows rows.
+- Reuses `dashboard/value_format.hpp` (header-only). Tests simulate typing into the filter bar.
+- **Teardown fix:** `QLineEdit::setClearButtonEnabled(true)` crashed `qt_call_post_routines` at exit
+  under xcb (Qt 6.10) — dropped it (would have crashed the real app's exit too). Caught only because
+  the test ran under the real X platform, not offscreen.
+- Verified: 697/697 ctest Debug + Release; parsed_signals_view_test 3 cases / 12 assertions; fmt clean.
+
+## S3 — tabbed workspace shell  ⏳ (next)
