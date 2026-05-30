@@ -117,13 +117,17 @@ private:
     [[nodiscard]] QString nextPanelId();
     [[nodiscard]] Panel* makePanel(const PanelConfig& config);
     void recreatePanel(const QString& panelId, PanelConfig newConfig);
+    /// Record `signalId`'s preferred widget form (type + format fields) so a
+    /// later demote→promote restores it. Geometry/id/signalIds are stripped.
+    void rememberIntent(const QString& signalId, const PanelConfig& cfg);
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
     QTimer* refreshTimer_ = nullptr;
 
-    QHash<QString, Panel*> panels_;  ///< id -> panel (free-form positioned children).
-    QStringList panelOrder_;         ///< auto-place flow order.
+    QHash<QString, Panel*> panels_;             ///< id -> panel (free-form positioned children).
+    QStringList panelOrder_;                    ///< auto-place flow order.
+    QHash<QString, PanelConfig> signalIntent_;  ///< signalId -> last widget form (persists across removal).
     int nextPanelSuffix_ = 1;
 };
 

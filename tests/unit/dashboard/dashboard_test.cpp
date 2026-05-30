@@ -289,3 +289,56 @@ TEST_CASE("S4: removeSignalEverywhere drops single-signal cards", "[dashboard][s
     board.removeSignalEverywhere(QStringLiteral("rig/alarm"));
     CHECK(board.panelCount() == 0);
 }
+
+TEST_CASE("M29: re-checking a signal restores its last-chosen widget form", "[dashboard][m29][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+
+    // Check the signal → defaults to Numeric (suggested for a Double).
+    const QString id = board.addSignal(QStringLiteral("rig/temp"));
+    REQUIRE(board.panel(id)->type() == dash::PanelType::Numeric);
+
+    // User changes it to a Gauge via the ⋮ menu (real UI path).
+    {
+        QMenu* m = board.buildPanelMenu(id);
+        QAction* a = findAction(m, QStringLiteral("Gauge"));
+        REQUIRE(a != nullptr);
+        a->trigger();
+        delete m;
+    }
+    REQUIRE(board.panel(id)->type() == dash::PanelType::Gauge);
+
+    // Uncheck → the widget disappears entirely (report 1).
+    board.removeSignalEverywhere(QStringLiteral("rig/temp"));
+    REQUIRE(board.panelCount() == 0);
+
+    // Re-check → it returns as a Gauge (the remembered form), not the default
+    // Numeric (report 2).
+    const QString again = board.addSignal(QStringLiteral("rig/temp"));
+    CHECK(board.panel(again)->type() == dash::PanelType::Gauge);
+}
+
+TEST_CASE("M29: unchecking a plot's last signal removes the empty panel", "[dashboard][m29]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {
+                                makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double),
+                                makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double),
+                            });
+    dash::Dashboard board(reg);
+    const QString plot = board.addPlotPanel({QStringLiteral("rig/temp"), QStringLiteral("rig/pressure")});
+    REQUIRE(board.panel(plot)->isMultiSignal());
+    REQUIRE(board.panelCount() == 1);
+
+    // Uncheck one signal → the plot is kept with the remaining trace.
+    board.removeSignalEverywhere(QStringLiteral("rig/temp"));
+    CHECK(board.panelCount() == 1);
+    CHECK(board.showsSignal(QStringLiteral("rig/pressure")));
+
+    // Uncheck the last signal → the now-empty plot is removed, not orphaned.
+    board.removeSignalEverywhere(QStringLiteral("rig/pressure"));
+    CHECK(board.panelCount() == 0);
+}

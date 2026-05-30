@@ -98,6 +98,14 @@ QString Dashboard::addPanel(PanelConfig config) {
     return id;
 }
 
+void Dashboard::rememberIntent(const QString& signalId, const PanelConfig& cfg) {
+    PanelConfig intent = cfg;
+    intent.id.clear();
+    intent.geometry = QRect();
+    intent.signalIds = {signalId};
+    signalIntent_.insert(signalId, intent);
+}
+
 QString Dashboard::addSignal(const QString& signalId) {
     if (signalId.isEmpty()) {
         return {};
@@ -108,13 +116,22 @@ QString Dashboard::addSignal(const QString& signalId) {
             return id;
         }
     }
-    PanelType type = PanelType::Numeric;
-    if (auto* buf = registry_->bufferFor(signalId); buf != nullptr) {
-        type = suggestPanelType(buf->metadata().type);
-    }
     PanelConfig cfg;
-    cfg.type = type;
-    cfg.signalIds << signalId;
+    if (auto it = signalIntent_.constFind(signalId); it != signalIntent_.constEnd()) {
+        // Restore the last widget form the user chose for this signal.
+        cfg = it.value();
+        cfg.id.clear();
+        cfg.geometry = QRect();
+        cfg.signalIds = {signalId};
+    } else {
+        PanelType type = PanelType::Numeric;
+        if (auto* buf = registry_->bufferFor(signalId); buf != nullptr) {
+            type = suggestPanelType(buf->metadata().type);
+        }
+        cfg.type = type;
+        cfg.signalIds << signalId;
+        rememberIntent(signalId, cfg);  // record the first-time suggestion
+    }
     return addPanel(std::move(cfg));
 }
 
@@ -159,8 +176,13 @@ void Dashboard::removeSignalEverywhere(const QString& signalId) {
             continue;
         }
         if (p->isMultiSignal()) {
-            // Plot / Table: drop just this signal's trace/row, keep the panel.
+            // Plot / Table: drop just this signal's trace/row...
             p->removeSignal(signalId);
+            // ...but if that was its last signal, the panel is now empty —
+            // remove it rather than leave an orphaned blank widget (report 1).
+            if (p->signalIds().isEmpty()) {
+                removePanel(id);
+            }
         } else {
             // Single-signal card: removing its signal removes the card.
             removePanel(id);
@@ -217,6 +239,9 @@ void Dashboard::setPanelType(const QString& panelId, PanelType type) {
     if (isSingleSignalType(type) && cfg.signalIds.size() > 1) {
         cfg.signalIds = {cfg.signalIds.first()};
     }
+    for (const QString& sid : cfg.signalIds) {
+        rememberIntent(sid, cfg);  // the new type is now this signal's remembered form
+    }
     recreatePanel(panelId, std::move(cfg));
 }
 
@@ -229,6 +254,9 @@ void Dashboard::setPanelSignals(const QString& panelId, const QStringList& signa
     cfg.signalIds = signalIds;
     if (isSingleSignalType(cfg.type) && cfg.signalIds.size() > 1) {
         cfg.signalIds = {cfg.signalIds.first()};
+    }
+    for (const QString& sid : cfg.signalIds) {
+        rememberIntent(sid, cfg);  // this panel's type is now each signal's remembered form
     }
     recreatePanel(panelId, std::move(cfg));
 }
