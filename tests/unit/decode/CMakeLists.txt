@@ -16,6 +16,17 @@ target_compile_definitions(decoder_test
 )
 catch_discover_tests(decoder_test DISCOVERY_MODE PRE_TEST)
 
+add_executable(frame_dissector_test
+    frame_dissector_test.cpp
+)
+target_link_libraries(frame_dissector_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        signalforge_decoder
+)
+catch_discover_tests(frame_dissector_test DISCOVERY_MODE PRE_TEST)
+
 add_executable(decoder_buffer_cache_test
     decoder_buffer_cache_test.cpp
 )

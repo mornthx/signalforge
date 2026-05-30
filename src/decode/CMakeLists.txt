@@ -2,6 +2,9 @@ add_library(signalforge_decoder STATIC
     decoder_interface.hpp
     decoder_registrar.cpp
     decoder_registrar.hpp
+    field_codec.hpp
+    frame_dissector.cpp
+    frame_dissector.hpp
     schema.hpp
     schema_decoder.cpp
     schema_decoder.hpp

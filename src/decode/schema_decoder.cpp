@@ -2,13 +2,13 @@
 
 #include "buffer/signal_buffer.hpp"
 #include "buffer/signal_buffer_registry.hpp"
+#include "decode/field_codec.hpp"
 #include "observability/logging.hpp"
 #include "observability/metrics.hpp"
 
 #include <QString>
 #include <algorithm>
 #include <chrono>
-#include <cstring>
 #include <utility>
 
 namespace signalforge::decoder {
@@ -18,6 +18,10 @@ namespace {
 using signalforge::observability::Metric;
 using signalforge::observability::MetricKind;
 using signalforge::observability::MetricsRegistry;
+
+// Byte-reading + encoding-classification primitives are shared with the
+// UI-side FrameDissector — see decode/field_codec.hpp.
+using namespace signalforge::decoder::codec;
 
 QString registerMetricName(const QString& base, const QString& driverId) {
     return QStringLiteral("decoder_%1_%2").arg(base, driverId);
@@ -33,81 +37,6 @@ QString signalIdFor(const QString& driverId, const QString& fieldName) {
 
 QString signalIdFor(const QString& driverId, const QString& fieldName, const QString& bitName) {
     return QStringLiteral("%1/%2/%3").arg(driverId, fieldName, bitName);
-}
-
-bool encodingIsFloat(FieldEncoding e) noexcept {
-    return e == FieldEncoding::Float32 || e == FieldEncoding::Float64;
-}
-
-bool encodingIsSignedInt(FieldEncoding e) noexcept {
-    return e == FieldEncoding::Int8 || e == FieldEncoding::Int16 || e == FieldEncoding::Int32 ||
-           e == FieldEncoding::Int64;
-}
-
-bool encodingIsUnsignedInt(FieldEncoding e) noexcept {
-    return e == FieldEncoding::Uint8 || e == FieldEncoding::Uint16 || e == FieldEncoding::Uint32 ||
-           e == FieldEncoding::Uint64;
-}
-
-bool encodingIsNumeric(FieldEncoding e) noexcept {
-    return encodingIsFloat(e) || encodingIsSignedInt(e) || encodingIsUnsignedInt(e);
-}
-
-/// Read `nBytes` bytes from `bytes` starting at `offset`, assemble into a
-/// uint64 according to `endianness`. Caller has already verified bounds.
-std::uint64_t readUnsigned(const std::uint8_t* bytes, int nBytes, Endianness endianness) noexcept {
-    std::uint64_t v = 0;
-    if (endianness == Endianness::Little) {
-        for (int i = 0; i < nBytes; ++i) {
-            v |= static_cast<std::uint64_t>(bytes[i]) << (i * 8);
-        }
-    } else {
-        for (int i = 0; i < nBytes; ++i) {
-            v = (v << 8) | static_cast<std::uint64_t>(bytes[i]);
-        }
-    }
-    return v;
-}
-
-/// Sign-extend the low `nBytes * 8` bits of `raw` to 64 bits.
-std::int64_t signExtend(std::uint64_t raw, int nBytes) noexcept {
-    if (nBytes <= 0 || nBytes >= 8) {
-        return static_cast<std::int64_t>(raw);
-    }
-    const int shift = (8 - nBytes) * 8;
-    const std::int64_t s = static_cast<std::int64_t>(raw << shift);
-    return s >> shift;
-}
-
-/// Assemble bytes into a 32-bit floating-point representation, then promote
-/// to double. `endianness` swaps the byte order if needed.
-double readFloat32(const std::uint8_t* bytes, Endianness endianness) noexcept {
-    std::uint8_t buf[4];
-    if (endianness == Endianness::Little) {
-        std::memcpy(buf, bytes, 4);
-    } else {
-        buf[0] = bytes[3];
-        buf[1] = bytes[2];
-        buf[2] = bytes[1];
-        buf[3] = bytes[0];
-    }
-    float f = 0.0f;
-    std::memcpy(&f, buf, sizeof(f));
-    return static_cast<double>(f);
-}
-
-double readFloat64(const std::uint8_t* bytes, Endianness endianness) noexcept {
-    std::uint8_t buf[8];
-    if (endianness == Endianness::Little) {
-        std::memcpy(buf, bytes, 8);
-    } else {
-        for (int i = 0; i < 8; ++i) {
-            buf[i] = bytes[7 - i];
-        }
-    }
-    double d = 0.0;
-    std::memcpy(&d, buf, sizeof(d));
-    return d;
 }
 
 QString hexPrefix(const QByteArray& payload, int maxBytes = 16) {
@@ -283,20 +212,7 @@ void SchemaDecoder::onFrame(const signalforge::frame::RawFrame& frame) {
 }
 
 bool SchemaDecoder::layoutMatches(const LayoutMatch& match, const QByteArray& payload) noexcept {
-    if (match.bytes.empty()) {
-        return false;
-    }
-    const int needed = match.offset + static_cast<int>(match.bytes.size());
-    if (payload.size() < needed) {
-        return false;
-    }
-    const auto* data = reinterpret_cast<const std::uint8_t*>(payload.constData()) + match.offset;
-    for (std::size_t i = 0; i < match.bytes.size(); ++i) {
-        if (data[i] != match.bytes[i]) {
-            return false;
-        }
-    }
-    return true;
+    return codec::layoutMatches(match, payload);
 }
 
 bool SchemaDecoder::tryDecodeFrame(const signalforge::frame::RawFrame& frame, std::shared_ptr<SignalValueSink> sink,
