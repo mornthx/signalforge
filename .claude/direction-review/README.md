@@ -75,3 +75,4 @@ Score each as OK / Drifting / Off-course and justify in one line.
 | ID | Date | Scope | Headline verdict | Status |
 |----|------|-------|------------------|--------|
 | [DR-001](DR-001-2026-05-29-ui-visualization.md) | 2026-05-29 | UI / menu / visualization | Off-course: single-plot shell; full redesign landed (M21–M26) | **Resolved** (local, unpushed) |
+| [DR-002](DR-002-2026-05-30-three-tier-workbench.md) | 2026-05-30 | Whole-product IA: raw → parsed → dashboard | Drifting: only Observe built; recover the §7.2 Decode workspace via 3 tiers | **Open** — Phase A (M29) done; B/C pending |
