@@ -16,10 +16,9 @@
 
 #include <QAction>
 #include <QCursor>
-#include <QGridLayout>
-#include <QLayoutItem>
 #include <QMenu>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QTimer>
 #include <algorithm>
 
@@ -32,9 +31,9 @@ constexpr int kRefreshIntervalMs = 66;  ///< ~15 Hz; Numeric/State cards.
 Dashboard::Dashboard(signalforge::buffer::SignalBufferRegistry& registry, QWidget* parent)
     : QWidget(parent), registry_(&registry), timeAxis_(std::make_unique<signalforge::chart::TimeAxisManager>()) {
     setObjectName(QStringLiteral("dashboardSurface"));
-    grid_ = new QGridLayout(this);
-    grid_->setContentsMargins(0, 0, 0, 0);
-    grid_->setSpacing(2);
+    // Free-form surface: panels are absolutely positioned children (no layout),
+    // so they can be dragged/resized (M28). relayout() auto-places untouched
+    // ones in a flow.
 
     refreshTimer_ = new QTimer(this);
     refreshTimer_->setInterval(kRefreshIntervalMs);
@@ -90,8 +89,10 @@ QString Dashboard::addPanel(PanelConfig config) {
 
     Panel* created = makePanel(config);
     connect(created, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
+    connect(created, &Panel::geometryChanged, this, [this](const QString&) { Q_EMIT panelsChanged(); });
     panels_.insert(id, created);
     panelOrder_.append(id);
+    created->show();
     relayout();
     Q_EMIT panelsChanged();
     return id;
@@ -193,12 +194,14 @@ void Dashboard::recreatePanel(const QString& panelId, PanelConfig newConfig) {
     }
     newConfig.id = panelId;
     Panel* old = panels_.value(panelId);
-    Panel* fresh = makePanel(newConfig);
+    Panel* fresh = makePanel(newConfig);  // newConfig carries the geometry → preserved
     connect(fresh, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
+    connect(fresh, &Panel::geometryChanged, this, [this](const QString&) { Q_EMIT panelsChanged(); });
     panels_.insert(panelId, fresh);  // replace in the hash
     if (old != nullptr) {
         old->deleteLater();
     }
+    fresh->show();
     relayout();  // panelOrder_ position is unchanged (same id at same index)
     Q_EMIT panelsChanged();
 }
@@ -228,19 +231,6 @@ void Dashboard::setPanelSignals(const QString& panelId, const QStringList& signa
         cfg.signalIds = {cfg.signalIds.first()};
     }
     recreatePanel(panelId, std::move(cfg));
-}
-
-void Dashboard::movePanel(const QString& panelId, int delta) {
-    const int idx = panelOrder_.indexOf(panelId);
-    if (idx < 0) {
-        return;
-    }
-    const int target = std::clamp(idx + delta, 0, static_cast<int>(panelOrder_.size()) - 1);
-    if (target == idx) {
-        return;
-    }
-    panelOrder_.move(idx, target);
-    relayout();
 }
 
 QMenu* Dashboard::buildPanelMenu(const QString& panelId) {
@@ -296,11 +286,6 @@ QMenu* Dashboard::buildPanelMenu(const QString& panelId) {
     }
 
     menu->addSeparator();
-    connect(menu->addAction(tr("Move ◀ left")), &QAction::triggered, this,
-            [this, panelId]() { movePanel(panelId, -1); });
-    connect(menu->addAction(tr("Move right ▶")), &QAction::triggered, this,
-            [this, panelId]() { movePanel(panelId, 1); });
-    menu->addSeparator();
     connect(menu->addAction(tr("Remove panel")), &QAction::triggered, this,
             [this, panelId]() { removePanel(panelId); });
     return menu;
@@ -328,41 +313,49 @@ void Dashboard::refreshAll() {
     }
 }
 
-void Dashboard::relayout() {
-    // Detach every panel from the grid without deleting it.
-    while (QLayoutItem* item = grid_->takeAt(0)) {
-        delete item;  // frees the layout item, not the widget.
-    }
-    // Reset row stretches from the previous layout (QGridLayout keeps them).
-    for (int r = 0; r < 64; ++r) {
-        grid_->setRowStretch(r, 0);
-    }
+void Dashboard::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    relayout();  // reflow auto-placed (never-dragged) panels to the new width
+}
 
-    int row = 0;
-    int col = 0;
-    bool anyWide = false;
+void Dashboard::relayout() {
+    // Free-form: panels the user has dragged/resized keep their geometry;
+    // everything else flows left-to-right (cards) with Plot/Table on their own
+    // full-width row.
+    constexpr int kPad = 6;
+    const int w = std::max(width(), 360);
+    int x = kPad;
+    int y = kPad;
+    int rowH = 0;
     for (const QString& id : panelOrder_) {
         Panel* p = panels_.value(id);
-        if (p->isWide()) {
-            if (col != 0) {
-                ++row;
-                col = 0;
-            }
-            grid_->addWidget(p, row, 0, 1, columns_);
-            grid_->setRowStretch(row, 1);  // plots/tables fill vertical space
-            anyWide = true;
-            ++row;
-        } else {
-            grid_->addWidget(p, row, col, 1, 1);
-            if (++col >= columns_) {
-                ++row;
-                col = 0;
-            }
+        if (p == nullptr) {
+            continue;
         }
-    }
-    // With only small cards, a trailing row absorbs slack so they pack top.
-    if (!anyWide) {
-        grid_->setRowStretch(row + 1, 1);
+        if (p->userPlaced()) {
+            p->setGeometry(p->config().geometry);
+            continue;
+        }
+        if (p->isWide()) {
+            if (x > kPad) {  // close the current card row first
+                x = kPad;
+                y += rowH + kPad;
+                rowH = 0;
+            }
+            p->setGeometry(kPad, y, w - 2 * kPad, 280);
+            y += 280 + kPad;
+            continue;
+        }
+        constexpr int kCardW = 280;
+        constexpr int kCardH = 150;
+        if (x > kPad && x + kCardW + kPad > w) {  // wrap
+            x = kPad;
+            y += rowH + kPad;
+            rowH = 0;
+        }
+        p->setGeometry(x, y, kCardW, kCardH);
+        x += kCardW + kPad;
+        rowH = std::max(rowH, kCardH);
     }
 }
 

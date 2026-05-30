@@ -12,6 +12,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QMenu>
+#include <QMouseEvent>
+#include <QtTest/QSignalSpy>
 #include <catch2/catch_test_macros.hpp>
 
 namespace {
@@ -176,16 +178,6 @@ TEST_CASE("M27: panel ⋮ menu changes type, assigns signal, moves, removes", "[
     CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/alarm")));
     CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/temp")));
 
-    // "Move right" — reorder the panel in the layout.
-    {
-        QMenu* m = board.buildPanelMenu(p1);
-        QAction* a = findAction(m, QStringLiteral("Move right"));
-        REQUIRE(a != nullptr);
-        a->trigger();
-        delete m;
-    }
-    CHECK(board.panelIds() == QStringList{p2, p1});
-
     // "Remove panel" — remove via the menu.
     {
         QMenu* m = board.buildPanelMenu(p2);
@@ -196,6 +188,74 @@ TEST_CASE("M27: panel ⋮ menu changes type, assigns signal, moves, removes", "[
     }
     CHECK(board.panel(p2) == nullptr);
     CHECK(board.panelCount() == 1);
+}
+
+TEST_CASE("M28: drag the header moves a panel; the grip resizes it", "[dashboard][m28][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    board.resize(800, 600);  // give the surface real bounds so drags aren't clamped to 0
+    const QString id = board.addSignal(QStringLiteral("rig/temp"));
+    dash::Panel* p = board.panel(id);
+    REQUIRE(p != nullptr);
+    CHECK_FALSE(p->userPlaced());  // auto-placed initially
+
+    // Synthesize a mouse stream with explicit global positions (independent of
+    // widget realization) — simulates a real drag.
+    auto send = [](QWidget* w, QEvent::Type t, QPoint g) {
+        QMouseEvent e(t, QPointF(w->mapFromGlobal(g)), QPointF(g), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(w, &e);
+    };
+
+    // Drag the header by (+120, +60) → the panel moves and becomes user-placed.
+    const QRect before = p->geometry();
+    const QPoint g0 = p->header()->mapToGlobal(QPoint(20, 6));
+    send(p->header(), QEvent::MouseButtonPress, g0);
+    send(p->header(), QEvent::MouseMove, g0 + QPoint(120, 60));
+    send(p->header(), QEvent::MouseButtonRelease, g0 + QPoint(120, 60));
+    CHECK(p->userPlaced());
+    CHECK(p->geometry().topLeft() == before.topLeft() + QPoint(120, 60));
+
+    // Drag the bottom-right grip by (+50, +40) → the panel resizes.
+    QSignalSpy spy(p, &dash::Panel::geometryChanged);
+    const QSize sz0 = p->size();
+    const QPoint h0 = p->resizeGrip()->mapToGlobal(QPoint(7, 7));
+    send(p->resizeGrip(), QEvent::MouseButtonPress, h0);
+    send(p->resizeGrip(), QEvent::MouseMove, h0 + QPoint(50, 40));
+    send(p->resizeGrip(), QEvent::MouseButtonRelease, h0 + QPoint(50, 40));
+    CHECK(p->size() == sz0 + QSize(50, 40));
+    CHECK(spy.count() >= 1);
+}
+
+TEST_CASE("M28: a user-placed geometry survives a type change", "[dashboard][m28]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    board.resize(800, 600);
+    const QString id = board.addSignal(QStringLiteral("rig/temp"));
+    // Pin a custom geometry, then change the widget type.
+    board.setPanelSignals(id, {QStringLiteral("rig/temp")});  // no-op recreate keeps things stable
+    dash::Panel* p = board.panel(id);
+    const QRect g(40, 50, 360, 220);
+    const QPoint h0 = p->resizeGrip()->mapToGlobal(QPoint(7, 7));
+    // simulate move+resize to set a user geometry deterministically
+    auto send = [](QWidget* w, QEvent::Type t, QPoint gg) {
+        QMouseEvent e(t, QPointF(w->mapFromGlobal(gg)), QPointF(gg), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(w, &e);
+    };
+    send(p->resizeGrip(), QEvent::MouseButtonPress, h0);
+    send(p->resizeGrip(), QEvent::MouseButtonRelease, h0);  // commits current geometry as user-placed
+    REQUIRE(p->userPlaced());
+    const QRect kept = p->geometry();
+
+    board.setPanelType(id, dash::PanelType::Gauge);
+    dash::Panel* fresh = board.panel(id);
+    REQUIRE(fresh != nullptr);
+    CHECK(fresh->type() == dash::PanelType::Gauge);
+    CHECK(fresh->userPlaced());
+    CHECK(fresh->geometry() == kept);
 }
 
 TEST_CASE("M27: single-signal panel's menu reassigns to one signal", "[dashboard][m27][interaction]") {

@@ -4,9 +4,13 @@
 #include "dashboard/panel_types.hpp"
 
 #include <QFrame>
+#include <QPoint>
+#include <QRect>
 #include <QString>
 #include <QStringList>
 
+class QEvent;
+class QFrame;
 class QLabel;
 class QPushButton;
 class QVBoxLayout;
@@ -79,10 +83,28 @@ public:
     /// The always-visible "⋮" config button (for interaction tests).
     [[nodiscard]] QPushButton* configButton() const;
 
+    /// The header bar (drag handle) and the bottom-right resize grip — for
+    /// interaction tests that simulate drag-move / drag-resize.
+    [[nodiscard]] QFrame* header() const {
+        return header_;
+    }
+    [[nodiscard]] QWidget* resizeGrip() const {
+        return grip_;
+    }
+
+    /// Whether the panel has a user-set free-form geometry (vs. auto-placed).
+    [[nodiscard]] bool userPlaced() const {
+        return config_.geometry.isValid();
+    }
+
 Q_SIGNALS:
     /// Emitted when the user clicks this panel's ⋮ config button. The owning
     /// Dashboard responds by showing the per-panel menu.
     void configureRequested(const QString& panelId);
+
+    /// Emitted after the user drag-moves or drag-resizes the panel; the new
+    /// geometry has already been written into `config().geometry`.
+    void geometryChanged(const QString& panelId);
 
 protected:
     /// Install the subclass's content widget below the header. Replaces
@@ -92,13 +114,24 @@ protected:
     /// Update the header title text shown to the user.
     void setHeaderTitle(const QString& title);
 
+    bool eventFilter(QObject* watched, QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+
     PanelConfig config_;
 
 private:
+    enum class DragMode { None, Move, Resize };
+
     QVBoxLayout* rootLayout_ = nullptr;
+    QFrame* header_ = nullptr;
     QLabel* titleLabel_ = nullptr;
     QPushButton* configButton_ = nullptr;
     QWidget* body_ = nullptr;
+    QWidget* grip_ = nullptr;
+
+    DragMode dragMode_ = DragMode::None;
+    QPoint dragStartGlobal_;
+    QRect dragStartGeom_;
 };
 
 }  // namespace signalforge::dashboard

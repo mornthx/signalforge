@@ -5,11 +5,15 @@
 
 #include "dashboard/panel.hpp"
 
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace signalforge::dashboard {
 
@@ -64,20 +68,22 @@ Panel::Panel(PanelConfig config, QWidget* parent) : QFrame(parent), config_(std:
     rootLayout_->setContentsMargins(0, 0, 0, 0);
     rootLayout_->setSpacing(0);
 
-    auto* header = new QFrame(this);
-    header->setObjectName(QStringLiteral("panelHeader"));
-    auto* headerLayout = new QHBoxLayout(header);
+    header_ = new QFrame(this);
+    header_->setObjectName(QStringLiteral("panelHeader"));
+    header_->setCursor(Qt::SizeAllCursor);  // hint: drag the header to move
+    auto* headerLayout = new QHBoxLayout(header_);
     headerLayout->setContentsMargins(8, 4, 8, 4);
 
-    titleLabel_ = new QLabel(config_.title, header);
+    titleLabel_ = new QLabel(config_.title, header_);
     titleLabel_->setProperty("class", QLatin1String("heading"));
+    // Let header drags pass through the title text to the header drag handle.
+    titleLabel_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     headerLayout->addWidget(titleLabel_);
     headerLayout->addStretch(1);
 
     // Always-visible per-panel config button (⋮). The owning Dashboard
-    // builds the menu (change type / assign signals / move / remove) — it
-    // knows the available signals and layout. (M27 #2/#3.)
-    configButton_ = new QPushButton(QStringLiteral("⋮"), header);
+    // builds the menu (change type / assign signals / remove). (M27 #2/#3.)
+    configButton_ = new QPushButton(QStringLiteral("⋮"), header_);
     configButton_->setObjectName(QStringLiteral("panelMenuButton"));
     configButton_->setToolTip(tr("Configure this panel"));
     configButton_->setFlat(true);
@@ -85,10 +91,77 @@ Panel::Panel(PanelConfig config, QWidget* parent) : QFrame(parent), config_(std:
     headerLayout->addWidget(configButton_);
     connect(configButton_, &QPushButton::clicked, this, [this]() { Q_EMIT configureRequested(config_.id); });
 
-    rootLayout_->addWidget(header);
+    rootLayout_->addWidget(header_);
+
+    // Bottom-right resize grip (M28: free-form drag-resize). Positioned in
+    // resizeEvent; drives a resize via eventFilter.
+    grip_ = new QWidget(this);
+    grip_->setObjectName(QStringLiteral("panelResizeGrip"));
+    grip_->setFixedSize(14, 14);
+    grip_->setCursor(Qt::SizeFDiagCursor);
+    grip_->setToolTip(tr("Drag to resize"));
+
+    header_->installEventFilter(this);
+    grip_->installEventFilter(this);
 }
 
 Panel::~Panel() = default;
+
+void Panel::resizeEvent(QResizeEvent* event) {
+    QFrame::resizeEvent(event);
+    if (grip_ != nullptr) {
+        grip_->move(width() - grip_->width() - 2, height() - grip_->height() - 2);
+        grip_->raise();
+    }
+}
+
+bool Panel::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == header_ || watched == grip_) {
+        switch (event->type()) {
+        case QEvent::MouseButtonPress: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                dragMode_ = (watched == grip_) ? DragMode::Resize : DragMode::Move;
+                dragStartGlobal_ = me->globalPosition().toPoint();
+                dragStartGeom_ = geometry();
+                return true;
+            }
+            break;
+        }
+        case QEvent::MouseMove: {
+            if (dragMode_ == DragMode::None) {
+                break;
+            }
+            auto* me = static_cast<QMouseEvent*>(event);
+            const QPoint delta = me->globalPosition().toPoint() - dragStartGlobal_;
+            if (dragMode_ == DragMode::Move) {
+                QPoint np = dragStartGeom_.topLeft() + delta;
+                if (auto* p = parentWidget(); p != nullptr) {
+                    np.setX(std::clamp(np.x(), 0, std::max(0, p->width() - width())));
+                    np.setY(std::clamp(np.y(), 0, std::max(0, p->height() - height())));
+                }
+                move(np);
+            } else {
+                QSize ns = dragStartGeom_.size() + QSize(delta.x(), delta.y());
+                resize(ns.expandedTo(QSize(140, 80)));
+            }
+            return true;
+        }
+        case QEvent::MouseButtonRelease: {
+            if (dragMode_ != DragMode::None) {
+                dragMode_ = DragMode::None;
+                config_.geometry = geometry();
+                Q_EMIT geometryChanged(config_.id);
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return QFrame::eventFilter(watched, event);
+}
 
 bool Panel::hasSignal(const QString& signalId) const {
     return config_.signalIds.contains(signalId);

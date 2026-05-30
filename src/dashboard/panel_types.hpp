@@ -1,6 +1,7 @@
 // src/dashboard/panel_types.hpp
 #pragma once
 
+#include <QRect>
 #include <QString>
 #include <QStringList>
 #include <optional>
@@ -37,6 +38,7 @@ struct PanelConfig {
     std::optional<double> rangeMax;       ///< Unset → use observed maximum.
     QString unitOverride;                 ///< Empty → use SignalMetadata.unit.
     int decimals = 3;                     ///< Numeric display precision.
+    QRect geometry;                       ///< Free-form position+size; invalid → auto-placed.
 };
 
 }  // namespace signalforge::dashboard

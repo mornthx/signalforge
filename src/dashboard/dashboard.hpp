@@ -95,9 +95,7 @@ public:
     void setPanelType(const QString& panelId, PanelType type);
     /// Replace a panel's bound signals (assign specific data to a widget).
     void setPanelSignals(const QString& panelId, const QStringList& signalIds);
-    /// Move a panel left/right in the layout order by `delta` positions.
-    void movePanel(const QString& panelId, int delta);
-    /// Build the per-panel context menu (Show as / Signals / Move / Remove).
+    /// Build the per-panel context menu (Show as / Signals / Remove).
     /// Returned menu is owned by the dashboard; used live and by tests.
     [[nodiscard]] QMenu* buildPanelMenu(const QString& panelId);
 
@@ -111,6 +109,9 @@ Q_SIGNALS:
     /// Emitted whenever a panel is added or removed.
     void panelsChanged();
 
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
 private:
     void relayout();
     [[nodiscard]] QString nextPanelId();
@@ -119,12 +120,10 @@ private:
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
-    QGridLayout* grid_ = nullptr;
     QTimer* refreshTimer_ = nullptr;
 
-    QHash<QString, Panel*> panels_;  ///< id -> panel (Qt-parented to this).
-    QStringList panelOrder_;         ///< layout order.
-    int columns_ = 3;                ///< small-card columns per row.
+    QHash<QString, Panel*> panels_;  ///< id -> panel (free-form positioned children).
+    QStringList panelOrder_;         ///< auto-place flow order.
     int nextPanelSuffix_ = 1;
 };
 

@@ -61,6 +61,7 @@ target_link_libraries(dashboard_test
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
+        Qt6::Test
         Qt6::Quick
         Qt6::QuickWidgets
         signalforge_dashboard
