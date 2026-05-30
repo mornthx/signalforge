@@ -2,7 +2,7 @@
 Generator: tools/generate_style_assets.py
 Run `--check` to verify freshness (M16 R15 / H12)
 
-tokens.json version 1.1
+tokens.json version 1.2
 
 Consume design tokens from Python test code. Manifesto principles +
 token rationale: see resources/styles/tokens.json `_manifesto_refs`
@@ -13,11 +13,12 @@ from __future__ import annotations
 
 from typing import Final
 
-VERSION: Final[str] = "1.1"
+VERSION: Final[str] = "1.2"
 
 # ----- Light theme tokens --------------------------------------------
 
 LIGHT_COLOR: Final[dict[str, str]] = {
+    "accent": "#3b7ddd",
     "bg.elevated": "#f5f5f4",
     "bg.primary": "#fbfbfa",
     "bg.surface": "#ffffff",
@@ -79,6 +80,7 @@ LIGHT_ICON: Final[dict[str, int]] = {
 THEMES: Final[dict[str, dict[str, dict[str, object]]]] = {
     "light": {
         "color": {
+            "accent": '#3b7ddd',
             "bg.elevated": '#f5f5f4',
             "bg.primary": '#fbfbfa',
             "bg.surface": '#ffffff',
@@ -136,6 +138,7 @@ THEMES: Final[dict[str, dict[str, dict[str, object]]]] = {
     },
     "dark": {
         "color": {
+            "accent": '#7fb2ff',
             "bg.elevated": '#272b34',
             "bg.primary": '#15171c',
             "bg.surface": '#1d2027',
@@ -193,6 +196,7 @@ THEMES: Final[dict[str, dict[str, dict[str, object]]]] = {
     },
     "high_contrast": {
         "color": {
+            "accent": '#00e5ff',
             "bg.elevated": '#101010',
             "bg.primary": '#000000',
             "bg.surface": '#050505',

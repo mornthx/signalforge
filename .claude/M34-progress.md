@@ -11,6 +11,19 @@
 - Additive, not yet mounted → zero app risk. Tests: 4 cases / 17 assertions; clean xcb teardown
   (leaked-QApplication pattern). 715/715 ctest Debug + Release; fmt clean.
 
-## S2 — design tokens v2  ⏳ (next)
-## S3 — WorkbenchFrame shell (rail | content | inspector | drawer)  ⏳
+## S2 — design tokens v2  ✅
+- `tokens.json` v1.1 → **v1.2** (additive): one new semantic colour token **`accent`** — the brand accent
+  for primary actions + active navigation (proposal §8). Aliases `border.focus` per-theme today
+  (light #3b7ddd / dark #7fb2ff / hc #00e5ff); a separate token so a future rebrand is a one-line change.
+  Documented in `_manifesto_refs` + `_notes.v1_2_design_decisions` (mirrors the existing signal/status
+  overlap precedent).
+- `tools/generate_style_assets.py` `gen_qss()` extended with a **Workbench frame** section, generated for
+  all three themes: `#workbenchTopBar`, `#activityRail` + `#railButton` (left-accent on `:checked`),
+  `#segmentButton` (bottom-accent on `:checked`), `#workbenchInspector`, `#workbenchDrawer`, `#statusChip`
+  (rounded pill, `[state=…]`-coloured label), `#emptyState`. objectName-scoped → matches only the new
+  frame; **zero pixel change** to the current app (none of these objectNames are mounted yet).
+- Regenerated all 5 consumers (qss ×3, hpp, py). Gates green: `--validate`, `--check` fresh, `lint_qss`
+  clean, `test_qss_linter` 18/18. **715/715 ctest Debug + Release** (all 11 visual baselines unchanged).
+
+## S3 — WorkbenchFrame shell (rail | content | inspector | drawer)  ⏳ (next)
 ## S4 — integrate into MainWindow + regenerate baselines  ⏳ (the risky step, last)

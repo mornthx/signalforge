@@ -2,7 +2,7 @@
  * GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY
  * Generator: tools/generate_style_assets.py
  * Run `--check` to verify freshness (M16 R15 / H12)
- * tokens.json version 1.1; theme=high_contrast
+ * tokens.json version 1.2; theme=high_contrast
  *
  * M16 S2: token snippet scaffold. S4 SignalForgeStyle loads this
  * via QApplication::setStyleSheet after Fusion + palette init.
@@ -167,3 +167,87 @@ QLabel[class="display"]  { font-size: 18px; font-weight: 500; }
 QLabel[class="heading"]  { font-size: 14px; font-weight: 500; }
 QLabel[class="caption"]  { font-size: 11px; color: #e8e8e8; }
 QLabel[class="mono"]     { font-family: "JetBrains Mono"; font-size: 12px; }
+
+/* ===== Workbench frame (M34 redesign) ===== */
+/* Activity rail, segmented context switch, inspector, drawer, status
+   chips, empty state. objectName-scoped so they only style the new
+   frame — see src/workbench/. */
+QFrame#workbenchTopBar {
+    background-color: #000000;
+    border-bottom: 1px solid #ffffff;
+}
+QFrame#activityRail {
+    background-color: #101010;
+    border-right: 1px solid #ffffff;
+}
+QToolButton#railButton {
+    background-color: transparent;
+    color: #e8e8e8;
+    border: none;
+    border-left: 2px solid transparent;
+    padding: 8px 4px;
+}
+QToolButton#railButton:hover {
+    color: #ffffff;
+    background-color: #050505;
+}
+QToolButton#railButton:checked {
+    color: #00e5ff;
+    border-left: 2px solid #00e5ff;
+}
+QToolButton#railButton:focus {
+    border-left: 2px solid #00e5ff;
+}
+QToolButton#segmentButton {
+    background-color: transparent;
+    color: #e8e8e8;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 4px 8px;
+}
+QToolButton#segmentButton:hover {
+    color: #ffffff;
+}
+QToolButton#segmentButton:checked {
+    color: #00e5ff;
+    border-bottom: 2px solid #00e5ff;
+}
+QFrame#workbenchInspector {
+    background-color: #101010;
+    border-left: 1px solid #ffffff;
+}
+QFrame#workbenchDrawer {
+    background-color: #101010;
+    border-top: 1px solid #ffffff;
+}
+QFrame#statusChip {
+    background-color: #101010;
+    border: 1px solid #ffffff;
+    border-radius: 8px;
+}
+QFrame#statusChip QLabel {
+    color: #e8e8e8;
+}
+QFrame#statusChip[state="connected"] QLabel,
+QFrame#statusChip[state="good"] QLabel,
+QFrame#statusChip[state="live"] QLabel {
+    color: #00ff66;
+}
+QFrame#statusChip[state="connecting"] QLabel,
+QFrame#statusChip[state="disconnecting"] QLabel,
+QFrame#statusChip[state="paused"] QLabel,
+QFrame#statusChip[state="stale"] QLabel,
+QFrame#statusChip[state="uncertain"] QLabel {
+    color: #ffff00;
+}
+QFrame#statusChip[state="error"] QLabel,
+QFrame#statusChip[state="bad"] QLabel,
+QFrame#statusChip[state="recording"] QLabel {
+    color: #ff4040;
+}
+QFrame#statusChip[state="replay"] QLabel {
+    color: #00e5ff;
+}
+QFrame#emptyState {
+    background-color: #050505;
+}

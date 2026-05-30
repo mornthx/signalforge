@@ -3,7 +3,7 @@
 // GENERATED FROM resources/styles/tokens.json — DO NOT EDIT MANUALLY
 // Generator: tools/generate_style_assets.py
 // Run `--check` to verify freshness (M16 R15 / H12)
-// tokens.json version 1.1
+// tokens.json version 1.2
 
 // Consume design tokens from C++ widget / styling code. Manifesto
 // principles + token rationale: see resources/styles/tokens.json
@@ -16,6 +16,7 @@ namespace signalforge::tokens::light {
 
 // ----- Color hex strings (string-form for QSS interop) -------------
 
+inline constexpr const char* kAccentHex = "#3b7ddd";
 inline constexpr const char* kBgElevatedHex = "#f5f5f4";
 inline constexpr const char* kBgPrimaryHex = "#fbfbfa";
 inline constexpr const char* kBgSurfaceHex = "#ffffff";
@@ -48,6 +49,7 @@ inline constexpr const char* kTextSecondaryHex = "#5a5d63";
 
 // ----- Color QColor accessors (inline; QColor not constexpr) ------
 
+inline QColor accent() { return QColor(QString::fromLatin1("#3b7ddd")); }
 inline QColor bgElevated() { return QColor(QString::fromLatin1("#f5f5f4")); }
 inline QColor bgPrimary() { return QColor(QString::fromLatin1("#fbfbfa")); }
 inline QColor bgSurface() { return QColor(QString::fromLatin1("#ffffff")); }
@@ -111,6 +113,7 @@ namespace signalforge::tokens::dark {
 
 // ----- Color hex strings (string-form for QSS interop) -------------
 
+inline constexpr const char* kAccentHex = "#7fb2ff";
 inline constexpr const char* kBgElevatedHex = "#272b34";
 inline constexpr const char* kBgPrimaryHex = "#15171c";
 inline constexpr const char* kBgSurfaceHex = "#1d2027";
@@ -143,6 +146,7 @@ inline constexpr const char* kTextSecondaryHex = "#c2c7d0";
 
 // ----- Color QColor accessors (inline; QColor not constexpr) ------
 
+inline QColor accent() { return QColor(QString::fromLatin1("#7fb2ff")); }
 inline QColor bgElevated() { return QColor(QString::fromLatin1("#272b34")); }
 inline QColor bgPrimary() { return QColor(QString::fromLatin1("#15171c")); }
 inline QColor bgSurface() { return QColor(QString::fromLatin1("#1d2027")); }
@@ -206,6 +210,7 @@ namespace signalforge::tokens::high_contrast {
 
 // ----- Color hex strings (string-form for QSS interop) -------------
 
+inline constexpr const char* kAccentHex = "#00e5ff";
 inline constexpr const char* kBgElevatedHex = "#101010";
 inline constexpr const char* kBgPrimaryHex = "#000000";
 inline constexpr const char* kBgSurfaceHex = "#050505";
@@ -238,6 +243,7 @@ inline constexpr const char* kTextSecondaryHex = "#e8e8e8";
 
 // ----- Color QColor accessors (inline; QColor not constexpr) ------
 
+inline QColor accent() { return QColor(QString::fromLatin1("#00e5ff")); }
 inline QColor bgElevated() { return QColor(QString::fromLatin1("#101010")); }
 inline QColor bgPrimary() { return QColor(QString::fromLatin1("#000000")); }
 inline QColor bgSurface() { return QColor(QString::fromLatin1("#050505")); }
