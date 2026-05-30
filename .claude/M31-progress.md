@@ -8,6 +8,10 @@
   a hammering reader; asserts total count + strictly-increasing indices, no crash/tear.
 - Tests: 5 cases / 10020 assertions. Debug + Release green. clang-format clean.
 
-## S2 — RawPacketView (packet list + hex + filter)  ⏳ (next)
+## S2 — RawPacketView (packet list + hex + filter)  ✅
+- QSplitter(vertical): packet list (No·Time·Source·Proto·Len·Info) over a read-only hex pane; filter bar
+  over no/source/proto/len/seq/hex/ascii (reuses signalforge_query). Polls the tap; selecting a row
+  shows a Wireshark-style hex dump. 3 cases / 15 assertions; clean exit under xcb (no clear-button).
+- Debug + Release green; clang-format clean.
 ## S3 — wire the Raw workspace tab  ⏳
 ## Deferred: schema-driven dissection tree → M32 (documented).
