@@ -13,6 +13,7 @@ class QLabel;
 class QHBoxLayout;
 class QPushButton;
 class QSplitter;
+class QTabWidget;
 class QToolButton;
 class QVBoxLayout;
 
@@ -29,6 +30,9 @@ namespace signalforge::dashboard {
 class Dashboard;
 class SignalListPanel;
 }  // namespace signalforge::dashboard
+namespace signalforge::inspect {
+class ParsedSignalsView;
+}  // namespace signalforge::inspect
 namespace signalforge::connection {
 class ConnectionManager;
 class ConnectionListWidget;
@@ -245,6 +249,9 @@ private slots:
     void onAddTable();
     void onAddBar();
     void onAddGauge();
+    /// Switch the center workspace to the Dashboard tab (used when a panel is
+    /// added, so the user/harness sees the result).
+    void ensureDashboardVisible();
     void onLiveToggleChanged(bool live);
     void onTimePresetChanged(int index);
     void refreshStatusBar();
@@ -300,6 +307,8 @@ private:
     // ChartManager/Chart are no longer used by the app).
     signalforge::dashboard::Dashboard* dashboard_ = nullptr;
     signalforge::dashboard::SignalListPanel* signalListPanel_ = nullptr;
+    signalforge::inspect::ParsedSignalsView* parsedView_ = nullptr;
+    QTabWidget* workspaceTabs_ = nullptr;
     QSplitter* centralSplitter_ = nullptr;
     QWidget* chartContainer_ = nullptr;
     QWidget* chartEmptyState_ = nullptr;

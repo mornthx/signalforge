@@ -12,6 +12,7 @@
 #include "dashboard/plot_view.hpp"
 #include "dashboard/signal_list_panel.hpp"
 #include "decode/decoder_registrar.hpp"
+#include "inspect/parsed_signals_view.hpp"
 #include "observability/logging.hpp"
 #include "pipeline/pipeline_manager.hpp"
 #include "replay/playback_controller.hpp"
@@ -44,6 +45,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -356,7 +358,19 @@ void MainWindow::buildChartUi() {
     }
     chartLayout_->addWidget(chartEmptyState_, 0);
     chartLayout_->addWidget(dashboard_, 1);
-    centralSplitter_->addWidget(chartContainer_);
+
+    // M30: the center is a tabbed workspace (architecture §7.1/§7.2). Tier 2
+    // "Parsed" (a live table of every decoded signal) is the default landing
+    // surface; the dashboard (Tier 3) sits on top as its own tab. M31 adds the
+    // Tier 1 "Raw" packet tab to the left of these.
+    parsedView_ = new signalforge::inspect::ParsedSignalsView(*signalBufferRegistry_);
+    workspaceTabs_ = new QTabWidget;
+    workspaceTabs_->setObjectName(QStringLiteral("workspaceTabs"));
+    workspaceTabs_->setDocumentMode(true);
+    workspaceTabs_->addTab(parsedView_, tr("Parsed"));
+    workspaceTabs_->addTab(chartContainer_, tr("Dashboard"));
+    workspaceTabs_->setCurrentWidget(parsedView_);  // raw/parsed data first
+    centralSplitter_->addWidget(workspaceTabs_);
 
     centralSplitter_->setStretchFactor(0, 1);
     centralSplitter_->setStretchFactor(1, 4);
@@ -599,6 +613,7 @@ bool MainWindow::autoSelectSignal(const QString& signalId) {
         signalListPanel_->refresh();
     }
     updateEmptyStateVisibility();
+    ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' -> plot panel '{}'", signalId.toStdString(), panelId.toStdString());
     return !panelId.isEmpty();
 }
@@ -612,6 +627,7 @@ bool MainWindow::autoAddDashboardSignal(const QString& signalId) {
         signalListPanel_->refresh();
     }
     updateEmptyStateVisibility();
+    ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: autoAddDashboardSignal: '{}' -> panel '{}'", signalId.toStdString(),
                 panelId.toStdString());
     return !panelId.isEmpty();
@@ -1241,11 +1257,18 @@ void MainWindow::onDisconnectAllAction() {
     }
 }
 
+void MainWindow::ensureDashboardVisible() {
+    if (workspaceTabs_ != nullptr && chartContainer_ != nullptr) {
+        workspaceTabs_->setCurrentWidget(chartContainer_);
+    }
+}
+
 void MainWindow::onAddChart() {
     if (dashboard_ == nullptr) {
         return;
     }
     const QString panelId = dashboard_->addPlotPanel();
+    ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added plot panel {}", panelId.toStdString());
 }
 
@@ -1257,6 +1280,7 @@ void MainWindow::onAddTable() {
     if (signalListPanel_ != nullptr) {
         signalListPanel_->refresh();
     }
+    ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added table panel {}", panelId.toStdString());
 }
 
@@ -1269,6 +1293,7 @@ void MainWindow::onAddBar() {
     if (signalListPanel_ != nullptr) {
         signalListPanel_->refresh();
     }
+    ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added bar panel {}", panelId.toStdString());
 }
 
@@ -1281,6 +1306,7 @@ void MainWindow::onAddGauge() {
     if (signalListPanel_ != nullptr) {
         signalListPanel_->refresh();
     }
+    ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added gauge panel {}", panelId.toStdString());
 }
 

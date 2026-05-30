@@ -21,4 +21,21 @@
   the test ran under the real X platform, not offscreen.
 - Verified: 697/697 ctest Debug + Release; parsed_signals_view_test 3 cases / 12 assertions; fmt clean.
 
-## S3 — tabbed workspace shell  ⏳ (next)
+## S3 — tabbed workspace shell  ✅
+- `main_window` center is now a `QTabWidget` (`workspaceTabs_`): **Parsed** (tab 0, default) +
+  **Dashboard** (tab 1, the existing empty-state + dashboard container). Signal-list dock + toolbar
+  unchanged. This makes the parsed table the default landing surface (report 4).
+- `ensureDashboardVisible()` switches to the Dashboard tab when a panel is added (user `+Plot/Table/…`
+  and the `--auto-*` harness flags), so the smoke/visual capture of the dashboard keeps working while
+  real launches land on Parsed.
+- Visual: one baseline changed (`00-empty-launch` now shows the tab bar + Parsed default) — captured,
+  inspected (renders clean), re-accepted via `accept-baseline.sh`. Other 10 visual states unchanged.
+- **Concern (for review):** the guided onboarding panel ("Start a SignalForge workflow") now lives on
+  the Dashboard tab, not the default Parsed tab; onboarding stays reachable via the Connections dock +
+  menus. Flagged for the owner — may want onboarding hint on the Parsed tab too.
+- MainWindow internals aren't unit-tested (heavy construction); the tab shell is covered by the
+  integration smoke (which switches to + captures the Dashboard tab) + the visual empty-launch baseline.
+- Verified: 697/697 ctest Debug + Release; clang-format clean.
+
+## Report 4 (raw-data-first) — now structurally satisfied: Parsed is the default workspace tab.
+M30 (Phase B) complete pending close-out.
