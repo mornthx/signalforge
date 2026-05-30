@@ -174,4 +174,9 @@ readers every 100 ms (so the plot advanced ~10 Hz regardless). Two coupled chang
     final batch always publish; the time-flush is now purely additive. Removed the dead
     `pushesSincePublish_` member. (Writer bench unaffected — it's count-dominated, microseconds apart.)
   - **Dashboard refresh 15 Hz → 60 Hz**; `skip-repaint` still gates on `queryEnd_`, so it paints at the
-    data rate (~50 Hz), not a fixed 60. 723/723 ctest Debug + Release. Owner evaluating live.
+    data rate (~50 Hz), not a fixed 60. 723/723 ctest Debug + Release. **Owner confirmed smooth.**
+
+**B-5 — configurable refresh rate (owner request).** The rate is no longer a hard-coded constant:
+`Dashboard::setRefreshRateHz` / `refreshRateHz()` (default 60, clamped [1, 144]) + a **View → Refresh rate**
+menu (15 / 30 / 60 Hz). 724/724 ctest Debug + Release. Future: per-panel rates (video panels will run at
+their own cadence — see [[heterogeneous_frame_rates]] / proposal §10).

@@ -25,7 +25,7 @@
 namespace signalforge::dashboard {
 
 namespace {
-constexpr int kRefreshIntervalMs = 16;  ///< ~60 Hz (M34 P2 experiment; cheap now that paint is scoped).
+constexpr int kDefaultRefreshRateHz = 60;  ///< default panel refresh rate (configurable via setRefreshRateHz).
 
 /// Fit `r` inside a `surface`-sized rectangle anchored at (0,0): shrink if
 /// larger, then translate so it lies fully within bounds.
@@ -71,13 +71,21 @@ Dashboard::Dashboard(signalforge::buffer::SignalBufferRegistry& registry, QWidge
     // so they can be dragged/resized (M28). relayout() auto-places untouched
     // ones in a flow.
 
+    refreshRateHz_ = kDefaultRefreshRateHz;
     refreshTimer_ = new QTimer(this);
-    refreshTimer_->setInterval(kRefreshIntervalMs);
+    refreshTimer_->setInterval(1000 / refreshRateHz_);
     connect(refreshTimer_, &QTimer::timeout, this, &Dashboard::refreshAll);
     refreshTimer_->start();
 }
 
 Dashboard::~Dashboard() = default;
+
+void Dashboard::setRefreshRateHz(int hz) {
+    refreshRateHz_ = std::clamp(hz, 1, 144);
+    if (refreshTimer_ != nullptr) {
+        refreshTimer_->setInterval(1000 / refreshRateHz_);
+    }
+}
 
 QString Dashboard::nextPanelId() {
     QString id;

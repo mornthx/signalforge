@@ -96,6 +96,24 @@ TEST_CASE("S4: addSignal auto-suggests panel type and dedups", "[dashboard][s4]"
     CHECK(board.panelCount() == 2);
 }
 
+TEST_CASE("M34 P2: refresh rate is configurable and clamped", "[dashboard][m34]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    dash::Dashboard board(reg);
+    CHECK(board.refreshRateHz() == 60);  // default
+
+    board.setRefreshRateHz(15);
+    CHECK(board.refreshRateHz() == 15);
+    board.setRefreshRateHz(30);
+    CHECK(board.refreshRateHz() == 30);
+
+    // Clamped to [1, 144].
+    board.setRefreshRateHz(0);
+    CHECK(board.refreshRateHz() == 1);
+    board.setRefreshRateHz(10000);
+    CHECK(board.refreshRateHz() == 144);
+}
+
 TEST_CASE("S4: addPlotPanel creates a wide plot", "[dashboard][s4][plot]") {
     app();
     buf::SignalBufferRegistry reg;

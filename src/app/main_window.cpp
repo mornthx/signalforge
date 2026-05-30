@@ -680,6 +680,25 @@ void MainWindow::buildThemeUi() {
 
     connect(group, &QActionGroup::triggered, this, &MainWindow::applyThemeFromAction);
 
+    // M34 P2: configurable dashboard refresh rate (owner request — no longer a
+    // hard-coded constant). A future video panel may run at its own cadence;
+    // this is the single-rate knob until per-panel rates land.
+    auto* rateMenu = menuView_->addMenu(tr("&Refresh rate"));
+    auto* rateGroup = new QActionGroup(this);
+    rateGroup->setExclusive(true);
+    for (const int hz : {15, 30, 60}) {
+        QAction* rateAction = rateMenu->addAction(tr("%1 Hz").arg(hz));
+        rateAction->setCheckable(true);
+        rateAction->setData(hz);
+        rateAction->setChecked(dashboard_ != nullptr && dashboard_->refreshRateHz() == hz);
+        rateGroup->addAction(rateAction);
+    }
+    connect(rateGroup, &QActionGroup::triggered, this, [this](QAction* rateAction) {
+        if (dashboard_ != nullptr) {
+            dashboard_->setRefreshRateHz(rateAction->data().toInt());
+        }
+    });
+
     if (connectionList_ != nullptr && liveToggle_ != nullptr && timePresetCombo_ != nullptr &&
         replaySeekSlider_ != nullptr && replaySpeedCombo_ != nullptr) {
         setTabOrder(connectionList_, liveToggle_);

@@ -109,6 +109,14 @@ public:
     /// Re-read all panels' data immediately (also invoked by the timer).
     void refreshAll();
 
+    /// Panel refresh rate in Hz (default 60), clamped to [1, 144]. Configurable
+    /// so it can be tuned per host — and, later, to coexist with heterogeneous-
+    /// rate panels (e.g. a video panel running at its own cadence).
+    void setRefreshRateHz(int hz);
+    [[nodiscard]] int refreshRateHz() const {
+        return refreshRateHz_;
+    }
+
     /// Shared time axis driving every plot panel (toolbar Live/preset).
     [[nodiscard]] signalforge::chart::TimeAxisManager& timeAxis();
 
@@ -136,6 +144,7 @@ private:
     signalforge::buffer::SignalBufferRegistry* registry_;
     std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
     QTimer* refreshTimer_ = nullptr;
+    int refreshRateHz_ = 60;  ///< panel refresh rate (Hz); drives refreshTimer_
 
     QHash<QString, Panel*> panels_;             ///< id -> panel (free-form positioned children).
     QStringList panelOrder_;                    ///< auto-place flow order.
