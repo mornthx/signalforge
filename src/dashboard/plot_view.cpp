@@ -119,14 +119,13 @@ bool PlotView::hasData() const {
 void PlotView::recomputeRanges() {
     const auto start = timeAxis_->visibleStart();
     const auto end = timeAxis_->visibleEnd();
-    // Capture the window so paintEvent maps samples against the SAME bounds
-    // the query used (the live axis advances between recompute and paint).
-    queryStart_ = start;
-    queryEnd_ = end;
+    const auto windowDur = end - start;
     const auto targetPx = static_cast<std::size_t>(std::max(1, width() - kMarginLeft - kMarginRight));
 
     double lo = std::numeric_limits<double>::infinity();
     double hi = -std::numeric_limits<double>::infinity();
+    std::chrono::steady_clock::time_point newest{};
+    bool anyData = false;
     for (auto& s : series_) {
         s.samples.clear();
         s.seriesMin = std::numeric_limits<double>::infinity();
@@ -142,6 +141,10 @@ void PlotView::recomputeRanges() {
             // undecimated query (bounded — sparse data is few samples).
             s.samples = buf->queryRange(start, end, 0);
         }
+        if (!s.samples.empty()) {
+            anyData = true;
+            newest = std::max(newest, s.samples.back().timestamp);
+        }
         for (const auto& sample : s.samples) {
             const double v = valueToDouble(sample.value);
             if (!std::isfinite(v)) {
@@ -153,6 +156,15 @@ void PlotView::recomputeRanges() {
             hi = std::max(hi, v);
         }
     }
+
+    // Anchor the paint window's right edge to the newest available sample
+    // rather than "now": readers see data only up to the last publish (the
+    // buffer's publish cadence/flush lag), so mapping against "now" leaves a
+    // growing empty gap on the right (M28 problem A). Following the data keeps
+    // the newest trace point at the right edge; any clip lands on the (older)
+    // left edge. Capture the window so paintEvent maps against the same bounds.
+    queryEnd_ = anyData ? newest : end;
+    queryStart_ = queryEnd_ - windowDur;
 
     if (explicitMin_.has_value()) {
         lo = *explicitMin_;

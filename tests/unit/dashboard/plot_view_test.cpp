@@ -127,6 +127,38 @@ TEST_CASE("M27: plot trace stays within the plot rect (no Y-axis spill)", "[dash
     CHECK(maxRun < 6);
 }
 
+TEST_CASE("M28: newest data reaches the right edge (no publish-lag gap)", "[dashboard][m28][plotview]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/v"), dec::SignalType::Double, QStringLiteral("V"))});
+    ch::TimeAxisManager axis;  // live; visibleEnd()=now advances past the data
+    dash::PlotView view(reg, axis);
+    view.resize(400, 300);
+    view.addSignal(QStringLiteral("rig/v"));
+    pushN(reg, QStringLiteral("rig/v"), 24.7);  // newest sample is slightly before now()
+    view.refresh();
+
+    const QImage img = view.grab().toImage();
+    REQUIRE_FALSE(img.isNull());
+    // The trace must reach the right edge band: the window follows the newest
+    // sample, so the rightmost plot columns carry the series colour.
+    const QColor series = view.colorFor(QStringLiteral("rig/v"));
+    auto isSeries = [&](const QColor& px) {
+        return std::abs(px.red() - series.red()) < 25 && std::abs(px.green() - series.green()) < 25 &&
+               std::abs(px.blue() - series.blue()) < 25;
+    };
+    int rightBandHits = 0;
+    for (int y = 30; y < img.height() - 30; ++y) {
+        for (int x = img.width() - 30; x < img.width() - 10; ++x) {
+            if (isSeries(img.pixelColor(x, y))) {
+                ++rightBandHits;
+            }
+        }
+    }
+    CHECK(rightBandHits > 0);
+}
+
 TEST_CASE("M23 S1: PlotView renders a non-empty image headlessly", "[dashboard][m23][plotview]") {
     app();
     buf::SignalBufferRegistry reg;

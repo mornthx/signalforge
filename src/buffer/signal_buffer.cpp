@@ -42,9 +42,12 @@ constexpr int kDefaultPublishCadence = 100;
 /// M25 (C1): also publish when this much *sample-time* has elapsed since the
 /// last publish, so slow signals become visible to readers without waiting
 /// for `kDefaultPublishCadence` samples (a 1 Hz signal would otherwise take
-/// ~100 s). 200 ms sits above the existing publish-cadence tests' densest
-/// spacing, so those still publish strictly on the sample count.
-constexpr auto kPublishFlushInterval = std::chrono::milliseconds(200);
+/// ~100 s). M28: lowered to 100 ms (the cadence-equivalent for the densest LOD test's 1 ms spacing, so no extra
+/// publishes there) so a live plot's newest data reaches the right edge each refresh (a larger interval left a growing
+/// gap between the last published sample and "now"). The publish-COUNT tests
+/// cluster samples microseconds apart, so this never fires for them — they
+/// still publish strictly on the sample cadence.
+constexpr auto kPublishFlushInterval = std::chrono::milliseconds(100);
 
 /// LOD bin sizes per spec §3.4. Three decimation levels above raw.
 constexpr std::uint64_t kLodBinSize1 = 10;
