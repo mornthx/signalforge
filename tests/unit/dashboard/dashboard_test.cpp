@@ -208,12 +208,12 @@ TEST_CASE("M28: drag the header moves a panel; the grip resizes it", "[dashboard
         QApplication::sendEvent(w, &e);
     };
 
-    // Drag the header by (+120, +60) → the panel moves and becomes user-placed.
+    // Drag the card body by (+120, +60) → the panel moves and becomes user-placed.
     const QRect before = p->geometry();
-    const QPoint g0 = p->header()->mapToGlobal(QPoint(20, 6));
-    send(p->header(), QEvent::MouseButtonPress, g0);
-    send(p->header(), QEvent::MouseMove, g0 + QPoint(120, 60));
-    send(p->header(), QEvent::MouseButtonRelease, g0 + QPoint(120, 60));
+    const QPoint g0 = p->mapToGlobal(QPoint(20, 10));
+    send(p, QEvent::MouseButtonPress, g0);
+    send(p, QEvent::MouseMove, g0 + QPoint(120, 60));
+    send(p, QEvent::MouseButtonRelease, g0 + QPoint(120, 60));
     CHECK(p->userPlaced());
     CHECK(p->geometry().topLeft() == before.topLeft() + QPoint(120, 60));
 
@@ -367,10 +367,10 @@ TEST_CASE("M29: dragging a panel into a neighbor pushes it aside within bounds",
     REQUIRE(gb0.x() > ax0);  // auto-placed side by side
 
     // Drag A rightward into B.
-    const QPoint g0 = a->header()->mapToGlobal(QPoint(20, 6));
-    sendMouse(a->header(), QEvent::MouseButtonPress, g0);
-    sendMouse(a->header(), QEvent::MouseMove, g0 + QPoint(150, 0));
-    sendMouse(a->header(), QEvent::MouseButtonRelease, g0 + QPoint(150, 0));
+    const QPoint g0 = a->mapToGlobal(QPoint(20, 10));
+    sendMouse(a, QEvent::MouseButtonPress, g0);
+    sendMouse(a, QEvent::MouseMove, g0 + QPoint(150, 0));
+    sendMouse(a, QEvent::MouseButtonRelease, g0 + QPoint(150, 0));
 
     CHECK(a->geometry().x() == ax0 + 150);                 // A followed the cursor
     CHECK(b->geometry() != gb0);                           // B was pushed aside
@@ -403,10 +403,10 @@ TEST_CASE("M29: a push with no room inside the viewport is refused", "[dashboard
 
     // Drag A into B: B has nowhere to go (a third panel right, no vertical room)
     // → the whole move is refused, nothing shifts.
-    const QPoint g0 = a->header()->mapToGlobal(QPoint(20, 6));
-    sendMouse(a->header(), QEvent::MouseButtonPress, g0);
-    sendMouse(a->header(), QEvent::MouseMove, g0 + QPoint(200, 0));
-    sendMouse(a->header(), QEvent::MouseButtonRelease, g0 + QPoint(200, 0));
+    const QPoint g0 = a->mapToGlobal(QPoint(20, 10));
+    sendMouse(a, QEvent::MouseButtonPress, g0);
+    sendMouse(a, QEvent::MouseMove, g0 + QPoint(200, 0));
+    sendMouse(a, QEvent::MouseButtonRelease, g0 + QPoint(200, 0));
 
     CHECK(a->geometry() == ga0);
     CHECK(b->geometry() == gb0);

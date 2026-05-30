@@ -17,7 +17,6 @@
 #include <QAction>
 #include <QCursor>
 #include <QMenu>
-#include <QPushButton>
 #include <QResizeEvent>
 #include <QTimer>
 #include <algorithm>
@@ -364,9 +363,8 @@ void Dashboard::showPanelMenu(const QString& panelId) {
     }
     QMenu* menu = buildPanelMenu(panelId);
     menu->setAttribute(Qt::WA_DeleteOnClose);
-    QPushButton* btn = p->configButton();
-    const QPoint pos = (btn != nullptr) ? btn->mapToGlobal(QPoint(0, btn->height())) : QCursor::pos();
-    menu->popup(pos);
+    // Invoked by a right-click on the card → pop at the cursor.
+    menu->popup(QCursor::pos());
 }
 
 signalforge::chart::TimeAxisManager& Dashboard::timeAxis() {

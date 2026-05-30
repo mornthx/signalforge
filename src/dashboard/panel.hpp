@@ -9,20 +9,26 @@
 #include <QString>
 #include <QStringList>
 
+class QContextMenuEvent;
 class QEvent;
-class QFrame;
 class QLabel;
-class QPushButton;
+class QMouseEvent;
+class QResizeEvent;
 class QVBoxLayout;
+class QWidget;
 
 namespace signalforge::dashboard {
 
-/// Base class for a dashboard panel: a card with a header (title +
-/// remove button) and a subclass-provided body. Concrete panel types
-/// (Numeric / State / Plot) derive from this and call `setBody`.
+/// Base class for a dashboard panel: a header-less card showing its signal's
+/// identity (name + source) above a subclass-provided body. Concrete panel
+/// types (Numeric / State / Plot / …) derive from this and call `setBody`.
 ///
-/// A `Panel` is a plain `QWidget` (no QML scene) except `PlotPanel`,
-/// which embeds a `QQuickWidget` in its body. Lives on the main thread.
+/// Interaction (M29 S3): the whole card is the drag handle — press the left
+/// button anywhere and drag to move; drag the bottom-right grip to resize;
+/// right-click anywhere to open the configuration menu. There is no header bar
+/// and no visible config button.
+///
+/// A `Panel` is a plain `QWidget` (no QML scene). Lives on the main thread.
 class Panel : public QFrame {
     Q_OBJECT
 
@@ -80,14 +86,8 @@ public:
     virtual void addSignal(const QString& signalId) {}
     virtual void removeSignal(const QString& signalId) {}
 
-    /// The always-visible "⋮" config button (for interaction tests).
-    [[nodiscard]] QPushButton* configButton() const;
-
-    /// The header bar (drag handle) and the bottom-right resize grip — for
-    /// interaction tests that simulate drag-move / drag-resize.
-    [[nodiscard]] QFrame* header() const {
-        return header_;
-    }
+    /// The bottom-right resize grip — for interaction tests that simulate a
+    /// drag-resize. (Move is simulated by sending mouse events to the panel.)
     [[nodiscard]] QWidget* resizeGrip() const {
         return grip_;
     }
@@ -102,11 +102,11 @@ public:
     void setUserGeometry(const QRect& geometry);
 
 Q_SIGNALS:
-    /// Emitted when the user clicks this panel's ⋮ config button. The owning
-    /// Dashboard responds by showing the per-panel menu.
+    /// Emitted when the user right-clicks the card. The owning Dashboard
+    /// responds by showing the per-panel configuration menu at the cursor.
     void configureRequested(const QString& panelId);
 
-    /// Emitted continuously while the user drags the header (move) or grip
+    /// Emitted continuously while the user drags the card (move) or grip
     /// (resize), carrying the proposed new geometry in parent coordinates
     /// (unclamped). The Dashboard resolves bounds + neighbor collisions and
     /// calls `setUserGeometry` on the affected panels.
@@ -117,25 +117,38 @@ Q_SIGNALS:
     void geometryChanged(const QString& panelId);
 
 protected:
-    /// Install the subclass's content widget below the header. Replaces
-    /// any previously-set body.
+    /// Install the subclass's content widget below the identity strip.
+    /// Replaces any previously-set body.
     void setBody(QWidget* body);
 
-    /// Update the header title text shown to the user.
+    /// Update the signal-name text shown at the top of the card.
     void setHeaderTitle(const QString& title);
 
     bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
     PanelConfig config_;
 
 private:
     enum class DragMode { None, Move, Resize };
 
+    /// Recursively route a body subtree's mouse events to this panel so the
+    /// card is draggable even over children that would otherwise consume them.
+    void installDragFilter(QWidget* widget);
+    /// Refresh the source/caption line from the bound signal ids.
+    void updateSourceLabel();
+
+    void startDrag(DragMode mode, const QPoint& globalPos);
+    void updateDrag(const QPoint& globalPos);
+    void endDrag();
+
     QVBoxLayout* rootLayout_ = nullptr;
-    QFrame* header_ = nullptr;
-    QLabel* titleLabel_ = nullptr;
-    QPushButton* configButton_ = nullptr;
+    QLabel* nameLabel_ = nullptr;
+    QLabel* sourceLabel_ = nullptr;
     QWidget* body_ = nullptr;
     QWidget* grip_ = nullptr;
 

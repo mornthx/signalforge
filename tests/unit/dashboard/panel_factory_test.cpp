@@ -9,7 +9,7 @@
 #include "decode/decoder_interface.hpp"
 
 #include <QApplication>
-#include <QPushButton>
+#include <QContextMenuEvent>
 #include <QSignalSpy>
 #include <QtTest/QTest>
 #include <catch2/catch_test_macros.hpp>
@@ -74,12 +74,10 @@ TEST_CASE("S1: Panel exposes config and its ⋮ button emits configureRequested"
     CHECK_FALSE(panel.hasSignal(QStringLiteral("udp:rig/pressure")));
     CHECK_FALSE(panel.isWide());
 
-    // Simulate a real click on the always-visible ⋮ config button.
+    // Right-clicking anywhere on the card requests its configuration menu.
     QSignalSpy spy(&panel, &dash::Panel::configureRequested);
-    auto* btn = panel.configButton();
-    REQUIRE(btn != nullptr);
-    CHECK(btn->isVisibleTo(&panel));
-    QTest::mouseClick(btn, Qt::LeftButton);
+    QContextMenuEvent ctx(QContextMenuEvent::Mouse, QPoint(10, 10), panel.mapToGlobal(QPoint(10, 10)));
+    QApplication::sendEvent(&panel, &ctx);
     REQUIRE(spy.count() == 1);
     CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("panel-7"));
 }

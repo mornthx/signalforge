@@ -1,19 +1,18 @@
 // src/dashboard/panel.cpp
 //
-// Panel base class: the card chrome (header + remove button) shared by
-// every dashboard panel type. The body is supplied by subclasses.
+// Panel base class: the header-less card chrome shared by every dashboard
+// panel type. An identity strip (signal name + source) sits above a body
+// supplied by subclasses. The whole card is draggable (left button); the
+// bottom-right grip resizes; right-click opens the config menu.
 
 #include "dashboard/panel.hpp"
 
+#include <QContextMenuEvent>
 #include <QEvent>
-#include <QFrame>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
-#include <QPushButton>
 #include <QResizeEvent>
 #include <QVBoxLayout>
-#include <algorithm>
 
 namespace signalforge::dashboard {
 
@@ -58,54 +57,63 @@ std::optional<PanelType> panelTypeFromName(const QString& name) {
     return std::nullopt;
 }
 
+namespace {
+/// The source (driver) portion of a signal id ("udp:rig/temp" -> "udp:rig").
+QString sourceOf(const QString& signalId) {
+    const int slash = signalId.indexOf(QLatin1Char('/'));
+    return slash > 0 ? signalId.left(slash) : signalId;
+}
+}  // namespace
+
 Panel::Panel(PanelConfig config, QWidget* parent) : QFrame(parent), config_(std::move(config)) {
-    // Reuse the M16/M17 panel chrome so panels match existing styling:
-    // QFrame#chartFrame body + QFrame#panelHeader header bar.
+    // Reuse the M16/M17 card styling (QFrame#chartFrame).
     setObjectName(QStringLiteral("chartFrame"));
     setFrameShape(QFrame::NoFrame);
+    setCursor(Qt::SizeAllCursor);  // hint: the whole card is the drag handle
 
     rootLayout_ = new QVBoxLayout(this);
-    rootLayout_->setContentsMargins(0, 0, 0, 0);
-    rootLayout_->setSpacing(0);
+    rootLayout_->setContentsMargins(8, 6, 8, 6);
+    rootLayout_->setSpacing(2);
 
-    header_ = new QFrame(this);
-    header_->setObjectName(QStringLiteral("panelHeader"));
-    header_->setCursor(Qt::SizeAllCursor);  // hint: drag the header to move
-    auto* headerLayout = new QHBoxLayout(header_);
-    headerLayout->setContentsMargins(8, 4, 8, 4);
+    // In-card identity strip (replaces the old header bar): signal name +
+    // its source/driver. Transparent to the mouse so the card stays draggable.
+    nameLabel_ = new QLabel(config_.title, this);
+    nameLabel_->setProperty("class", QLatin1String("heading"));
+    nameLabel_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    rootLayout_->addWidget(nameLabel_);
 
-    titleLabel_ = new QLabel(config_.title, header_);
-    titleLabel_->setProperty("class", QLatin1String("heading"));
-    // Let header drags pass through the title text to the header drag handle.
-    titleLabel_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    headerLayout->addWidget(titleLabel_);
-    headerLayout->addStretch(1);
+    sourceLabel_ = new QLabel(this);
+    sourceLabel_->setObjectName(QStringLiteral("panelSource"));
+    sourceLabel_->setProperty("class", QLatin1String("caption"));
+    sourceLabel_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    rootLayout_->addWidget(sourceLabel_);
+    updateSourceLabel();
 
-    // Always-visible per-panel config button (⋮). The owning Dashboard
-    // builds the menu (change type / assign signals / remove). (M27 #2/#3.)
-    configButton_ = new QPushButton(QStringLiteral("⋮"), header_);
-    configButton_->setObjectName(QStringLiteral("panelMenuButton"));
-    configButton_->setToolTip(tr("Configure this panel"));
-    configButton_->setFlat(true);
-    configButton_->setFixedWidth(24);
-    headerLayout->addWidget(configButton_);
-    connect(configButton_, &QPushButton::clicked, this, [this]() { Q_EMIT configureRequested(config_.id); });
-
-    rootLayout_->addWidget(header_);
-
-    // Bottom-right resize grip (M28: free-form drag-resize). Positioned in
-    // resizeEvent; drives a resize via eventFilter.
+    // Bottom-right resize grip (positioned in resizeEvent).
     grip_ = new QWidget(this);
     grip_->setObjectName(QStringLiteral("panelResizeGrip"));
     grip_->setFixedSize(14, 14);
     grip_->setCursor(Qt::SizeFDiagCursor);
     grip_->setToolTip(tr("Drag to resize"));
-
-    header_->installEventFilter(this);
     grip_->installEventFilter(this);
 }
 
 Panel::~Panel() = default;
+
+void Panel::updateSourceLabel() {
+    if (sourceLabel_ == nullptr) {
+        return;
+    }
+    QString text;
+    if (config_.signalIds.size() == 1) {
+        text = sourceOf(config_.signalIds.first());
+    } else if (config_.signalIds.size() > 1) {
+        text = tr("%1 signals").arg(config_.signalIds.size());
+    } else {
+        text = tr("no signal");
+    }
+    sourceLabel_->setText(text);
+}
 
 void Panel::resizeEvent(QResizeEvent* event) {
     QFrame::resizeEvent(event);
@@ -115,50 +123,106 @@ void Panel::resizeEvent(QResizeEvent* event) {
     }
 }
 
+void Panel::startDrag(DragMode mode, const QPoint& globalPos) {
+    dragMode_ = mode;
+    dragStartGlobal_ = globalPos;
+    dragStartGeom_ = geometry();
+}
+
+void Panel::updateDrag(const QPoint& globalPos) {
+    if (dragMode_ == DragMode::None) {
+        return;
+    }
+    const QPoint delta = globalPos - dragStartGlobal_;
+    // Propose a geometry; the Dashboard clamps to the surface and pushes
+    // overlapping neighbors (or refuses), then drives setUserGeometry.
+    QRect proposed = dragStartGeom_;
+    if (dragMode_ == DragMode::Move) {
+        proposed.moveTopLeft(dragStartGeom_.topLeft() + delta);
+    } else {
+        proposed.setSize((dragStartGeom_.size() + QSize(delta.x(), delta.y())).expandedTo(QSize(140, 80)));
+    }
+    Q_EMIT dragProposed(config_.id, proposed);
+}
+
+void Panel::endDrag() {
+    if (dragMode_ == DragMode::None) {
+        return;
+    }
+    dragMode_ = DragMode::None;
+    config_.geometry = geometry();
+    Q_EMIT geometryChanged(config_.id);
+}
+
+void Panel::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        startDrag(DragMode::Move, event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
+    QFrame::mousePressEvent(event);
+}
+
+void Panel::mouseMoveEvent(QMouseEvent* event) {
+    if (dragMode_ != DragMode::None) {
+        updateDrag(event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
+    QFrame::mouseMoveEvent(event);
+}
+
+void Panel::mouseReleaseEvent(QMouseEvent* event) {
+    if (dragMode_ != DragMode::None) {
+        endDrag();
+        event->accept();
+        return;
+    }
+    QFrame::mouseReleaseEvent(event);
+}
+
+void Panel::contextMenuEvent(QContextMenuEvent* event) {
+    Q_EMIT configureRequested(config_.id);
+    event->accept();
+}
+
 bool Panel::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == header_ || watched == grip_) {
-        switch (event->type()) {
-        case QEvent::MouseButtonPress: {
-            auto* me = static_cast<QMouseEvent*>(event);
-            if (me->button() == Qt::LeftButton) {
-                dragMode_ = (watched == grip_) ? DragMode::Resize : DragMode::Move;
-                dragStartGlobal_ = me->globalPosition().toPoint();
-                dragStartGeom_ = geometry();
-                return true;
-            }
-            break;
-        }
-        case QEvent::MouseMove: {
-            if (dragMode_ == DragMode::None) {
-                break;
-            }
-            auto* me = static_cast<QMouseEvent*>(event);
-            const QPoint delta = me->globalPosition().toPoint() - dragStartGlobal_;
-            // Propose a geometry; the Dashboard clamps to the surface and pushes
-            // overlapping neighbors (or refuses), then drives setUserGeometry.
-            QRect proposed = dragStartGeom_;
-            if (dragMode_ == DragMode::Move) {
-                proposed.moveTopLeft(dragStartGeom_.topLeft() + delta);
-            } else {
-                proposed.setSize((dragStartGeom_.size() + QSize(delta.x(), delta.y())).expandedTo(QSize(140, 80)));
-            }
-            Q_EMIT dragProposed(config_.id, proposed);
+    // The grip resizes; any other watched widget is a body descendant whose
+    // mouse events we route into a card move/right-click so the whole card is
+    // draggable/configurable even over children that would consume the event.
+    const bool isGrip = (watched == grip_);
+    switch (event->type()) {
+    case QEvent::MouseButtonPress: {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::LeftButton) {
+            startDrag(isGrip ? DragMode::Resize : DragMode::Move, me->globalPosition().toPoint());
             return true;
         }
-        case QEvent::MouseButtonRelease: {
-            if (dragMode_ != DragMode::None) {
-                dragMode_ = DragMode::None;
-                config_.geometry = geometry();
-                Q_EMIT geometryChanged(config_.id);
-                return true;
-            }
-            break;
+        break;  // right button → let ContextMenu fire
+    }
+    case QEvent::MouseMove:
+        if (dragMode_ != DragMode::None) {
+            updateDrag(static_cast<QMouseEvent*>(event)->globalPosition().toPoint());
+            return true;
         }
-        default:
-            break;
+        break;
+    case QEvent::MouseButtonRelease:
+        if (dragMode_ != DragMode::None) {
+            endDrag();
+            return true;
         }
+        break;
+    case QEvent::ContextMenu:
+        Q_EMIT configureRequested(config_.id);
+        return true;
+    default:
+        break;
     }
     return QFrame::eventFilter(watched, event);
+}
+
+bool Panel::hasSignal(const QString& signalId) const {
+    return config_.signalIds.contains(signalId);
 }
 
 void Panel::setUserGeometry(const QRect& geometry) {
@@ -166,12 +230,14 @@ void Panel::setUserGeometry(const QRect& geometry) {
     config_.geometry = geometry;
 }
 
-bool Panel::hasSignal(const QString& signalId) const {
-    return config_.signalIds.contains(signalId);
-}
-
-QPushButton* Panel::configButton() const {
-    return configButton_;
+void Panel::installDragFilter(QWidget* widget) {
+    widget->installEventFilter(this);
+    const QObjectList kids = widget->children();
+    for (QObject* child : kids) {
+        if (auto* childWidget = qobject_cast<QWidget*>(child)) {
+            installDragFilter(childWidget);
+        }
+    }
 }
 
 void Panel::setBody(QWidget* body) {
@@ -183,12 +249,13 @@ void Panel::setBody(QWidget* body) {
     if (body_ != nullptr) {
         body_->setParent(this);
         rootLayout_->addWidget(body_, 1);
+        installDragFilter(body_);  // drag the card from anywhere over the body
     }
 }
 
 void Panel::setHeaderTitle(const QString& title) {
-    if (titleLabel_ != nullptr) {
-        titleLabel_->setText(title);
+    if (nameLabel_ != nullptr) {
+        nameLabel_->setText(title);
     }
 }
 

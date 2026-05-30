@@ -19,6 +19,17 @@
 - Verified: 684/684 ctest Debug + Release; dashboard_test 13 cases / 76 assertions; clang-format clean.
   (clang-tidy is the CI gate, per project convention.)
 
+## S3 — header-less draggable card chrome  ✅ (follow-up from inspection)
+- Owner feedback: the header bar is redundant — left-press the card to drag, right-click to configure,
+  show signal name + source inside the card.
+- Removed the header frame + ⋮ button. The whole card is the drag handle (`Panel` mouse overrides +
+  a recursive drag event-filter so dragging works over the body, incl. tables). Right-click anywhere →
+  `configureRequested` → menu at the cursor.
+- In-card identity strip: signal **name** (heading) + **source/driver** (caption), transparent to mouse.
+- Tests updated: drags target the card directly; config is invoked by a synthesized right-click
+  (`QContextMenuEvent`). dashboard_test 13/76, panel_factory_test 4/25.
+- Verified: 684/684 ctest Debug + Release (visual baselines unaffected); clang-format clean.
+
 ## Report 4 (raw-data-first) — carried to Phase B/C (Parsed/Raw tabs).
 
-M29 (Phase A) complete pending close-out doc. Local on `milestone/M29`; not pushed.
+M29 (Phase A) complete. Local on `milestone/M29`; not pushed.
