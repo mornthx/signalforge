@@ -35,6 +35,10 @@ class ParsedSignalsView;
 class RawFrameTap;
 class RawPacketView;
 }  // namespace signalforge::inspect
+namespace signalforge::workbench {
+class WorkbenchFrame;
+class SegmentedControl;
+}  // namespace signalforge::workbench
 namespace signalforge::connection {
 class ConnectionManager;
 class ConnectionListWidget;
@@ -319,11 +323,14 @@ private:
     signalforge::inspect::ParsedSignalsView* parsedView_ = nullptr;
     std::shared_ptr<signalforge::inspect::RawFrameTap> rawFrameTap_;
     signalforge::inspect::RawPacketView* rawPacketView_ = nullptr;
-    QTabWidget* workspaceTabs_ = nullptr;
-    QStackedWidget* workspaceStack_ = nullptr;
-    QSplitter* centralSplitter_ = nullptr;
-    QWidget* chartContainer_ = nullptr;
-    QWidget* chartEmptyState_ = nullptr;
+    // M34 redesign: activity-rail frame replaces the tab/stack workspace.
+    signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;
+    signalforge::workbench::SegmentedControl* inspectSegments_ = nullptr;
+    QStackedWidget* inspectStack_ = nullptr;    ///< Raw / Parsed / Dashboard views (Inspect mode)
+    QStackedWidget* connectStack_ = nullptr;    ///< onboarding ↔ connection manager (Connect mode)
+    QWidget* connectionManagerBody_ = nullptr;  ///< connection list + save banner (Connect mode page 1)
+    QWidget* chartContainer_ = nullptr;         ///< Dashboard segment page: local toolbar + dashboard surface
+    QWidget* chartEmptyState_ = nullptr;        ///< onboarding empty-state (Connect mode page 0)
     QPushButton* emptyAddConnectionButton_ = nullptr;
     QPushButton* emptyOpenSessionButton_ = nullptr;
     QPushButton* emptyLoadSchemaButton_ = nullptr;
@@ -342,8 +349,8 @@ private:
     QString chartStatusOverrideText_;
     QString chartStatusOverrideClass_;
 
-    // M9 connection UI.
-    QDockWidget* connectionDock_ = nullptr;
+    // M9 connection UI. (M34: the legacy left dock is dissolved into Connect
+    // mode — see connectionManagerBody_ above.)
     signalforge::connection::ConnectionListWidget* connectionList_ = nullptr;
     signalforge::connection::ConnectionStatusWidget* connectionStatus_ = nullptr;
     QLabel* configSaveDockBanner_ = nullptr;

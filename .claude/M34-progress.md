@@ -41,4 +41,33 @@
   inspector/drawer show-hide + content, duplicate-id) + SegmentedControl 1 case. **720/720 ctest Debug +
   Release**; clang-format clean; clean xcb teardown (leaked-QApplication).
 
-## S4 — integrate into MainWindow + regenerate baselines  ⏳ (next — the risky step, last)
+## S4 — integrate into MainWindow + regenerate baselines  ✅
+The activity-rail frame is now the application's central widget; the QTabWidget/QStackedWidget workspace
+and the left connection dock are gone.
+
+- **Frame mounted:** `WorkbenchFrame` is the central widget. Rail = **Connect · Inspect** (v1 per §11).
+  - **Connect mode** (§7.1): a `QStackedWidget` — page 0 the onboarding empty-state, page 1 the connection
+    manager (the legacy left `QDockWidget` is dissolved into this mode; `connectionManagerBody_`). No
+    connection → onboarding + park on Connect; first connection → reveal the manager + move to Inspect.
+  - **Inspect mode** (§6/§7): a `SegmentedControl` **[Raw | Parsed | Dashboard]** over a `QStackedWidget`
+    of the existing views, default landing Parsed.
+- **Dashboard toolbar relocated** (§7.4, owner point #1): the +Plot/+Table/+Bar/+Gauge / Live / time-range
+  toolbar moved off the global `addToolBar` into a **dashboard-local toolbar** inside the Dashboard segment
+  page — it only appears with the Dashboard view.
+- **Switch plumbing rewired:** `showWorkspaceTab` / `ensureDashboardVisible` drive the segmented control +
+  force Inspect mode; `updateEmptyStateVisibility` drives the Connect stack + rail mode; the
+  connection-status-strip click and the M19 harness now switch to Connect mode (dock is gone).
+- **Baselines:** all 48 visual states recaptured and accepted wholesale (PNG + env sidecar). Per-theme
+  accent verified (light blue / dark blue / high-contrast cyan). **720/720 ctest Debug + Release**;
+  clang-format clean.
+
+### Deferred (later phases, per proposal §12 — NOT regressions)
+- **Parsed "on dashboard" marker** (§7.3, owner point #2) → **P2**: needs Dashboard→Parsed membership
+  wiring; out of frame-integration scope. Still owed.
+- **Right inspector + bottom drawer** are built into the frame but mounted **empty/hidden** — selection-
+  driven content (packet fields / signal stats / widget config) is **P5** (§9).
+- **Top bar** carries the app title only; the connection chip / clock / palette / settings (§6) are a later
+  refinement — the existing bottom status strip is retained for now (coexists below the frame).
+- **Connect panel on config-save-failure with 0 connections** shows onboarding (not the empty manager +
+  banner); the failure is still surfaced in the status strip. Acceptable IA consequence of onboarding
+  living in Connect; revisit if the banner needs prominence.

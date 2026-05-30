@@ -21,6 +21,8 @@
 #include "replay/replay_mode_manager.hpp"
 #include "session/session_writer.hpp"
 #include "session/tee_signal_value_sink.hpp"
+#include "workbench/components/segmented_control.hpp"
+#include "workbench/workbench_frame.hpp"
 
 #include <QAction>
 #include <QActionGroup>
@@ -317,26 +319,62 @@ void MainWindow::onAbout() {
 }
 
 void MainWindow::buildChartUi() {
-    centralSplitter_ = new QSplitter(Qt::Horizontal, this);
-
-    // M21/M32: the Dashboard is one of three workspace tabs. It is composed by
-    // promoting signals from the Parsed tab (M32 dropped the separate signal
-    // picker dock).
+    // ---- Tier 3 dashboard surface --------------------------------------
     dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_);
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, this,
             &MainWindow::updateEmptyStateVisibility);
 
-    // M32: the dashboard's signal picker is gone — signals are promoted to the
-    // dashboard from the Parsed tab (drill-through). The Dashboard tab content
-    // is just the dashboard surface.
+    // M34 §7.4: the Dashboard segment owns a dashboard-local toolbar
+    // (+widget / live / time-range). These actions are dashboard-scoped, so
+    // they no longer sit on a global toolbar (owner's point #1 — "+Plot belongs
+    // in the dashboard").
     chartContainer_ = new QWidget;
     chartLayout_ = new QVBoxLayout(chartContainer_);
     chartLayout_->setContentsMargins(0, 0, 0, 0);
-    chartLayout_->setSpacing(2);
+    chartLayout_->setSpacing(0);
 
-    // M32: the guided onboarding is an app-level state (shown when no
-    // connection exists), not a dashboard-empty detail — mounted in the
-    // workspace stack below.
+    auto* dashToolbar = new QToolBar(chartContainer_);
+    dashToolbar->setObjectName(QStringLiteral("dashboardToolbar"));
+    dashToolbar->setMovable(false);
+
+    liveToggle_ = new QToolButton(dashToolbar);
+    liveToggle_->setCheckable(true);
+    liveToggle_->setChecked(true);
+    liveToggle_->setText(tr("● Live"));
+    liveToggle_->setToolTip(tr("Toggle live mode (vs paused)"));
+    connect(liveToggle_, &QToolButton::toggled, this, &MainWindow::onLiveToggleChanged);
+    dashToolbar->addWidget(liveToggle_);
+
+    timePresetCombo_ = new QComboBox(dashToolbar);
+    timePresetCombo_->addItem(tr("1 sec"));
+    timePresetCombo_->addItem(tr("10 sec"));
+    timePresetCombo_->addItem(tr("1 min"));
+    timePresetCombo_->addItem(tr("10 min"));
+    timePresetCombo_->addItem(tr("1 hour"));
+    timePresetCombo_->setCurrentIndex(1);
+    connect(timePresetCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onTimePresetChanged);
+    dashToolbar->addWidget(timePresetCombo_);
+
+    auto* addChartAction = dashToolbar->addAction(tr("+ Plot"));
+    addChartAction->setToolTip(tr("Add an empty plot panel"));
+    connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
+
+    auto* addTableAction = dashToolbar->addAction(tr("+ Table"));
+    addTableAction->setToolTip(tr("Add a table of every current signal's value"));
+    connect(addTableAction, &QAction::triggered, this, &MainWindow::onAddTable);
+
+    auto* addBarAction = dashToolbar->addAction(tr("+ Bar"));
+    addBarAction->setToolTip(tr("Add a bar meter for the first signal"));
+    connect(addBarAction, &QAction::triggered, this, &MainWindow::onAddBar);
+
+    auto* addGaugeAction = dashToolbar->addAction(tr("+ Gauge"));
+    addGaugeAction->setToolTip(tr("Add a gauge for the first signal"));
+    connect(addGaugeAction, &QAction::triggered, this, &MainWindow::onAddGauge);
+
+    chartLayout_->addWidget(dashToolbar);
+    chartLayout_->addWidget(dashboard_, 1);
+
+    // ---- Onboarding empty-state (Connect mode, M34 §7.1) ---------------
     chartEmptyState_ = new QFrame;
     chartEmptyState_->setObjectName(QStringLiteral("chartEmptyState"));
     {
@@ -370,67 +408,63 @@ void MainWindow::buildChartUi() {
         connect(emptyOpenSessionButton_, &QPushButton::clicked, this, &MainWindow::onOpenSessionRequested);
         connect(emptyLoadSchemaButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
     }
-    chartLayout_->addWidget(dashboard_, 1);
 
-    // M30/M31: tabbed workspace (architecture §7.1/§7.2), in pipeline order.
-    // Tier 1 Raw → Tier 2 Parsed (default landing) → Tier 3 Dashboard.
+    // ---- Tier 1 Raw + Tier 2 Parsed views ------------------------------
     rawPacketView_ = new signalforge::inspect::RawPacketView(*rawFrameTap_);
     parsedView_ = new signalforge::inspect::ParsedSignalsView(*signalBufferRegistry_);
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::addToDashboardRequested, this,
             &MainWindow::onPromoteSignalToDashboard);
-    workspaceTabs_ = new QTabWidget;
-    workspaceTabs_->setObjectName(QStringLiteral("workspaceTabs"));
-    workspaceTabs_->setDocumentMode(true);
-    workspaceTabs_->addTab(rawPacketView_, tr("Raw"));         // Tier 1 (原报文)
-    workspaceTabs_->addTab(parsedView_, tr("Parsed"));         // Tier 2 (解析数据)
-    workspaceTabs_->addTab(chartContainer_, tr("Dashboard"));  // Tier 3
-    workspaceTabs_->setCurrentWidget(parsedView_);
 
-    // M32: app-level center stack — onboarding while nothing is connected, the
-    // workspace tabs once a connection exists.
-    workspaceStack_ = new QStackedWidget;
-    workspaceStack_->addWidget(chartEmptyState_);  // page 0: onboarding
-    workspaceStack_->addWidget(workspaceTabs_);    // page 1: workspace tabs
-    centralSplitter_->addWidget(workspaceStack_);
-    setCentralWidget(centralSplitter_);
+    // ---- Inspect mode: segmented [Raw | Parsed | Dashboard] over a stack
+    // (M34 §6/§7 — the pipeline depth grouped as one activity). -----------
+    inspectSegments_ = new signalforge::workbench::SegmentedControl;
+    inspectSegments_->addSegment(QStringLiteral("raw"), tr("Raw"));              // Tier 1 (原报文)
+    inspectSegments_->addSegment(QStringLiteral("parsed"), tr("Parsed"));        // Tier 2 (解析数据)
+    inspectSegments_->addSegment(QStringLiteral("dashboard"), tr("Dashboard"));  // Tier 3
 
-    auto* toolbar = addToolBar(tr("Chart"));
-    toolbar->setObjectName(QStringLiteral("chartToolbar"));
-    toolbar->setMovable(false);
+    inspectStack_ = new QStackedWidget;
+    inspectStack_->addWidget(rawPacketView_);
+    inspectStack_->addWidget(parsedView_);
+    inspectStack_->addWidget(chartContainer_);
+    connect(inspectSegments_, &signalforge::workbench::SegmentedControl::segmentSelected, this,
+            [this](const QString& id) {
+                if (id == QLatin1String("raw")) {
+                    inspectStack_->setCurrentWidget(rawPacketView_);
+                } else if (id == QLatin1String("parsed")) {
+                    inspectStack_->setCurrentWidget(parsedView_);
+                } else if (id == QLatin1String("dashboard")) {
+                    inspectStack_->setCurrentWidget(chartContainer_);
+                }
+            });
 
-    liveToggle_ = new QToolButton(toolbar);
-    liveToggle_->setCheckable(true);
-    liveToggle_->setChecked(true);
-    liveToggle_->setText(tr("● Live"));
-    liveToggle_->setToolTip(tr("Toggle live mode (vs paused)"));
-    connect(liveToggle_, &QToolButton::toggled, this, &MainWindow::onLiveToggleChanged);
-    toolbar->addWidget(liveToggle_);
+    auto* inspectPage = new QWidget;
+    auto* inspectLayout = new QVBoxLayout(inspectPage);
+    inspectLayout->setContentsMargins(0, 0, 0, 0);
+    inspectLayout->setSpacing(0);
+    auto* segmentBar = new QFrame(inspectPage);
+    segmentBar->setObjectName(QStringLiteral("panelHeader"));  // reuse header chrome
+    auto* segmentBarLayout = new QHBoxLayout(segmentBar);
+    segmentBarLayout->setContentsMargins(8, 4, 8, 4);
+    segmentBarLayout->setSpacing(8);
+    segmentBarLayout->addWidget(inspectSegments_);
+    segmentBarLayout->addStretch(1);
+    inspectLayout->addWidget(segmentBar);
+    inspectLayout->addWidget(inspectStack_, 1);
+    inspectSegments_->setCurrentSegment(QStringLiteral("parsed"));  // default landing: Tier 2
+    inspectStack_->setCurrentWidget(parsedView_);
 
-    timePresetCombo_ = new QComboBox(toolbar);
-    timePresetCombo_->addItem(tr("1 sec"));
-    timePresetCombo_->addItem(tr("10 sec"));
-    timePresetCombo_->addItem(tr("1 min"));
-    timePresetCombo_->addItem(tr("10 min"));
-    timePresetCombo_->addItem(tr("1 hour"));
-    timePresetCombo_->setCurrentIndex(1);
-    connect(timePresetCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onTimePresetChanged);
-    toolbar->addWidget(timePresetCombo_);
+    // ---- Connect mode: onboarding ↔ connection manager (M34 §7.1) -------
+    // Page 0 is the onboarding empty-state; page 1 (the connection manager
+    // body) is added by buildConnectionUi(), which runs next.
+    connectStack_ = new QStackedWidget;
+    connectStack_->addWidget(chartEmptyState_);
 
-    auto* addChartAction = toolbar->addAction(tr("+ Plot"));
-    addChartAction->setToolTip(tr("Add an empty plot panel"));
-    connect(addChartAction, &QAction::triggered, this, &MainWindow::onAddChart);
-
-    auto* addTableAction = toolbar->addAction(tr("+ Table"));
-    addTableAction->setToolTip(tr("Add a table of every current signal's value"));
-    connect(addTableAction, &QAction::triggered, this, &MainWindow::onAddTable);
-
-    auto* addBarAction = toolbar->addAction(tr("+ Bar"));
-    addBarAction->setToolTip(tr("Add a bar meter for the first signal"));
-    connect(addBarAction, &QAction::triggered, this, &MainWindow::onAddBar);
-
-    auto* addGaugeAction = toolbar->addAction(tr("+ Gauge"));
-    addGaugeAction->setToolTip(tr("Add a gauge for the first signal"));
-    connect(addGaugeAction, &QAction::triggered, this, &MainWindow::onAddGauge);
+    // ---- Assemble the activity-rail frame -------------------------------
+    workbench_ = new signalforge::workbench::WorkbenchFrame;
+    workbench_->setTitle(tr("SignalForge"));
+    workbench_->addMode(QStringLiteral("connect"), tr("Connect"), connectStack_);
+    workbench_->addMode(QStringLiteral("inspect"), tr("Inspect"), inspectPage);
+    setCentralWidget(workbench_);
 
     fpsLabel_ = new QLabel(tr("Chart idle"));
     fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
@@ -482,7 +516,9 @@ void MainWindow::buildConnectionUi() {
     auto* disconnectAllAction = menu->addAction(tr("&Disconnect all"));
     connect(disconnectAllAction, &QAction::triggered, this, &MainWindow::onDisconnectAllAction);
 
-    // Connection list dock (left side).
+    // M34 §7.1: the connection manager lives inside Connect mode (the legacy
+    // left dock is dissolved into the activity-rail frame). This body becomes
+    // page 1 of the Connect stack; the onboarding empty-state is page 0.
     auto* connectionDockBody = new QWidget(this);
     auto* connectionDockLayout = new QVBoxLayout(connectionDockBody);
     connectionDockLayout->setContentsMargins(0, 0, 0, 0);
@@ -495,10 +531,10 @@ void MainWindow::buildConnectionUi() {
     connectionDockLayout->addWidget(configSaveDockBanner_);
     connectionList_ = new signalforge::connection::ConnectionListWidget(connectionManager_.get(), connectionDockBody);
     connectionDockLayout->addWidget(connectionList_, 1);
-    connectionDock_ = new QDockWidget(tr("Connections"), this);
-    connectionDock_->setWidget(connectionDockBody);
-    connectionDock_->setObjectName(QStringLiteral("connectionsDock"));
-    addDockWidget(Qt::LeftDockWidgetArea, connectionDock_);
+    connectionManagerBody_ = connectionDockBody;
+    if (connectStack_ != nullptr) {
+        connectStack_->addWidget(connectionManagerBody_);
+    }
 
     connect(connectionList_, &signalforge::connection::ConnectionListWidget::addRequested, this,
             &MainWindow::onAddConnectionRequested);
@@ -510,8 +546,11 @@ void MainWindow::buildConnectionUi() {
     if (statusStripLayout_ != nullptr) {
         statusStripLayout_->insertWidget(0, makeStatusCell(tr("Connection"), connectionStatus_, statusStrip_));
     }
-    connect(connectionStatus_, &signalforge::connection::ConnectionStatusWidget::clicked, connectionDock_,
-            &QDockWidget::raise);
+    connect(connectionStatus_, &signalforge::connection::ConnectionStatusWidget::clicked, this, [this]() {
+        if (workbench_ != nullptr) {
+            workbench_->setCurrentMode(QStringLiteral("connect"));
+        }
+    });
     configSaveStatusLabel_ = new QLabel(tr("Config ready"), statusStrip_);
     configSaveStatusLabel_->setObjectName(QStringLiteral("configSaveStatusLabel"));
     configSaveStatusLabel_->setToolTip(tr("Connection configuration save status"));
@@ -1011,8 +1050,8 @@ bool MainWindow::autoSetConnectionStateForVisualTest(const QString& status) {
         return false;
     }
     connectionStatus_->setVisualStateForTest(statusText, aggregateState);
-    if (connectionDock_ != nullptr) {
-        connectionDock_->raise();
+    if (workbench_ != nullptr) {
+        workbench_->setCurrentMode(QStringLiteral("connect"));
     }
     return true;
 }
@@ -1255,13 +1294,11 @@ void MainWindow::onDisconnectAllAction() {
 }
 
 void MainWindow::ensureDashboardVisible() {
-    if (workspaceTabs_ != nullptr && chartContainer_ != nullptr) {
-        workspaceTabs_->setCurrentWidget(chartContainer_);
-    }
+    showWorkspaceTab(QStringLiteral("dashboard"));
 }
 
 void MainWindow::showWorkspaceTab(const QString& which) {
-    if (workspaceTabs_ == nullptr) {
+    if (inspectSegments_ == nullptr || inspectStack_ == nullptr) {
         return;
     }
     const QString w = which.trimmed().toLower();
@@ -1274,7 +1311,12 @@ void MainWindow::showWorkspaceTab(const QString& which) {
         target = chartContainer_;
     }
     if (target != nullptr) {
-        workspaceTabs_->setCurrentWidget(target);
+        // M34: select the Inspect segment + ensure we're in Inspect mode.
+        inspectSegments_->setCurrentSegment(w);
+        inspectStack_->setCurrentWidget(target);
+        if (workbench_ != nullptr) {
+            workbench_->setCurrentMode(QStringLiteral("inspect"));
+        }
     }
 }
 
@@ -1317,15 +1359,27 @@ void MainWindow::onAddGauge() {
 }
 
 void MainWindow::updateEmptyStateVisibility() {
-    if (workspaceStack_ == nullptr) {
+    if (connectStack_ == nullptr || workbench_ == nullptr) {
         return;
     }
-    // M32: the onboarding is app-level — shown only before the first
-    // connection exists. Once connected (or a connection is configured), the
-    // workspace tabs (Raw/Parsed/Dashboard) take over.
+    // M34 §7.1: the onboarding lives in Connect mode. With no connection we show
+    // the onboarding empty-state and park on Connect; once the first connection
+    // exists we reveal the connection manager and move the user to Inspect
+    // (defaulting to Parsed). Subsequent connection changes leave the mode alone.
     const bool noConnection = connectionManager_ == nullptr || connectionManager_->connectionCount() == 0;
-    workspaceStack_->setCurrentWidget(noConnection ? static_cast<QWidget*>(chartEmptyState_)
-                                                   : static_cast<QWidget*>(workspaceTabs_));
+    if (noConnection) {
+        connectStack_->setCurrentWidget(chartEmptyState_);
+        workbench_->setCurrentMode(QStringLiteral("connect"));
+    } else {
+        const bool wasOnboarding =
+            connectionManagerBody_ != nullptr && connectStack_->currentWidget() == chartEmptyState_;
+        if (connectionManagerBody_ != nullptr) {
+            connectStack_->setCurrentWidget(connectionManagerBody_);
+        }
+        if (wasOnboarding) {
+            workbench_->setCurrentMode(QStringLiteral("inspect"));
+        }
+    }
 }
 
 void MainWindow::onPromoteSignalToDashboard(const QString& signalId, const QString& typeToken) {

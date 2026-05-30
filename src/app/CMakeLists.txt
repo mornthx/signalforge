@@ -28,6 +28,7 @@ target_link_libraries(signalforge_app_ui
         signalforge_connection
         signalforge_session
         signalforge_replay
+        signalforge_workbench
     PRIVATE
         signalforge_observability
         signalforge_platform
