@@ -12,6 +12,7 @@ target_link_libraries(signalforge_inspect
         Qt6::Core
         Qt6::Widgets
         signalforge_buffer
+        signalforge_decoder
         signalforge_query
         signalforge_pipeline
         signalforge_workbench

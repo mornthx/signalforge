@@ -35,5 +35,6 @@ target_link_libraries(raw_packet_view_test
         Qt6::Gui
         Qt6::Widgets
         signalforge_inspect
+        signalforge_decoder
 )
 catch_discover_tests(raw_packet_view_test DISCOVERY_MODE PRE_TEST)

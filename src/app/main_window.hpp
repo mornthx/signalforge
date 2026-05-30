@@ -7,6 +7,7 @@
 #include <QMainWindow>
 #include <QString>
 #include <memory>
+#include <unordered_map>
 
 class QComboBox;
 class QDockWidget;
@@ -28,7 +29,8 @@ class SignalBufferRegistry;
 }
 namespace signalforge::decoder {
 class DecoderRegistrar;
-}
+class FrameDissector;
+}  // namespace signalforge::decoder
 namespace signalforge::dashboard {
 class Dashboard;
 }  // namespace signalforge::dashboard
@@ -302,6 +304,11 @@ private:
     void onConfigurationSaveStateChanged(bool saved, const QString& path, const QString& message);
     [[nodiscard]] bool confirmExitReplayForClose();
     [[nodiscard]] QStringList enumerateAvailableSchemaIds() const;
+    /// P3-S2: (re)build the Raw-view dissector for `driverType` from
+    /// `decoderSchemaId` (the `examples/schemas/<id>.yaml` convention). An empty
+    /// or unloadable schema clears the entry; the Raw view then shows the
+    /// raw-bytes-only placeholder for that type's frames.
+    void rebuildDissectorForType(const QString& driverType, const QString& decoderSchemaId);
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
@@ -325,6 +332,11 @@ private:
     signalforge::inspect::ParsedSignalsView* parsedView_ = nullptr;
     std::shared_ptr<signalforge::inspect::RawFrameTap> rawFrameTap_;
     signalforge::inspect::RawPacketView* rawPacketView_ = nullptr;
+    /// P3-S2: schema dissectors keyed by driver type ("udp"/"serial"/...), the
+    /// `:`-prefix of a captured frame's source. Matches the DecoderRegistrar's
+    /// per-type, last-config-wins model. The Raw view reads these to build its
+    /// dissection tree.
+    std::unordered_map<QString, std::shared_ptr<signalforge::decoder::FrameDissector>> dissectors_;
     // M34 redesign: activity-rail frame replaces the tab/stack workspace.
     signalforge::workbench::SignalIdentity signalIdentity_;  ///< P2: shared per-signal colour index (SSOT)
     signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;

@@ -3,6 +3,8 @@
 // M31 S2 — RawPacketView: packet-list population from a tap, display-filter
 // narrowing, and hex-pane update on row selection.
 
+#include "decode/frame_dissector.hpp"
+#include "decode/schema.hpp"
 #include "frame/raw_frame.hpp"
 #include "inspect/raw_frame_tap.hpp"
 #include "inspect/raw_packet_view.hpp"
@@ -10,6 +12,8 @@
 #include <QApplication>
 #include <QLineEdit>
 #include <QPlainTextEdit>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <catch2/catch_test_macros.hpp>
 
 namespace insp = signalforge::inspect;
@@ -96,4 +100,93 @@ TEST_CASE("M31 S2: selecting a packet shows its hex dump", "[inspect][m31][rawvi
     view.selectRow(0);
     const QString dump = view.hexView()->toPlainText();
     CHECK(dump.contains(QStringLiteral("de ad be ef")));
+}
+
+namespace {
+
+// A tiny 4-byte schema: magic 0xAA, uint8 'a' at 1, int16 'b' at 2.
+signalforge::decoder::Schema miniSchema() {
+    namespace dec = signalforge::decoder;
+    dec::Layout layout;
+    layout.name = QStringLiteral("mini");
+    layout.endianness = dec::Endianness::Little;
+    layout.match.bytes = {0xAA};
+    layout.minPayloadBytes = 4;
+    dec::FieldDef a;
+    a.name = QStringLiteral("a");
+    a.offset = 1;
+    a.encoding = dec::FieldEncoding::Uint8;
+    a.sizeBytes = 1;
+    dec::FieldDef b;
+    b.name = QStringLiteral("b");
+    b.offset = 2;
+    b.encoding = dec::FieldEncoding::Int16;
+    b.sizeBytes = 2;
+    layout.fields = {a, b};
+    dec::Schema schema;
+    schema.layouts = {layout};
+    return schema;
+}
+
+}  // namespace
+
+TEST_CASE("M34 P3: selecting a packet builds the dissection tree and highlights bytes",
+          "[inspect][m34][rawview][interaction]") {
+    app();
+    insp::RawFrameTap tap;
+    // magic AA, a=7, b=0x0102=258 (LE 02 01).
+    tap.onFrame(makeFrame(QStringLiteral("udp:rig"), QByteArray::fromHex("AA070201"), 1));
+    insp::RawPacketView view(tap);
+
+    const signalforge::decoder::FrameDissector dissector(miniSchema());
+    view.setDissectorProvider([&dissector](const QString& source) -> const signalforge::decoder::FrameDissector* {
+        return source.startsWith(QStringLiteral("udp")) ? &dissector : nullptr;
+    });
+    view.refresh();
+    REQUIRE(view.totalRowCount() == 1);
+
+    view.selectRow(0);
+
+    // Tree is populated: magic + the two fields.
+    auto* tree = view.dissectionTree();
+    REQUIRE(tree->topLevelItemCount() == 3);
+    bool sawA = false;
+    bool sawB = false;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        const QString name = tree->topLevelItem(i)->text(0);
+        if (name == QStringLiteral("a")) {
+            sawA = true;
+            CHECK(tree->topLevelItem(i)->text(1) == QStringLiteral("7"));
+        }
+        if (name == QStringLiteral("b")) {
+            sawB = true;
+            CHECK(tree->topLevelItem(i)->text(1) == QStringLiteral("258"));
+        }
+    }
+    CHECK(sawA);
+    CHECK(sawB);
+
+    // Selecting the "b" field (bytes 2–3) highlights bytes in the hex pane.
+    CHECK(view.hexView()->extraSelections().isEmpty());
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        if (tree->topLevelItem(i)->text(0) == QStringLiteral("b")) {
+            tree->setCurrentItem(tree->topLevelItem(i));
+            break;
+        }
+    }
+    CHECK_FALSE(view.hexView()->extraSelections().isEmpty());  // hex + ascii spans
+}
+
+TEST_CASE("M34 P3: without a dissector, the tree shows a raw-bytes placeholder",
+          "[inspect][m34][rawview][interaction]") {
+    app();
+    insp::RawFrameTap tap;
+    tap.onFrame(makeFrame(QStringLiteral("serial:dev"), QByteArray::fromHex("AA070201"), 1));
+    insp::RawPacketView view(tap);
+    view.refresh();
+    view.selectRow(0);
+
+    auto* tree = view.dissectionTree();
+    REQUIRE(tree->topLevelItemCount() == 1);  // single placeholder row
+    CHECK(tree->topLevelItem(0)->text(0).contains(QStringLiteral("No decoder schema")));
 }

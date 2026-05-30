@@ -11,6 +11,8 @@
 #include "dashboard/dashboard.hpp"
 #include "dashboard/plot_view.hpp"
 #include "decode/decoder_registrar.hpp"
+#include "decode/frame_dissector.hpp"
+#include "decode/schema_validator.hpp"
 #include "generated_style_tokens.hpp"
 #include "inspect/parsed_signals_view.hpp"
 #include "inspect/raw_frame_tap.hpp"
@@ -290,11 +292,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 if (conn == nullptr || conn->driver() == nullptr) {
                     return;
                 }
-                const QString driverId = driverTypeName(conn->config().driverType) + QStringLiteral(":") + id;
+                const QString driverType = driverTypeName(conn->config().driverType);
+                const QString driverId = driverType + QStringLiteral(":") + id;
                 if (state == signalforge::connection::Connection::State::Connected) {
                     signalforge::pipeline::PipelineConfig cfg;
                     cfg.driverId = driverId;
                     (void)pipelineManager_->attach(conn->driver(), cfg);
+                    // P3-S2: build a FrameDissector for the Raw view's dissection
+                    // tree, keyed by driver type to match the DecoderRegistrar's
+                    // per-type schema model (a captured frame's `source` carries
+                    // this type as its `:`-prefix). Last connected schema wins.
+                    rebuildDissectorForType(driverType, conn->config().decoderSchemaId);
                 } else if (state == signalforge::connection::Connection::State::Idle ||
                            state == signalforge::connection::Connection::State::Error) {
                     pipelineManager_->detach(driverId);
@@ -474,6 +482,13 @@ void MainWindow::buildChartUi() {
 
     // ---- Tier 1 Raw + Tier 2 Parsed views ------------------------------
     rawPacketView_ = new signalforge::inspect::RawPacketView(*rawFrameTap_);
+    // P3-S2: feed the Raw dissection tree. A captured frame's source is the
+    // driver's self-reported id (e.g. "udp:127.0.0.1:54321"); its `:`-prefix
+    // is the driver type the dissector map is keyed by.
+    rawPacketView_->setDissectorProvider([this](const QString& source) -> const signalforge::decoder::FrameDissector* {
+        const auto it = dissectors_.find(source.section(QLatin1Char(':'), 0, 0));
+        return (it != dissectors_.end()) ? it->second.get() : nullptr;
+    });
     parsedView_ = new signalforge::inspect::ParsedSignalsView(*signalBufferRegistry_);
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::addToDashboardRequested, this,
             &MainWindow::onPromoteSignalToDashboard);
@@ -1346,6 +1361,29 @@ QStringList MainWindow::enumerateAvailableSchemaIds() const {
         ids << QFileInfo(name).completeBaseName();
     }
     return ids;
+}
+
+void MainWindow::rebuildDissectorForType(const QString& driverType, const QString& decoderSchemaId) {
+    QString stem = decoderSchemaId.trimmed();
+    if (stem.endsWith(QLatin1String(".yaml"), Qt::CaseInsensitive)) {
+        stem.chop(5);
+    }
+    if (stem.isEmpty()) {
+        dissectors_.erase(driverType);  // no schema for this type → raw bytes only
+        return;
+    }
+    const QString path = QStringLiteral("examples/schemas/%1.yaml").arg(stem);
+    auto result = signalforge::decoder::SchemaValidator::validateFile(path);
+    if (result.has_value()) {
+        dissectors_[driverType] = std::make_shared<signalforge::decoder::FrameDissector>(std::move(*result));
+    } else {
+        SF_LOG_WARN("MainWindow: Raw dissection disabled for driver type '{}' — schema '{}' failed to load",
+                    driverType.toStdString(), path.toStdString());
+        dissectors_.erase(driverType);
+    }
+    if (rawPacketView_ != nullptr) {
+        rawPacketView_->redissectCurrent();  // re-dissect the current selection against the new schema
+    }
 }
 
 void MainWindow::onAddConnectionRequested() {
