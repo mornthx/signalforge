@@ -8,15 +8,6 @@
       "rationale": "Parsed view table (swatch / Trend sparkline / Quality / Value / Rate / Age) is live-animated while data flows and not pixel-deterministic between capture runs (quality-driven column resizes shift the row, sparklines/values tick). This state asserts the dialog/status chrome, not the live table behind it. Masked per visual-diff-contract.md Step 3 (M34 P2-S2 \u2014 redesign's animated Parsed view).",
       "approved_by": "claude@2026-05-31 (M34 P2 wholesale regen \u2014 pending owner review with the redesign baseline set)",
       "review_at": "When the visual harness seeds deterministic/frozen data for live-data states, or the Parsed view is not the captured view for these states."
-    },
-    {
-      "x": 615,
-      "y": 778,
-      "w": 320,
-      "h": 22,
-      "rationale": "Status-bar live counter (recording elapsed/bytes or buffer %) \u2014 runtime-dependent, masked per visual-diff-contract.md Step 3.",
-      "approved_by": "claude@2026-05-31 (M34 P2 regen \u2014 preserved/widened)",
-      "review_at": "When the status-bar architecture is redesigned (M34 P5 top-bar)."
     }
   ]
 }

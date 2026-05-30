@@ -16,16 +16,23 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QPainter>
+#include <QPen>
+#include <QPolygonF>
 #include <QShowEvent>
 #include <QStyle>
+#include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <utility>
+#include <vector>
 
 namespace signalforge::inspect {
 
@@ -38,7 +45,42 @@ constexpr int kRefreshIntervalMs = 100;  ///< 10 Hz value/age refresh.
 constexpr std::chrono::milliseconds kStaleAfter{1500};
 constexpr std::chrono::milliseconds kBadAfter{5000};
 
-enum Column { kName = 0, kQuality, kSource, kValue, kUnit, kType, kAge, kDash, kColumnCount };
+constexpr int kSparkSamples = 48;                  ///< recent samples drawn in the mini-sparkline.
+constexpr int kSparkPolyRole = Qt::UserRole + 1;   ///< QPolygonF (normalized 0..1) on the trend cell.
+constexpr int kSparkColorRole = Qt::UserRole + 2;  ///< QColor for the trend line.
+
+enum Column { kName = 0, kTrend, kQuality, kSource, kValue, kUnit, kRate, kType, kAge, kDash, kColumnCount };
+
+/// Paints a normalized polyline (stored on the item via `kSparkPolyRole`) into
+/// the Trend cell — a mini-sparkline of the signal's recent values.
+class SparklineDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        QStyledItemDelegate::paint(painter, option, index);  // background + selection
+        const auto norm = index.data(kSparkPolyRole).value<QPolygonF>();
+        if (norm.size() < 2) {
+            return;
+        }
+        const QRectF r = QRectF(option.rect).adjusted(3, 3, -3, -3);
+        QColor color = index.data(kSparkColorRole).value<QColor>();
+        if (!color.isValid()) {
+            color = option.palette.color(QPalette::Text);
+        }
+        QPolygonF poly;
+        poly.reserve(norm.size());
+        for (const QPointF& p : norm) {
+            poly.append(QPointF(r.left() + p.x() * r.width(), r.bottom() - p.y() * r.height()));
+        }
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setClipRect(option.rect);
+        painter->setPen(QPen(color, 1.2));
+        painter->drawPolyline(poly);
+        painter->restore();
+    }
+};
 
 QString sourceOf(const QString& signalId) {
     const int slash = signalId.indexOf(QLatin1Char('/'));
@@ -119,8 +161,8 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
 
     table_ = new QTableWidget(this);
     table_->setColumnCount(kColumnCount);
-    table_->setHorizontalHeaderLabels(
-        {tr("Name"), tr("Quality"), tr("Source"), tr("Value"), tr("Unit"), tr("Type"), tr("Age"), tr("Dashboard")});
+    table_->setHorizontalHeaderLabels({tr("Name"), tr("Trend"), tr("Quality"), tr("Source"), tr("Value"), tr("Unit"),
+                                       tr("Rate"), tr("Type"), tr("Age"), tr("Dashboard")});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -129,7 +171,10 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     table_->horizontalHeader()->setSectionResizeMode(kName, QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(kQuality, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(kSource, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(kRate, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(kDash, QHeaderView::ResizeToContents);
+    table_->setColumnWidth(kTrend, 64);  // fixed mini-sparkline column
+    table_->setItemDelegateForColumn(kTrend, new SparklineDelegate(table_));
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QTableWidget::customContextMenuRequested, this, &ParsedSignalsView::showRowMenu);
     body->addWidget(table_, 1);
@@ -218,10 +263,12 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
             // A QColor in DecorationRole renders as the signal-identity swatch.
             table_->item(row, kName)->setData(Qt::DecorationRole, signalColorProvider_(id));
         }
+        table_->setItem(row, kTrend, new QTableWidgetItem(QString()));  // painted by SparklineDelegate
         table_->setItem(row, kQuality, new QTableWidgetItem(QStringLiteral("—")));
         table_->setItem(row, kSource, new QTableWidgetItem(data.source));
         table_->setItem(row, kValue, new QTableWidgetItem(QStringLiteral("—")));
         table_->setItem(row, kUnit, new QTableWidgetItem(data.unit));
+        table_->setItem(row, kRate, new QTableWidgetItem(QStringLiteral("—")));
         table_->setItem(row, kType, new QTableWidgetItem(data.type));
         table_->setItem(row, kAge, new QTableWidgetItem(QStringLiteral("—")));
         table_->setItem(row, kDash, new QTableWidgetItem(QString()));
@@ -274,6 +321,45 @@ void ParsedSignalsView::refresh() {
         const bool onDash = dashboardMembershipProvider_ && dashboardMembershipProvider_(rows_[r].id);
         rows_[r].onDashboard = onDash;
         table_->item(row, kDash)->setText(onDash ? tr("● on") : QString());
+
+        // Rate (Hz) + mini-sparkline from the recent samples.
+        const auto recent = buf->queryLatest(kSparkSamples);
+        double rateHz = 0.0;
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        for (const auto& s : recent) {
+            const double v = signalforge::dashboard::valueToDouble(s.value);
+            if (std::isfinite(v)) {
+                mn = std::min(mn, v);
+                mx = std::max(mx, v);
+            }
+        }
+        if (recent.size() >= 2) {
+            const double spanS =
+                std::chrono::duration<double>(recent.back().timestamp - recent.front().timestamp).count();
+            if (spanS > 0.0) {
+                rateHz = static_cast<double>(recent.size() - 1) / spanS;
+            }
+        }
+        rows_[r].rateHz = rateHz;
+        table_->item(row, kRate)->setText(rateHz > 0.0 ? tr("%1 Hz").arg(rateHz, 0, 'f', 0) : QStringLiteral("—"));
+
+        QPolygonF spark;
+        if (std::isfinite(mn) && std::isfinite(mx) && recent.size() >= 2) {
+            const double span = (mx > mn) ? (mx - mn) : 1.0;
+            const int n = static_cast<int>(recent.size());
+            spark.reserve(n);
+            for (int i = 0; i < n; ++i) {
+                const double v = signalforge::dashboard::valueToDouble(recent[static_cast<std::size_t>(i)].value);
+                const double y = std::isfinite(v) ? (v - mn) / span : 0.0;
+                spark.append(QPointF(static_cast<double>(i) / (n - 1), y));
+            }
+        }
+        auto* trendItem = table_->item(row, kTrend);
+        trendItem->setData(kSparkPolyRole, QVariant::fromValue(spark));
+        if (signalColorProvider_) {
+            trendItem->setData(kSparkColorRole, signalColorProvider_(rows_[r].id));
+        }
     }
 
     applyFilter();
@@ -305,6 +391,9 @@ void ParsedSignalsView::applyFilter() {
             }
             if (lf == QLatin1String("quality")) {
                 return signalforge::query::FieldValue(data.quality);
+            }
+            if (lf == QLatin1String("rate")) {
+                return signalforge::query::FieldValue(data.rateHz);
             }
             if (lf == QLatin1String("dashboard") || lf == QLatin1String("on_dashboard")) {
                 return signalforge::query::FieldValue(data.onDashboard);

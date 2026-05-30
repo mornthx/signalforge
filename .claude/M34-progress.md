@@ -103,10 +103,23 @@ Quality · Source · Value · Unit · Type · Age · Dashboard**.
   states 27/46 (the activity-rail reflow shifted the runtime recording counter past the old mask edge —
   status-bar runtime content, unrelated to the table; pending owner review with the rest of the regen).
 
-### Still owed in P2 (next subtasks)
-- **Mini-sparkline** of recent trend per signal (§7.3).
-- **Rate** (Hz) and **last-change** columns; **group-by-driver**.
-- Selecting a row driving the **right inspector** (signal stats) → that's the inspector wiring, **P5**.
+## P2 S2 — trend + rate  ✅
+Parsed table gains two §7.3 columns: **Trend** (a mini-sparkline of the last ~48 samples, painted by a
+`SparklineDelegate` from a normalized `QPolygonF` + identity colour stored on the cell) and **Rate** (Hz,
+measured from `queryLatest` timestamps). New layout: Name · Trend · Quality · Source · Value · Unit · Rate ·
+Type · Age · Dashboard. `rate` is now a filterable field too. Test extended (rate populated + sparkline
+polygon built). 724/724 ctest Debug + Release.
+- **Visual baselines:** the animated Parsed view (sparklines + faster 16 ms publish) made 5 live-data states
+  (22/27/33/36/46 — recording/replay/buffer) non-deterministic in the table region. Regenerated the
+  Parsed-showing baselines and **masked the full table** for those 5 (the assertion there is the
+  dialog/status chrome, not the live table) — sanctioned per visual-diff-contract §1 Step 3, stable over 2
+  runs. **Systemic note:** the redesign's live-animated Parsed view is fundamentally at odds with pixel
+  baselines for any state that shows it with flowing data; the real fix is for the harness to seed
+  deterministic/frozen data (or not capture Parsed for those states) — flagged in the mask `review_at`.
+
+### Still owed in P2
+- **last-change** column; **group-by-driver**.
+- Selecting a row driving the **right inspector** (signal stats) → inspector wiring, **P5**.
 
 ## P2 live-rendering fixes (owner-observed, A + B)  ✅
 Live UDP observation surfaced two rendering bugs:

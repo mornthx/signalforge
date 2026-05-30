@@ -13,6 +13,7 @@
 #include <QColor>
 #include <QLineEdit>
 #include <QMenu>
+#include <QPolygonF>
 #include <QSet>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -51,10 +52,14 @@ void pushUntilVisible(buf::SignalBufferRegistry& reg, const QString& id, const d
     }
 }
 
-// Column indices mirror ParsedSignalsView's internal layout (M34 P2).
+// Column indices mirror ParsedSignalsView's internal layout (M34 P2):
+// Name · Trend · Quality · Source · Value · Unit · Rate · Type · Age · Dashboard.
 constexpr int kColName = 0;
-constexpr int kColQuality = 1;
-constexpr int kColDash = 7;
+constexpr int kColTrend = 1;
+constexpr int kColQuality = 2;
+constexpr int kColRate = 6;
+constexpr int kColDash = 9;
+constexpr int kSparkPolyRole = Qt::UserRole + 1;
 
 int rowOf(QTableWidget* table, const QString& id) {
     for (int r = 0; r < table->rowCount(); ++r) {
@@ -208,6 +213,10 @@ TEST_CASE("M34 P2: parsed view shows quality, swatch, and the on-dashboard marke
     // On-dashboard marker reflects membership.
     CHECK(t->item(rTemp, kColDash)->text() == QStringLiteral("● on"));
     CHECK(t->item(rPress, kColDash)->text().isEmpty());
+
+    // Rate column populated and a sparkline polygon built from recent samples.
+    CHECK(t->item(rTemp, kColRate)->text() != QStringLiteral("—"));
+    CHECK(t->item(rTemp, kColTrend)->data(kSparkPolyRole).value<QPolygonF>().size() >= 2);
 
     // Both new fields are filterable (Wireshark-style display filter).
     view.filterEdit()->setText(QStringLiteral("quality == good"));

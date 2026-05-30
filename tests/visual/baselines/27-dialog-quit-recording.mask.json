@@ -1,13 +1,22 @@
 {
   "regions": [
     {
+      "x": 95,
+      "y": 198,
+      "w": 1180,
+      "h": 298,
+      "rationale": "Parsed view table (swatch / Trend sparkline / Quality / Value / Rate / Age) is live-animated while data flows and not pixel-deterministic between capture runs (quality-driven column resizes shift the row, sparklines/values tick). This state asserts the dialog/status chrome, not the live table behind it. Masked per visual-diff-contract.md Step 3 (M34 P2-S2 \u2014 redesign's animated Parsed view).",
+      "approved_by": "claude@2026-05-31 (M34 P2 wholesale regen \u2014 pending owner review with the redesign baseline set)",
+      "review_at": "When the visual harness seeds deterministic/frozen data for live-data states, or the Parsed view is not the captured view for these states."
+    },
+    {
       "x": 380,
       "y": 778,
       "w": 420,
       "h": 22,
-      "rationale": "Quit-while-recording modal state includes the live recording status-bar counter (elapsed time and byte count). The modal text is the assertion target; the counter values vary by capture timing and are masked per visual-diff-contract.md Step 3. Widened from the original x395/w245 region at M34 P2: the activity-rail redesign reflowed the status-strip cell widths, so the runtime counter now spans x[438-775]; this region (x380..800) covers it with margin.",
-      "approved_by": "claude@2026-05-31 (M34 redesign wholesale baseline regen — pending owner review with the rest of the redesign baseline set)",
-      "review_at": "When the status-bar architecture is redesigned (M34 P5 top-bar connection chip), or the recording fixture stops using a live recording."
+      "rationale": "Status-bar live counter (recording elapsed/bytes or buffer %) \u2014 runtime-dependent, masked per visual-diff-contract.md Step 3.",
+      "approved_by": "claude@2026-05-31 (M34 P2 regen \u2014 preserved/widened)",
+      "review_at": "When the status-bar architecture is redesigned (M34 P5 top-bar)."
     }
   ]
 }

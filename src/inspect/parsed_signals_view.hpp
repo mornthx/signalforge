@@ -23,10 +23,10 @@ class SignalBufferRegistry;
 namespace signalforge::inspect {
 
 /// Tier 2 of the workbench (解析数据): a live, zero-config table of every
-/// decoded signal — an identity swatch + Name · Quality · Source · Value · Unit
-/// · Type · Age · Dashboard marker — with a Wireshark-style display-filter bar
-/// on top (the `signalforge_query` engine; `quality` and `dashboard` are
-/// filterable fields too).
+/// decoded signal — an identity swatch + Name · Trend (mini-sparkline) · Quality
+/// · Source · Value · Unit · Rate · Type · Age · Dashboard marker — with a
+/// Wireshark-style display-filter bar on top (the `signalforge_query` engine;
+/// `quality`, `rate`, and `dashboard` are filterable fields too).
 ///
 /// This is the default landing surface: it shows the device's decoded output
 /// without any configuration, and the dashboard (Tier 3) sits on top of it.
@@ -109,6 +109,7 @@ private:
         signalforge::query::FieldValue value;
         QString quality;           ///< quality token (good/stale/uncertain/bad); filterable
         bool onDashboard = false;  ///< whether the signal is currently on the dashboard
+        double rateHz = 0.0;       ///< measured update rate (Hz); filterable
     };
 
 protected:
