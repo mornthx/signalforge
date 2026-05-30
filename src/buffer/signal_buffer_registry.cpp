@@ -46,13 +46,15 @@ constexpr auto kBudgetWarnInterval = std::chrono::seconds(60);
     return 8.0;
 }
 
-/// LOD overhead factor (1.11 for numeric LOD-enabled signals; 1.0 for
-/// Bool/QString/LOD-disabled).
+/// LOD overhead factor (1.22 for numeric LOD-enabled signals; 1.0 for
+/// Bool/QString/LOD-disabled). Bumped from 1.11 at M34 P2: LOD bins now carry
+/// the min/max timestamps (LodBin grew ~1.5x), so the pyramid's share of
+/// per-signal memory rose accordingly.
 [[nodiscard]] double lodOverheadFactor(signalforge::decoder::SignalType type, bool lodEnabledByConfig) noexcept {
     const bool numeric =
         (type == signalforge::decoder::SignalType::Int64 || type == signalforge::decoder::SignalType::Double);
     if (numeric && lodEnabledByConfig) {
-        return 1.11;
+        return 1.22;
     }
     return 1.0;
 }

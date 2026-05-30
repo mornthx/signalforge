@@ -64,12 +64,17 @@ constexpr std::uint64_t kLodBinSize3 = 1000;
 
 }  // namespace
 
-/// LOD aggregate: min/max envelope plus the bin's time bounds.
+/// LOD aggregate: min/max envelope plus the bin's time bounds and the
+/// timestamps at which the min and max samples actually occurred (M34 P2 —
+/// so a query can emit the extremes at their real times and the plot traces
+/// the true envelope instead of a fixed-position sawtooth).
 template <typename T> struct LodBin {
     T min_val;
     T max_val;
     std::chrono::steady_clock::time_point t_start;
     std::chrono::steady_clock::time_point t_end;
+    std::chrono::steady_clock::time_point t_min;
+    std::chrono::steady_clock::time_point t_max;
 };
 
 namespace {
@@ -349,6 +354,36 @@ template <typename T> void accumulateMinMax(T value, T& mn, T& mx, bool& hasValu
         }
         if (value > mx) {
             mx = value;
+        }
+    }
+}
+
+/// As `accumulateMinMax`, but also records the INDEX at which each extreme
+/// occurred (M34 P2). The caller reads the two timestamps once after the loop
+/// (not per sample), so the LOD bin can be emitted at the real min/max times —
+/// the plot then traces the true envelope instead of a fixed-position sawtooth.
+template <typename T>
+void accumulateMinMaxIdx(T value, std::size_t idx, T& mn, T& mx, std::size_t& minIdx, std::size_t& maxIdx,
+                         bool& hasValue) {
+    if constexpr (std::is_floating_point_v<T>) {
+        if (std::isnan(value)) {
+            return;
+        }
+    }
+    if (!hasValue) {
+        mn = value;
+        mx = value;
+        minIdx = idx;
+        maxIdx = idx;
+        hasValue = true;
+    } else {
+        if (value < mn) {
+            mn = value;
+            minIdx = idx;
+        }
+        if (value > mx) {
+            mx = value;
+            maxIdx = idx;
         }
     }
 }
@@ -835,7 +870,10 @@ public:
             return out;
         }
 
-        // LOD output: 2 SignalSamples per bin (min @ t_start, max @ t_end).
+        // LOD output: 2 SignalSamples per bin — the min and max emitted at the
+        // timestamps where they actually occurred, in chronological order, so a
+        // connected polyline traces the true envelope (M34 P2; fixed-position
+        // min@t_start / max@t_end produced a sawtooth on oscillating signals).
         const auto& binsSnap = (level == 1) ? seg->lod1 : (level == 2) ? seg->lod2 : seg->lod3;
         if (binsSnap.empty()) {
             return out;
@@ -847,8 +885,13 @@ public:
             if (bin.t_end < t_start || bin.t_start > t_end) {
                 continue;
             }
-            out.push_back({bin.t_start, SignalValue{bin.min_val}});
-            out.push_back({bin.t_end, SignalValue{bin.max_val}});
+            if (bin.t_min <= bin.t_max) {
+                out.push_back({bin.t_min, SignalValue{bin.min_val}});
+                out.push_back({bin.t_max, SignalValue{bin.max_val}});
+            } else {
+                out.push_back({bin.t_max, SignalValue{bin.max_val}});
+                out.push_back({bin.t_min, SignalValue{bin.min_val}});
+            }
         }
         return out;
     }
@@ -950,14 +993,22 @@ protected:
                     const std::size_t end = static_cast<std::size_t>((binIdx + 1) * lvl.binSize - E);
                     LodBin<T> entry{};
                     bool hasValue = false;
+                    std::size_t minIdx = start;
+                    std::size_t maxIdx = start;
                     for (std::size_t i = start; i < end; ++i) {
-                        accumulateMinMax<T>(values_.at(i), entry.min_val, entry.max_val, hasValue);
+                        accumulateMinMaxIdx<T>(values_.at(i), i, entry.min_val, entry.max_val, minIdx, maxIdx,
+                                               hasValue);
                     }
                     if (!hasValue) {
                         // All samples in the bin were NaN; emit the first sample's value.
                         entry.min_val = values_.at(start);
                         entry.max_val = values_.at(start);
+                        minIdx = start;
+                        maxIdx = start;
                     }
+                    // Read the two extreme timestamps once (not per sample).
+                    entry.t_min = timestamps_.at(minIdx);
+                    entry.t_max = timestamps_.at(maxIdx);
                     entry.t_start = timestamps_.at(start);
                     entry.t_end = timestamps_.at(end - 1);
                     if (lvl.bins.empty()) {

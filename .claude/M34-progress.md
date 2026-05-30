@@ -134,3 +134,18 @@ overlapped.
     new path returns ~1200 (faithful). Still **10.6× over the ≥10 k/s target**; the live app needs ~120/s.
   - 722/722 ctest Debug + Release; **no visual-baseline impact** (baselines capture static states, not
     live waveforms). Plot's empty→raw fallback retained for sparse/recent data.
+
+**B-2 — LOD "sawtooth" after B.** Once B made 1-min windows actually use LOD (level 1), the plot drew a
+sawtooth: the min/max envelope was emitted at fixed positions (min @ `t_start`, max @ `t_end`) regardless
+of where the extremes actually occurred — on falling segments that inverts the two points.
+  - Fix: each `LodBin` now records `t_min`/`t_max` (the timestamps of the min and max samples, tracked by
+    index in the writer's bin builder — read twice per bin, not per sample). `queryRange` emits the two
+    extremes at their real times in chronological order, so a connected polyline traces the true envelope.
+    Test ramps are monotonic so their assertions are unchanged; added a falling-bin test asserting
+    max-before-min ordering. S10 envelope check now takes min/max by value, not position. LOD-memory
+    overhead factor 1.11 → 1.22 (the bin grew ~1.5×); S7 estimate-vs-actual stays within 20%.
+  - **Benchmark:** writer (double) ~9.6 M → ~7.2 M samples/s idle (the larger bin), still ~15× over the
+    ingest target; reader ~117 k q/s. 723/723 ctest Debug + Release.
+
+**Dashboard 30 Hz (`a70232d`).** Owner experiment: panel refresh 15 Hz → 30 Hz to test whether the jank is
+frame-rate-bound. Trivially reverted.

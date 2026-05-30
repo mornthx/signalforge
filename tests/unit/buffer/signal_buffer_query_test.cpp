@@ -103,6 +103,31 @@ TEST_CASE("S6: queryRange with target>0 selects LOD on dense data", "[buffer][s6
     REQUIRE(std::get<double>(samples2.back().value) == 999.0);
 }
 
+TEST_CASE("M34 P2: LOD emits min/max at their real timestamps (no sawtooth)", "[buffer][m34][query][lod]") {
+    auto meta = makeMeta(QStringLiteral("m34/lod/order"), dm5::SignalType::Double);
+    bm6::SignalBufferConfig cfg;
+    cfg.windowSeconds = 1e9;
+    cfg.capSamples = 100'000;
+    bm6::SignalBuffer buf(meta, cfg);
+
+    // Each level-1 bin (10 samples) falls 9 → 0, so within every bin the MAX
+    // occurs at the earlier timestamp and the MIN at the later one.
+    auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 100; ++i) {
+        buf.push(t0 + std::chrono::milliseconds(i), dm5::SignalValue{static_cast<double>(9 - (i % 10))});
+    }
+
+    // target 10 → ratio forces level 1 (bin 10) → 10 bins × 2 points.
+    const auto s = buf.queryRange(t0, t0 + std::chrono::milliseconds(100), 10);
+    REQUIRE(s.size() == 20U);
+    // Time-ordered envelope: the first bin emits its max (9 @ earlier t) before
+    // its min (0 @ later t). The pre-fix fixed-position emit gave 0 then 9 — the
+    // inversion that drew a sawtooth.
+    REQUIRE(std::get<double>(s[0].value) == 9.0);
+    REQUIRE(std::get<double>(s[1].value) == 0.0);
+    REQUIRE(s[0].timestamp < s[1].timestamp);
+}
+
 TEST_CASE("S6: Double queryLatest returns tail in chronological order", "[buffer][s6][query][latest]") {
     auto meta = makeMeta(QStringLiteral("s6/query/latest"), dm5::SignalType::Double);
     bm6::SignalBufferConfig cfg;
