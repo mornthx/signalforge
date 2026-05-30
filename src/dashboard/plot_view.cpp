@@ -193,12 +193,21 @@ void PlotView::recomputeRanges() {
 
 void PlotView::refresh() {
     recomputeRanges();
-    update();
+    // Repaint only when the newest sample (and hence the whole frame) actually
+    // moved. Live data publishes in ~100 ms bursts, so at 15 Hz most ticks would
+    // otherwise re-stroke an identical frame — pure wasted raster work.
+    if (queryEnd_ != lastPaintedEnd_) {
+        lastPaintedEnd_ = queryEnd_;
+        update();
+    }
 }
 
 void PlotView::paintEvent(QPaintEvent* /*event*/) {
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
+    // Antialiasing is expensive in software raster and is only needed for the
+    // data trace — keep it off for the fill / grid / text / border and turn it
+    // on only around the polylines (M34 P2: halves the per-frame paint cost).
+    p.setRenderHint(QPainter::Antialiasing, false);
 
     const QPalette pal = palette();
     p.fillRect(rect(), pal.color(QPalette::Base));
@@ -284,7 +293,8 @@ void PlotView::paintEvent(QPaintEvent* /*event*/) {
     p.save();
     p.setClipRect(plot);
 
-    // Series polylines.
+    // Series polylines (the only elements that benefit from antialiasing).
+    p.setRenderHint(QPainter::Antialiasing, true);
     for (const auto& s : series_) {
         if (s.samples.empty()) {
             continue;
@@ -309,6 +319,7 @@ void PlotView::paintEvent(QPaintEvent* /*event*/) {
         p.setPen(QPen(s.color, 2));
         p.drawPolyline(poly);
     }
+    p.setRenderHint(QPainter::Antialiasing, false);
 
     // Live "now" cursor at the captured window end (not a fresh now()).
     {

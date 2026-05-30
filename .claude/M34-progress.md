@@ -148,4 +148,17 @@ of where the extremes actually occurred — on falling segments that inverts the
     ingest target; reader ~117 k q/s. 723/723 ctest Debug + Release.
 
 **Dashboard 30 Hz (`a70232d`).** Owner experiment: panel refresh 15 Hz → 30 Hz to test whether the jank is
-frame-rate-bound. Trivially reverted.
+frame-rate-bound. Result: **more** janky → it's per-refresh *work*-bound, not rate-bound. Reverted to 15 Hz.
+
+**B-3 — dashboard jank (measured).** Instrumented `PlotView` under xvfb/software raster:
+`recompute_avg_us ≈ 6` (so the LOD/query change is **not** the cost — B exonerated), `paint_avg_us ≈ 650`
+per plot (≈ **320** with antialiasing off). The cost is the software-raster paint, dominated by global
+antialiasing applied to fill/grid/text. Two no-visual-change fixes:
+  - **Scope AA to the data polyline only** — fill/grid/text/border are axis-aligned, so AA there is wasted;
+    halves per-frame paint (650 → ~320 µs). 723/723 incl. visual (axis-aligned 1 px lines are identical
+    AA-on/off; the trace keeps AA).
+  - **Skip the repaint when the newest sample is unchanged** — live data publishes in ~100 ms bursts, so at
+    15 Hz most ticks re-stroked an identical frame; `PlotView::refresh` now `update()`s only when
+    `queryEnd_` advances.
+  - Net: paint work down ~4× (½ cost × ½ frequency). Remaining stutter, if any, is the 100 ms publish
+    cadence (data advances in steps) and/or the software compositor — next levers if still janky.

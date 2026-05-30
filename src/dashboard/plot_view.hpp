@@ -92,6 +92,7 @@ private:
     // samples against these (not a fresh axis read) so the trace can't drift.
     std::chrono::steady_clock::time_point queryStart_{};
     std::chrono::steady_clock::time_point queryEnd_{};
+    std::chrono::steady_clock::time_point lastPaintedEnd_{};  ///< skip repaint when newest data is unchanged
     int nextColorIndex_ = 0;
 };
 
