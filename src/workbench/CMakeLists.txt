@@ -3,8 +3,12 @@ add_library(signalforge_workbench STATIC
     selection_model.hpp
     signal_identity.cpp
     signal_identity.hpp
+    workbench_frame.cpp
+    workbench_frame.hpp
     components/activity_rail.cpp
     components/activity_rail.hpp
+    components/segmented_control.cpp
+    components/segmented_control.hpp
     components/status_chip.cpp
     components/status_chip.hpp
     components/section_header.cpp

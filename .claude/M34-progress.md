@@ -25,5 +25,20 @@
 - Regenerated all 5 consumers (qss ×3, hpp, py). Gates green: `--validate`, `--check` fresh, `lint_qss`
   clean, `test_qss_linter` 18/18. **715/715 ctest Debug + Release** (all 11 visual baselines unchanged).
 
-## S3 — WorkbenchFrame shell (rail | content | inspector | drawer)  ⏳ (next)
-## S4 — integrate into MainWindow + regenerate baselines  ⏳ (the risky step, last)
+## S3 — WorkbenchFrame shell (rail | content | inspector | drawer)  ✅
+- **SegmentedControl** (`components/segmented_control.{hpp,cpp}`) — horizontal exclusive `#segmentButton`s
+  that switch a sub-view within a mode (Raw / Parsed / Dashboard inside Inspect). Mirrors `ActivityRail`'s
+  API on the horizontal axis: `addSegment`/`setCurrentSegment`/`segmentSelected`.
+- **WorkbenchFrame** (`workbench_frame.{hpp,cpp}`) — the redesigned shell, a pure layout container with no
+  business logic:
+  - top bar (`#workbenchTopBar`): title + trailing chip/action region (`setTitle`, `addTopBarWidget`).
+  - left `ActivityRail` → `QStackedWidget` content; `addMode(id,label,content)`, `setCurrentMode` (silent),
+    `modeChanged` on user click. First mode auto-current; duplicate ids ignored.
+  - right inspector (`#workbenchInspector`) + bottom drawer (`#workbenchDrawer`): `setInspector`/`setDrawer`
+    (content swap, old deleteLater'd) + `set*Visible`; both hidden until shown. Horizontal + vertical
+    `QSplitter`s give resizable content|inspector and middle|drawer with non-collapsible panes.
+- Additive, **not yet mounted** → zero app risk. Tests: frame 4 cases (mode swap + emit, silent set,
+  inspector/drawer show-hide + content, duplicate-id) + SegmentedControl 1 case. **720/720 ctest Debug +
+  Release**; clang-format clean; clean xcb teardown (leaked-QApplication).
+
+## S4 — integrate into MainWindow + regenerate baselines  ⏳ (next — the risky step, last)

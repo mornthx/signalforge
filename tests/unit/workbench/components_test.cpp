@@ -6,6 +6,7 @@
 #include "workbench/components/activity_rail.hpp"
 #include "workbench/components/empty_state.hpp"
 #include "workbench/components/section_header.hpp"
+#include "workbench/components/segmented_control.hpp"
 #include "workbench/components/status_chip.hpp"
 
 #include <QAbstractButton>
@@ -44,6 +45,27 @@ TEST_CASE("M34 S1: activity rail selects modes and emits", "[workbench][m34][int
     // Programmatic set does not re-emit.
     rail.setCurrentMode(QStringLiteral("connect"));
     CHECK(rail.currentMode() == QStringLiteral("connect"));
+    CHECK(spy.count() == 0);
+}
+
+TEST_CASE("M34 S3: segmented control selects views and emits", "[workbench][m34][interaction]") {
+    app();
+    wb::SegmentedControl seg;
+    seg.addSegment(QStringLiteral("raw"), QStringLiteral("Raw"));
+    seg.addSegment(QStringLiteral("parsed"), QStringLiteral("Parsed"));
+    seg.addSegment(QStringLiteral("dashboard"), QStringLiteral("Dashboard"));
+    CHECK(seg.segmentCount() == 3);
+    CHECK(seg.currentSegment() == QStringLiteral("raw"));  // first is current
+
+    QSignalSpy spy(&seg, &wb::SegmentedControl::segmentSelected);
+    seg.button(QStringLiteral("dashboard"))->click();
+    REQUIRE(spy.count() == 1);
+    CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("dashboard"));
+    CHECK(seg.currentSegment() == QStringLiteral("dashboard"));
+
+    // Programmatic set does not re-emit.
+    seg.setCurrentSegment(QStringLiteral("parsed"));
+    CHECK(seg.currentSegment() == QStringLiteral("parsed"));
     CHECK(spy.count() == 0);
 }
 

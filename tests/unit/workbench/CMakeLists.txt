@@ -34,3 +34,17 @@ target_link_libraries(components_test
         signalforge_workbench
 )
 catch_discover_tests(components_test DISCOVERY_MODE PRE_TEST)
+
+add_executable(workbench_frame_test
+    workbench_frame_test.cpp
+)
+target_link_libraries(workbench_frame_test
+    PRIVATE
+        Catch2::Catch2WithMain
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::Test
+        signalforge_workbench
+)
+catch_discover_tests(workbench_frame_test DISCOVERY_MODE PRE_TEST)
