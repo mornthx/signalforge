@@ -361,8 +361,10 @@ template <typename T> void accumulateMinMax(T value, T& mn, T& mx, bool& hasValu
 /// every variant; derived classes manage the typed value storage.
 struct SignalBuffer::TypedBuffer {
     TypedBuffer(const SignalMetadata& meta, const SignalBufferConfig& cfg)
-        : windowDuration_(toSteadyDuration(cfg.windowSeconds)), capSamples_(cfg.capSamples),
-          estimatedRateHz_(cfg.estimatedRateHz.value_or(1000.0)) {
+        : windowDuration_(toSteadyDuration(cfg.windowSeconds)), capSamples_(cfg.capSamples) {
+        // Note: cfg.estimatedRateHz is no longer consulted — LOD level selection
+        // is count-based as of M34 P2 (see selectLodLevel). The config field is
+        // retained for source/config compatibility.
         auto& reg = MetricsRegistry::instance();
         samplesStoredMetric_ = reg.getOrCreate(kPrefixSamplesStored + meta.id, MetricKind::Counter);
         samplesEvictedMetric_ = reg.getOrCreate(kPrefixSamplesEvicted + meta.id, MetricKind::Counter);
@@ -512,31 +514,35 @@ protected:
         std::chrono::steady_clock::time_point start_;
     };
 
-    /// LOD level selection per spec §4.5.
-    /// Returns 0 (raw) / 1 / 2 / 3 based on density thresholds.
-    [[nodiscard]] int selectLodLevel(std::chrono::steady_clock::time_point t_start,
-                                     std::chrono::steady_clock::time_point t_end,
-                                     std::size_t target_sample_count) const noexcept {
-        if (target_sample_count == 0) {
+    /// LOD level selection (M6 §4.5, recalibrated at M34 P2).
+    ///
+    /// Choose the FINEST pyramid level whose decimated output still fits the
+    /// caller's budget, from the ACTUAL number of raw samples in the query
+    /// window. Count-based — it does NOT rely on a static rate estimate. The
+    /// prior form derived density from `estimatedRateHz_`, which production never
+    /// populated (it defaulted to 1000 Hz), so any live window selected level 3
+    /// and a multi-second plot collapsed to a handful of min/max bins (the
+    /// "triangle wave" / frozen-plot bug). Bin sizes are 10 / 100 / 1000;
+    /// returns 0 (raw) / 1 / 2 / 3.
+    [[nodiscard]] static int selectLodLevel(std::size_t window_sample_count, std::size_t target_sample_count) noexcept {
+        if (target_sample_count == 0 || window_sample_count == 0) {
             return 0;
         }
-        const auto delta_ns = (t_end - t_start).count();
-        if (delta_ns <= 0) {
-            return 0;
+        // LOD emits 2 points per bin (min @ t_start, max @ t_end), so the output
+        // budget is 2 * target. Pick the finest representation that fits it: raw
+        // when it fits, otherwise the smallest bin whose decimated count
+        // (~2 * window / bin) still fits. Keeps output in [target, 2*target] for
+        // dense data instead of collapsing far below the pixel budget.
+        if (window_sample_count <= 2 * target_sample_count) {
+            return 0;  // raw fits — maximal fidelity
         }
-        const double samples_per_pixel = static_cast<double>(delta_ns) / static_cast<double>(target_sample_count);
-        const double signal_period_ns = 1e9 / estimatedRateHz_;
-        const double effective_density = signal_period_ns / samples_per_pixel;
-        if (effective_density < 0.5) {
-            return 3;
+        if (window_sample_count <= 10 * target_sample_count) {
+            return 1;  // bin 10
         }
-        if (effective_density < 5.0) {
-            return 2;
+        if (window_sample_count <= 100 * target_sample_count) {
+            return 2;  // bin 100
         }
-        if (effective_density < 50.0) {
-            return 1;
-        }
-        return 0;
+        return 3;  // bin 1000
     }
 
 public:
@@ -593,7 +599,6 @@ protected:
     std::size_t capSamples_;
     std::uint64_t totalEvicted_ = 0;
     std::uint64_t pushCount_ = 0;
-    double estimatedRateHz_;
 
     int publishCadence_ = kDefaultPublishCadence;
     int pushesSincePublish_ = 0;
@@ -806,16 +811,20 @@ public:
             return out;
         }
 
-        // Decide whether to use LOD or raw.
+        // Count the raw samples actually in the window — this drives both the
+        // LOD level choice (M34 P2: count-based, not rate-based) and, at level
+        // 0, the raw copy below.
+        const std::size_t lo = snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
+        const std::size_t hi = snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+        const std::size_t windowCount = (hi > lo) ? (hi - lo) : 0;
+
         int level = 0;
         if (lodEnabled_ && target_sample_count > 0) {
-            level = selectLodLevel(t_start, t_end, target_sample_count);
+            level = selectLodLevel(windowCount, target_sample_count);
         }
 
         if (level == 0) {
-            // Raw range: binary search timestamps, copy values across.
-            const std::size_t lo = snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
-            const std::size_t hi = snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+            // Raw range: copy values across [lo, hi).
             if (hi <= lo) {
                 return out;
             }

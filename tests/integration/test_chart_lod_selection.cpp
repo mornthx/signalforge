@@ -75,12 +75,14 @@ TEST_CASE("S9 integration: queryRange across 4 zoom levels returns ≤ target ea
     REQUIRE(zoom60s.size() <= kTargetBins * 2);
     REQUIRE(zoomFull.size() <= kTargetBins * 2);
 
-    // 1 sec at 1 kHz = 1000 samples — at LOD 0 (raw) bins, the
-    // result is approximately 1000 samples (≤ target_count, so
-    // raw is selected).
+    // 1 sec at 1 kHz = 1000 samples ≤ 2*target → raw is selected,
+    // so the result is ~1000 samples.
     REQUIRE(zoom1s.size() <= 1100);
-    // Full window has 100k samples but target=1920 → LOD 3
-    // (1000:1) returns approximately N/1000 ≈ 100 LOD bins × 2 =
-    // 200 samples — well below kTargetBins*2.
-    REQUIRE(zoomFull.size() < zoom1s.size() + 200);
+    // Full window (retained samples, target=1920). M34 P2 count-based
+    // selection picks the FINEST level that fits 2*target — LOD 2
+    // (bin 100) here → ~1200 samples. It fills a good share of the
+    // pixel budget instead of collapsing to ~200 (the pre-fix bug),
+    // stays within 2*target, and is clearly decimated below the raw count.
+    REQUIRE(zoomFull.size() >= kTargetBins / 2U);
+    REQUIRE(zoomFull.size() < kSamples / 10U);
 }

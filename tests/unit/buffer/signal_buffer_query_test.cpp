@@ -88,16 +88,19 @@ TEST_CASE("S6: queryRange with target>0 selects LOD on dense data", "[buffer][s6
     // 1000 pushes → publishes at 100, 200, ..., 1000 (10 publishes).
     // LOD: level 1 has 100 bins, level 2 has 10, level 3 has 1.
 
-    // Query 1 second range (1000 ms) with target = 100 → density = (1e9/1000) / (1e9/100) = 0.1 → level 3
+    // M34 P2: level selection is count-based — ratio = samples / target.
+    // 1000 samples in window, target 100 → ratio 10 → level 1 (bin 10) →
+    // 100 bins → 200 SignalSamples (min @ t_start, max @ t_end per bin).
     const auto samples = buf.queryRange(t0, t0 + std::chrono::milliseconds(1000), 100);
-    // Level 3 has 1 bin → 2 SignalSamples (min @ t_start, max @ t_end).
-    REQUIRE(samples.size() == 2U);
-    REQUIRE(std::get<double>(samples[0].value) == 0.0);    // min
-    REQUIRE(std::get<double>(samples[1].value) == 999.0);  // max
+    REQUIRE(samples.size() == 200U);
+    REQUIRE(std::get<double>(samples.front().value) == 0.0);   // global min (bin 0)
+    REQUIRE(std::get<double>(samples.back().value) == 999.0);  // global max (last bin)
 
-    // target = 1000 → density = 1.0 → level 2 (100:1) → 10 bins → 20 samples
+    // target = 1000 → ratio 1 → raw → all 1000 in-window samples.
     const auto samples2 = buf.queryRange(t0, t0 + std::chrono::milliseconds(1000), 1000);
-    REQUIRE(samples2.size() == 20U);
+    REQUIRE(samples2.size() == 1000U);
+    REQUIRE(std::get<double>(samples2.front().value) == 0.0);
+    REQUIRE(std::get<double>(samples2.back().value) == 999.0);
 }
 
 TEST_CASE("S6: Double queryLatest returns tail in chronological order", "[buffer][s6][query][latest]") {
@@ -212,8 +215,9 @@ TEST_CASE("S6: LOD query covers raw range envelope (HALT trigger #7)", "[buffer]
         buf.push(t0 + std::chrono::milliseconds(i), dm5::SignalValue{static_cast<double>(i)});
     }
 
-    // Force level 3: 1 bin covering samples 0..999, min=0, max=999.
-    auto samples = buf.queryRange(t0, t0 + std::chrono::milliseconds(1000), 100);
+    // Force level 3 (M34 P2 count-based: ratio = 1000/target ≥ 1000 ⇒ target 1):
+    // 1 bin covering samples 0..999, min=0, max=999.
+    auto samples = buf.queryRange(t0, t0 + std::chrono::milliseconds(1000), 1);
     REQUIRE(samples.size() == 2U);
     REQUIRE(std::get<double>(samples[0].value) == 0.0);
     REQUIRE(std::get<double>(samples[1].value) == 999.0);

@@ -107,3 +107,30 @@ Quality · Source · Value · Unit · Type · Age · Dashboard**.
 - **Mini-sparkline** of recent trend per signal (§7.3).
 - **Rate** (Hz) and **last-change** columns; **group-by-driver**.
 - Selecting a row driving the **right inspector** (signal stats) → that's the inspector wiring, **P5**.
+
+## P2 live-rendering fixes (owner-observed, A + B)  ✅
+Live UDP observation surfaced two rendering bugs:
+
+**A — dashboard jank (my P2 regression).** `ParsedSignalsView`'s 10 Hz refresh did full per-row work even
+while hidden behind the Dashboard segment. Gated the timer tick on `isVisible()` (direct `refresh()` calls
+unaffected) + refresh on `showEvent`. Commit `ac7b38e`.
+
+**B — plot waveform corruption (triangles / freeze / ¼-glitch).** Root cause: `SignalBufferConfig::
+estimatedRateHz` was **never populated in production** → defaulted to **1000 Hz** in `selectLodLevel`, so
+every live window selected LOD level 3 (bin = 1000 samples = 20 s of 50 Hz data). A 1-min plot collapsed to
+~3 min/max bins ("two triangles," frozen ~20 s); short windows flickered as 20 s bins intermittently
+overlapped.
+  - Fix: **count-based LOD selection** — `selectLodLevel(windowSampleCount, target)` picks the finest
+    level whose output (2 pts/bin) fits the `2*target` budget, using the ACTUAL in-window sample count. No
+    rate estimate at all; removed the dead `estimatedRateHz_` member (config field retained for compat).
+  - **Deviation (recorded):** this recalibrates the LOD level-selection thresholds described in
+    `docs/milestones/M6-signal-buffer.md §4.5` (a milestone doc, not `architecture.md`). The old
+    density/rate thresholds are superseded; behaviour is now count-driven. Tests updated:
+    `signal_buffer_query_test` (target 100→200 pts @ L1, target 1000→1000 raw, L3 envelope forced via
+    target 1) and the S9 `test_chart_lod_selection` (full window → L2 ~1200 pts, fills the budget instead
+    of collapsing to ~200).
+  - **Benchmark (perf path, §5.4 #2):** reader `queryRange(60 s/1 kHz, target 2000)` **337 k → ~107 k
+    queries/s**. Intentional: the old path was fast only because LOD 3 returned ~120 points (the bug); the
+    new path returns ~1200 (faithful). Still **10.6× over the ≥10 k/s target**; the live app needs ~120/s.
+  - 722/722 ctest Debug + Release; **no visual-baseline impact** (baselines capture static states, not
+    live waveforms). Plot's empty→raw fallback retained for sparse/recent data.
