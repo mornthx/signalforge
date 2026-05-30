@@ -97,10 +97,20 @@ public:
         return config_.geometry.isValid();
     }
 
+    /// Apply a geometry chosen by the owning Dashboard's drag/push resolution:
+    /// sets the widget geometry and records it as the user-placed geometry.
+    void setUserGeometry(const QRect& geometry);
+
 Q_SIGNALS:
     /// Emitted when the user clicks this panel's ⋮ config button. The owning
     /// Dashboard responds by showing the per-panel menu.
     void configureRequested(const QString& panelId);
+
+    /// Emitted continuously while the user drags the header (move) or grip
+    /// (resize), carrying the proposed new geometry in parent coordinates
+    /// (unclamped). The Dashboard resolves bounds + neighbor collisions and
+    /// calls `setUserGeometry` on the affected panels.
+    void dragProposed(const QString& panelId, const QRect& proposed);
 
     /// Emitted after the user drag-moves or drag-resizes the panel; the new
     /// geometry has already been written into `config().geometry`.

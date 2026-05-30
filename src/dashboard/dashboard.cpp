@@ -26,7 +26,43 @@ namespace signalforge::dashboard {
 
 namespace {
 constexpr int kRefreshIntervalMs = 66;  ///< ~15 Hz; Numeric/State cards.
+
+/// Fit `r` inside a `surface`-sized rectangle anchored at (0,0): shrink if
+/// larger, then translate so it lies fully within bounds.
+QRect clampToSurface(QRect r, const QSize& surface) {
+    if (r.width() > surface.width()) {
+        r.setWidth(surface.width());
+    }
+    if (r.height() > surface.height()) {
+        r.setHeight(surface.height());
+    }
+    r.moveTo(std::clamp(r.x(), 0, std::max(0, surface.width() - r.width())),
+             std::clamp(r.y(), 0, std::max(0, surface.height() - r.height())));
+    return r;
 }
+
+/// Translate `neighbor` out of `dragged` along the axis of least penetration
+/// (the smallest of the four separating moves). Sizes are preserved.
+QRect pushedOut(const QRect& dragged, QRect neighbor) {
+    const int right = dragged.x() + dragged.width();    // neighbor.x to clear on the right
+    const int bottom = dragged.y() + dragged.height();  // neighbor.y to clear below
+    const int costR = right - neighbor.x();
+    const int costL = neighbor.x() - (dragged.x() - neighbor.width());
+    const int costD = bottom - neighbor.y();
+    const int costU = neighbor.y() - (dragged.y() - neighbor.height());
+    const int least = std::min({costR, costL, costD, costU});
+    if (least == costR) {
+        neighbor.moveLeft(right);
+    } else if (least == costL) {
+        neighbor.moveLeft(dragged.x() - neighbor.width());
+    } else if (least == costD) {
+        neighbor.moveTop(bottom);
+    } else {
+        neighbor.moveTop(dragged.y() - neighbor.height());
+    }
+    return neighbor;
+}
+}  // namespace
 
 Dashboard::Dashboard(signalforge::buffer::SignalBufferRegistry& registry, QWidget* parent)
     : QWidget(parent), registry_(&registry), timeAxis_(std::make_unique<signalforge::chart::TimeAxisManager>()) {
@@ -89,6 +125,7 @@ QString Dashboard::addPanel(PanelConfig config) {
 
     Panel* created = makePanel(config);
     connect(created, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
+    connect(created, &Panel::dragProposed, this, &Dashboard::resolvePanelDrag);
     connect(created, &Panel::geometryChanged, this, [this](const QString&) { Q_EMIT panelsChanged(); });
     panels_.insert(id, created);
     panelOrder_.append(id);
@@ -218,6 +255,7 @@ void Dashboard::recreatePanel(const QString& panelId, PanelConfig newConfig) {
     Panel* old = panels_.value(panelId);
     Panel* fresh = makePanel(newConfig);  // newConfig carries the geometry → preserved
     connect(fresh, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
+    connect(fresh, &Panel::dragProposed, this, &Dashboard::resolvePanelDrag);
     connect(fresh, &Panel::geometryChanged, this, [this](const QString&) { Q_EMIT panelsChanged(); });
     panels_.insert(panelId, fresh);  // replace in the hash
     if (old != nullptr) {
@@ -384,6 +422,57 @@ void Dashboard::relayout() {
         p->setGeometry(x, y, kCardW, kCardH);
         x += kCardW + kPad;
         rowH = std::max(rowH, kCardH);
+    }
+}
+
+void Dashboard::resolvePanelDrag(const QString& panelId, const QRect& proposed) {
+    Panel* dragged = panels_.value(panelId, nullptr);
+    if (dragged == nullptr) {
+        return;
+    }
+    const QSize surface(std::max(width(), 1), std::max(height(), 1));
+    const QRect want = clampToSurface(proposed, surface);
+
+    // Push every directly-overlapped neighbor out of `want`, bounded to the
+    // surface. If any neighbor cannot be fully separated within bounds, refuse
+    // the whole move (report 3: bounded push, no shove off-screen).
+    QHash<QString, QRect> moves;
+    for (const QString& oid : panelOrder_) {
+        if (oid == panelId) {
+            continue;
+        }
+        Panel* other = panels_.value(oid, nullptr);
+        if (other == nullptr || !want.intersects(other->geometry())) {
+            continue;
+        }
+        const QRect pushed = clampToSurface(pushedOut(want, other->geometry()), surface);
+        if (want.intersects(pushed)) {
+            return;  // no room to separate within the viewport → refuse
+        }
+        moves.insert(oid, pushed);
+    }
+
+    // Single-hop only: a pushed neighbor must not land on a third panel
+    // (honors "不要无限推挤" — no cascade). Otherwise refuse.
+    for (auto it = moves.constBegin(); it != moves.constEnd(); ++it) {
+        for (const QString& oid : panelOrder_) {
+            if (oid == panelId || oid == it.key()) {
+                continue;
+            }
+            Panel* other = panels_.value(oid, nullptr);
+            if (other == nullptr) {
+                continue;
+            }
+            const QRect og = moves.contains(oid) ? moves.value(oid) : other->geometry();
+            if (it.value().intersects(og)) {
+                return;  // would cascade into a third panel → refuse
+            }
+        }
+    }
+
+    dragged->setUserGeometry(want);
+    for (auto it = moves.constBegin(); it != moves.constEnd(); ++it) {
+        panels_.value(it.key())->setUserGeometry(it.value());
     }
 }
 

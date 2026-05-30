@@ -134,17 +134,15 @@ bool Panel::eventFilter(QObject* watched, QEvent* event) {
             }
             auto* me = static_cast<QMouseEvent*>(event);
             const QPoint delta = me->globalPosition().toPoint() - dragStartGlobal_;
+            // Propose a geometry; the Dashboard clamps to the surface and pushes
+            // overlapping neighbors (or refuses), then drives setUserGeometry.
+            QRect proposed = dragStartGeom_;
             if (dragMode_ == DragMode::Move) {
-                QPoint np = dragStartGeom_.topLeft() + delta;
-                if (auto* p = parentWidget(); p != nullptr) {
-                    np.setX(std::clamp(np.x(), 0, std::max(0, p->width() - width())));
-                    np.setY(std::clamp(np.y(), 0, std::max(0, p->height() - height())));
-                }
-                move(np);
+                proposed.moveTopLeft(dragStartGeom_.topLeft() + delta);
             } else {
-                QSize ns = dragStartGeom_.size() + QSize(delta.x(), delta.y());
-                resize(ns.expandedTo(QSize(140, 80)));
+                proposed.setSize((dragStartGeom_.size() + QSize(delta.x(), delta.y())).expandedTo(QSize(140, 80)));
             }
+            Q_EMIT dragProposed(config_.id, proposed);
             return true;
         }
         case QEvent::MouseButtonRelease: {
@@ -161,6 +159,11 @@ bool Panel::eventFilter(QObject* watched, QEvent* event) {
         }
     }
     return QFrame::eventFilter(watched, event);
+}
+
+void Panel::setUserGeometry(const QRect& geometry) {
+    setGeometry(geometry);
+    config_.geometry = geometry;
 }
 
 bool Panel::hasSignal(const QString& signalId) const {

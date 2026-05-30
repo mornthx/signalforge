@@ -342,3 +342,73 @@ TEST_CASE("M29: unchecking a plot's last signal removes the empty panel", "[dash
     board.removeSignalEverywhere(QStringLiteral("rig/pressure"));
     CHECK(board.panelCount() == 0);
 }
+
+namespace {
+/// Synthesize a left-button mouse event at global point `g` on widget `w`.
+void sendMouse(QWidget* w, QEvent::Type t, QPoint g) {
+    QMouseEvent e(t, QPointF(w->mapFromGlobal(g)), QPointF(g), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(w, &e);
+}
+}  // namespace
+
+TEST_CASE("M29: dragging a panel into a neighbor pushes it aside within bounds", "[dashboard][m29][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {
+                                                       makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double),
+                                                       makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double),
+                                                   });
+    dash::Dashboard board(reg);
+    board.resize(900, 400);
+    dash::Panel* a = board.panel(board.addSignal(QStringLiteral("rig/a")));
+    dash::Panel* b = board.panel(board.addSignal(QStringLiteral("rig/b")));
+    const int ax0 = a->geometry().x();
+    const QRect gb0 = b->geometry();
+    REQUIRE(gb0.x() > ax0);  // auto-placed side by side
+
+    // Drag A rightward into B.
+    const QPoint g0 = a->header()->mapToGlobal(QPoint(20, 6));
+    sendMouse(a->header(), QEvent::MouseButtonPress, g0);
+    sendMouse(a->header(), QEvent::MouseMove, g0 + QPoint(150, 0));
+    sendMouse(a->header(), QEvent::MouseButtonRelease, g0 + QPoint(150, 0));
+
+    CHECK(a->geometry().x() == ax0 + 150);                 // A followed the cursor
+    CHECK(b->geometry() != gb0);                           // B was pushed aside
+    CHECK_FALSE(a->geometry().intersects(b->geometry()));  // no overlap
+    // B stayed entirely inside the surface (bounded push — never shoved off).
+    CHECK(b->geometry().x() >= 0);
+    CHECK(b->geometry().y() >= 0);
+    CHECK(b->geometry().right() < 900);
+    CHECK(b->geometry().bottom() < 400);
+}
+
+TEST_CASE("M29: a push with no room inside the viewport is refused", "[dashboard][m29][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {
+                                                       makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double),
+                                                       makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double),
+                                                       makeMeta(QStringLiteral("rig/c"), dec::SignalType::Double),
+                                                   });
+    dash::Dashboard board(reg);
+    board.resize(880, 170);  // exactly one card-row tall → B cannot be pushed vertically
+    dash::Panel* a = board.panel(board.addSignal(QStringLiteral("rig/a")));
+    dash::Panel* b = board.panel(board.addSignal(QStringLiteral("rig/b")));
+    dash::Panel* c = board.panel(board.addSignal(QStringLiteral("rig/c")));
+    const QRect ga0 = a->geometry();
+    const QRect gb0 = b->geometry();
+    const QRect gc0 = c->geometry();
+    REQUIRE(gb0.x() > ga0.x());
+    REQUIRE(gc0.x() > gb0.x());
+
+    // Drag A into B: B has nowhere to go (a third panel right, no vertical room)
+    // → the whole move is refused, nothing shifts.
+    const QPoint g0 = a->header()->mapToGlobal(QPoint(20, 6));
+    sendMouse(a->header(), QEvent::MouseButtonPress, g0);
+    sendMouse(a->header(), QEvent::MouseMove, g0 + QPoint(200, 0));
+    sendMouse(a->header(), QEvent::MouseButtonRelease, g0 + QPoint(200, 0));
+
+    CHECK(a->geometry() == ga0);
+    CHECK(b->geometry() == gb0);
+    CHECK(c->geometry() == gc0);
+}

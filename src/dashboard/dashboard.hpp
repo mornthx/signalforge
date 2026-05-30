@@ -120,6 +120,10 @@ private:
     /// Record `signalId`'s preferred widget form (type + format fields) so a
     /// later demote→promote restores it. Geometry/id/signalIds are stripped.
     void rememberIntent(const QString& signalId, const PanelConfig& cfg);
+    /// Resolve a panel's proposed drag/resize: clamp to the surface, push any
+    /// directly-overlapped neighbors aside (single-hop, no cascade), and refuse
+    /// the whole move if a neighbor cannot be separated within bounds.
+    void resolvePanelDrag(const QString& panelId, const QRect& proposed);
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
