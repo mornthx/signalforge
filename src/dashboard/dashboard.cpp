@@ -8,6 +8,7 @@
 #include "dashboard/meter_panel.hpp"
 #include "dashboard/numeric_panel.hpp"
 #include "dashboard/panel.hpp"
+#include "dashboard/panel_config_dialog.hpp"
 #include "dashboard/panel_factory.hpp"
 #include "dashboard/plot_panel.hpp"
 #include "dashboard/state_panel.hpp"
@@ -311,60 +312,42 @@ void Dashboard::setPanelSignals(const QString& panelId, const QStringList& signa
 
 QMenu* Dashboard::buildPanelMenu(const QString& panelId) {
     auto* menu = new QMenu(this);
-    Panel* p = panels_.value(panelId, nullptr);
-    if (p == nullptr) {
+    if (panels_.value(panelId, nullptr) == nullptr) {
         return menu;
     }
-    const PanelType cur = p->type();
-
-    auto* showAs = menu->addMenu(tr("Show as"));
-    struct TypeEntry {
-        PanelType type;
-        QString label;
-    };
-    const TypeEntry entries[] = {{PanelType::Numeric, tr("Numeric")}, {PanelType::State, tr("State")},
-                                 {PanelType::Plot, tr("Plot")},       {PanelType::Bar, tr("Bar")},
-                                 {PanelType::Gauge, tr("Gauge")},     {PanelType::Table, tr("Table")}};
-    for (const auto& e : entries) {
-        QAction* a = showAs->addAction(e.label);
-        a->setCheckable(true);
-        a->setChecked(e.type == cur);
-        const PanelType t = e.type;
-        connect(a, &QAction::triggered, this, [this, panelId, t]() { setPanelType(panelId, t); });
-    }
-
-    auto* sigMenu = menu->addMenu(tr("Signals"));
-    const QStringList all = registry_->signalIds();
-    if (all.isEmpty()) {
-        QAction* none = sigMenu->addAction(tr("(no signals available)"));
-        none->setEnabled(false);
-    }
-    const bool single = isSingleSignalType(cur);
-    for (const QString& sid : all) {
-        QAction* a = sigMenu->addAction(sid);
-        a->setCheckable(true);
-        a->setChecked(p->hasSignal(sid));
-        connect(a, &QAction::triggered, this, [this, panelId, sid, single]() {
-            Panel* pp = panels_.value(panelId, nullptr);
-            if (pp == nullptr) {
-                return;
-            }
-            QStringList sigs = pp->signalIds();
-            if (single) {
-                sigs = {sid};
-            } else if (sigs.contains(sid)) {
-                sigs.removeAll(sid);
-            } else {
-                sigs.append(sid);
-            }
-            setPanelSignals(panelId, sigs);
-        });
-    }
-
+    // M32: a single "Configure…" entry opens the modal config dialog (type,
+    // signals, title, range, unit, decimals) — replaces the old "Show as ▸ /
+    // Signals ▸" submenus.
+    connect(menu->addAction(tr("Configure…")), &QAction::triggered, this,
+            [this, panelId]() { showPanelConfigDialog(panelId); });
     menu->addSeparator();
     connect(menu->addAction(tr("Remove panel")), &QAction::triggered, this,
             [this, panelId]() { removePanel(panelId); });
     return menu;
+}
+
+void Dashboard::applyPanelConfig(const QString& panelId, PanelConfig cfg) {
+    Panel* p = panels_.value(panelId, nullptr);
+    if (p == nullptr) {
+        return;
+    }
+    cfg.id = panelId;
+    cfg.geometry = p->config().geometry;  // keep current placement
+    for (const QString& sid : cfg.signalIds) {
+        rememberIntent(sid, cfg);
+    }
+    recreatePanel(panelId, std::move(cfg));
+}
+
+void Dashboard::showPanelConfigDialog(const QString& panelId) {
+    Panel* p = panels_.value(panelId, nullptr);
+    if (p == nullptr) {
+        return;
+    }
+    PanelConfigDialog dialog(p->config(), registry_->signalIds(), this);
+    if (dialog.exec() == QDialog::Accepted) {
+        applyPanelConfig(panelId, dialog.result());
+    }
 }
 
 void Dashboard::showPanelMenu(const QString& panelId) {

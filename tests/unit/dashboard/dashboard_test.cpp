@@ -6,13 +6,20 @@
 #include "buffer/signal_buffer_registry.hpp"
 #include "dashboard/dashboard.hpp"
 #include "dashboard/panel.hpp"
+#include "dashboard/panel_config_dialog.hpp"
 #include "dashboard/panel_types.hpp"
 #include "decode/decoder_interface.hpp"
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QSpinBox>
 #include <QtTest/QSignalSpy>
 #include <catch2/catch_test_macros.hpp>
 
@@ -47,8 +54,12 @@ QApplication& app() {
     static int argc = 1;
     static char arg0[] = "test";
     static char* argv[] = {arg0, nullptr};
-    static QApplication instance(argc, argv);
-    return instance;
+    // Intentionally leaked: destroying QApplication at static-exit runs
+    // qt_call_post_routines(), which segfaults under the xcb platform on
+    // Qt 6.10 once a QDialog (config dialog) has been created. The process is
+    // exiting anyway, so leaking is harmless and avoids the teardown crash.
+    static QApplication* instance = new QApplication(argc, argv);
+    return *instance;
 }
 
 dec::SignalMetadata makeMeta(QString id, dec::SignalType type) {
@@ -140,7 +151,7 @@ TEST_CASE("M24: addBarPanel / addGaugePanel create meter panels", "[dashboard][m
     CHECK(board.panelCount() == 2);
 }
 
-TEST_CASE("M27: panel ⋮ menu changes type, assigns signal, moves, removes", "[dashboard][m27][interaction]") {
+TEST_CASE("M27: panel type/signal changes preserve identity; menu removes", "[dashboard][m27][interaction]") {
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"),
@@ -155,30 +166,18 @@ TEST_CASE("M27: panel ⋮ menu changes type, assigns signal, moves, removes", "[
     REQUIRE(board.panel(p1)->type() == dash::PanelType::Numeric);
     CHECK(board.panelIds() == QStringList{p1, p2});
 
-    // "Show as ▸ Plot" — change the widget type, preserving the signal.
-    {
-        QMenu* m = board.buildPanelMenu(p1);
-        QAction* a = findAction(m, QStringLiteral("Plot"));
-        REQUIRE(a != nullptr);
-        a->trigger();
-        delete m;
-    }
+    // Change the widget type (M32: via the config path), preserving the signal.
+    board.setPanelType(p1, dash::PanelType::Plot);
     REQUIRE(board.panel(p1) != nullptr);
     CHECK(board.panel(p1)->type() == dash::PanelType::Plot);
     CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/temp")));  // signal preserved
 
-    // "Signals ▸ rig/alarm" — assign a second signal to the (multi) plot.
-    {
-        QMenu* m = board.buildPanelMenu(p1);
-        QAction* a = findAction(m, QStringLiteral("rig/alarm"));
-        REQUIRE(a != nullptr);
-        a->trigger();
-        delete m;
-    }
+    // Assign a second signal to the (multi) plot.
+    board.setPanelSignals(p1, {QStringLiteral("rig/temp"), QStringLiteral("rig/alarm")});
     CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/alarm")));
     CHECK(board.panel(p1)->hasSignal(QStringLiteral("rig/temp")));
 
-    // "Remove panel" — remove via the menu.
+    // "Remove panel" — still on the right-click menu.
     {
         QMenu* m = board.buildPanelMenu(p2);
         QAction* a = findAction(m, QStringLiteral("Remove panel"));
@@ -258,7 +257,7 @@ TEST_CASE("M28: a user-placed geometry survives a type change", "[dashboard][m28
     CHECK(fresh->geometry() == kept);
 }
 
-TEST_CASE("M27: single-signal panel's menu reassigns to one signal", "[dashboard][m27][interaction]") {
+TEST_CASE("M32 S3: config dialog reassigns signal and edits format", "[dashboard][m32][interaction]") {
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"),
@@ -268,14 +267,31 @@ TEST_CASE("M27: single-signal panel's menu reassigns to one signal", "[dashboard
                             });
     dash::Dashboard board(reg);
     const QString id = board.addSignal(QStringLiteral("rig/temp"));  // Numeric
-    {
-        QMenu* m = board.buildPanelMenu(id);
-        findAction(m, QStringLiteral("rig/pressure"))->trigger();  // pick a specific signal
-        delete m;
+
+    // Open the dialog, switch the bound signal temp→pressure, make it a Gauge
+    // with an explicit range/unit/decimals, then apply.
+    dash::PanelConfigDialog dlg(board.panel(id)->config(), reg.signalIds());
+    for (int i = 0; i < dlg.signalList()->count(); ++i) {
+        auto* it = dlg.signalList()->item(i);
+        it->setCheckState(it->text() == QStringLiteral("rig/pressure") ? Qt::Checked : Qt::Unchecked);
     }
-    // Single-signal widget: now shows pressure, not temp.
-    CHECK(board.panel(id)->hasSignal(QStringLiteral("rig/pressure")));
-    CHECK_FALSE(board.panel(id)->hasSignal(QStringLiteral("rig/temp")));
+    dlg.typeCombo()->setCurrentIndex(dlg.typeCombo()->findData(static_cast<int>(dash::PanelType::Gauge)));
+    dlg.limitRangeCheck()->setChecked(true);
+    dlg.minSpin()->setValue(0.0);
+    dlg.maxSpin()->setValue(250.0);
+    dlg.unitEdit()->setText(QStringLiteral("kPa"));
+    dlg.decimalsSpin()->setValue(1);
+    board.applyPanelConfig(id, dlg.result());
+
+    auto* p = board.panel(id);
+    REQUIRE(p != nullptr);
+    CHECK(p->type() == dash::PanelType::Gauge);
+    CHECK(p->hasSignal(QStringLiteral("rig/pressure")));
+    CHECK_FALSE(p->hasSignal(QStringLiteral("rig/temp")));
+    CHECK(p->config().rangeMin.value_or(-1) == 0.0);
+    CHECK(p->config().rangeMax.value_or(-1) == 250.0);
+    CHECK(p->config().unitOverride == QStringLiteral("kPa"));
+    CHECK(p->config().decimals == 1);
 }
 
 TEST_CASE("S4: removeSignalEverywhere drops single-signal cards", "[dashboard][s4]") {
@@ -300,14 +316,8 @@ TEST_CASE("M29: re-checking a signal restores its last-chosen widget form", "[da
     const QString id = board.addSignal(QStringLiteral("rig/temp"));
     REQUIRE(board.panel(id)->type() == dash::PanelType::Numeric);
 
-    // User changes it to a Gauge via the ⋮ menu (real UI path).
-    {
-        QMenu* m = board.buildPanelMenu(id);
-        QAction* a = findAction(m, QStringLiteral("Gauge"));
-        REQUIRE(a != nullptr);
-        a->trigger();
-        delete m;
-    }
+    // User changes it to a Gauge (config path).
+    board.setPanelType(id, dash::PanelType::Gauge);
     REQUIRE(board.panel(id)->type() == dash::PanelType::Gauge);
 
     // Uncheck → the widget disappears entirely (report 1).

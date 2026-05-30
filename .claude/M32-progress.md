@@ -16,6 +16,13 @@
 - Visual: `00-empty-launch` re-accepted — now shows app-level onboarding + Connections dock, no Signals
   dock.
 
-## S3 — modal per-panel config dialog  ⏳ (next)
+## S3 — modal per-panel config dialog  ✅
+- New `PanelConfigDialog` (modal): edits type, signals (checkable list), title, value range (min/max),
+  unit override, decimals. Right-click panel → "Configure…" opens it; "Remove panel" stays. Old
+  "Show as ▸ / Signals ▸" submenus removed; `Dashboard::applyPanelConfig` applies the edited config.
+- DEVIATION (logged): owner chose modal over architecture §7.3 #4 (right inspector).
+- Tests updated to the new config path; added a dialog test (reassign signal + Gauge + range/unit/dec).
+  Fixed a qt_call_post_routines xcb teardown crash by leaking the test QApplication (see memory).
+- 704/704 ctest Debug + Release; clang-format clean.
 
 Verified S1+S2: 704/704 ctest Debug + Release; clang-format clean. No frozen interface/schema touched.

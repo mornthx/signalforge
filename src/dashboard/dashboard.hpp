@@ -99,7 +99,10 @@ public:
     void setPanelType(const QString& panelId, PanelType type);
     /// Replace a panel's bound signals (assign specific data to a widget).
     void setPanelSignals(const QString& panelId, const QStringList& signalIds);
-    /// Build the per-panel context menu (Show as / Signals / Remove).
+    /// Apply a fully-edited config (type + signals + format) to a panel,
+    /// preserving its id and geometry. Used by the config dialog and tests.
+    void applyPanelConfig(const QString& panelId, PanelConfig cfg);
+    /// Build the per-panel context menu (Configure… / Remove).
     /// Returned menu is owned by the dashboard; used live and by tests.
     [[nodiscard]] QMenu* buildPanelMenu(const QString& panelId);
 
@@ -128,6 +131,7 @@ private:
     /// directly-overlapped neighbors aside (single-hop, no cascade), and refuse
     /// the whole move if a neighbor cannot be separated within bounds.
     void resolvePanelDrag(const QString& panelId, const QRect& proposed);
+    void showPanelConfigDialog(const QString& panelId);
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     std::unique_ptr<signalforge::chart::TimeAxisManager> timeAxis_;
