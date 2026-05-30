@@ -153,9 +153,10 @@ Pieces:
   live truth at a glance) · session clock · **command palette (⌘K)** · theme toggle · settings. This
   replaces today's jargon status strip *and* the most-used menus with something meaningful and compact.
   (Full menus remain available, but the bar surfaces what's live.)
-- **Left activity rail:** the primary modes, ordered to mirror the data flow — **Connect · Inspect ·
-  Control · Replay** (+ palette/history/settings). Collapsible to icons. The rail answers "where am I";
-  it scales to new modes without tab-cramming.
+- **Left activity rail:** the primary modes, ordered to mirror the data flow. **v1 rail = Connect ·
+  Inspect** (+ palette/settings); **Control** keeps a reserved slot (design-only), **Replay** is frozen
+  (omitted). Collapsible to icons. The rail answers "where am I"; it scales to new modes without
+  tab-cramming.
 - **Inspect = the observation triad grouped as one activity.** Its content opens on a **segmented control
   `[Raw | Parsed | Dashboard]`** (the pipeline *depth*), each with its **own context toolbar** (Raw's
   filter bar; Parsed's filter bar; Dashboard's +widget / time-range / edit-mode — the owner's "+Plot
@@ -209,9 +210,15 @@ via an **extensible widget registry** (§10) — Serial Studio's real strength. 
 the right inspector** (non-modal, live preview) — owner-decided; the M32 modal is retired into the
 inspector. (Lands back on what §7.3 #4 wanted.)
 
-### 7.5 Control (future) & 7.6 Replay (future)
-First-class rail modes (today they're not surfaced). Control = command templates / macros / polling / ACK
-status. Replay = timeline scrubber + speed + bookmarks. Designed-for now, built when scheduled.
+### 7.5 Control (reserved) & 7.6 Replay (FROZEN)
+**Control** = the *command/control path* — sending commands **to** the device (handshake / polling / manual
+dispatch / macros / ACK matching). A distinct core capability (≠ replay control). **Reserved / design-only**
+for this redesign: we keep its rail slot in the design but do not build it now.
+
+**Replay** (session playback: timeline / speed / bookmarks) is **FROZEN** by owner decision (2026-05-30) —
+out of the v1 frame; not surfaced in the rail. Revisit later.
+
+**v1 rail = Connect · Inspect.** (Control's slot is reserved; Replay is omitted.)
 
 ## 8. The visual design system (extend, don't reinvent)
 
@@ -275,12 +282,16 @@ These are the things that make v1.x → v2 cheap instead of another rewrite.
   retire the M32 modal.
 - ✅ **Frame** — the activity-rail frame (§6).
 
-**Still open (please weigh in):**
-1. **Selection scope:** selecting a signal in Parsed → auto-filter Raw to its packets, or only highlight
-   (less disruptive, jump on explicit action)?
-2. **Top bar vs menu bar:** replace the menu bar with the slim top bar + command palette, or keep both?
-3. **Density default:** Wireshark-dense everywhere, or dense tables + airy dashboard (my rec)?
-4. **Scope of this redesign's v1:** how far (Control/Replay built now vs. design-only)?
+**Also settled (owner, 2026-05-30):**
+- ✅ **Selection scope** — highlight everywhere; jump/filter only on an explicit "show source packets"
+  action (no disruptive auto-filter).
+- ✅ **Top bar + menu bar (hybrid)** — slim top bar (live connection · Live/REC · clock · ⌘K) *and* a
+  compact menu bar for discoverability.
+- ✅ **Density** — dense Raw/Parsed tables + breathing-room Dashboard.
+- ✅ **v1 scope** — build **Connect + Inspect** (Raw/Parsed/Dashboard) to parity; **Control reserved**
+  (design-only); **Replay frozen**.
+
+The proposal is now a **settled spec.** Implementation begins at Phase 0 (§12).
 
 ## 12. Phased delivery (right sequence, not cheapest)
 
@@ -296,8 +307,9 @@ A redesign this size ships in coherent phases, each independently green and revi
   inspector. Toolbar relocation (dashboard-local) lands with the frame.
 - **P3 — Raw to Wireshark parity:** dissection tree + hex highlight + colour rules + filter autocomplete.
 - **P4 — Dashboard to Serial-Studio parity:** view/edit mode, widget palette, widget registry, time-range.
-- **P5 — Drill-through:** wire the cross-tier links via the selection model.
-- **P6+ — Control / Replay** as scheduled.
+- **P5 — Drill-through:** wire the cross-tier links via the selection model (Parsed → source packets in
+  Raw; Dashboard → Parsed → Raw).
+- **Control** — reserved (design-only); built when scheduled, in its rail slot. **Replay — frozen.**
 
 (P0 before anything visible is exactly the "not the simplest short-term thing" the owner asked for: it
 front-loads the infrastructure that keeps every later phase small.)
