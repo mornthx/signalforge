@@ -40,14 +40,15 @@ constexpr auto kPrefixQueryUs = QLatin1String("signal_buffer_query_us_");
 constexpr int kDefaultPublishCadence = 100;
 
 /// M25 (C1): also publish when this much *sample-time* has elapsed since the
-/// last publish, so slow signals become visible to readers without waiting
-/// for `kDefaultPublishCadence` samples (a 1 Hz signal would otherwise take
-/// ~100 s). M28: lowered to 100 ms (the cadence-equivalent for the densest LOD test's 1 ms spacing, so no extra
-/// publishes there) so a live plot's newest data reaches the right edge each refresh (a larger interval left a growing
-/// gap between the last published sample and "now"). The publish-COUNT tests
-/// cluster samples microseconds apart, so this never fires for them — they
-/// still publish strictly on the sample cadence.
-constexpr auto kPublishFlushInterval = std::chrono::milliseconds(100);
+/// last publish, so slow signals become visible to readers without waiting for
+/// `kDefaultPublishCadence` samples (a 1 Hz signal would otherwise take ~100 s).
+/// M34 P2: lowered 100 ms → ~16 ms so live readers see new data at ~60 Hz
+/// (data published every push for a 50 Hz signal) — the live plot then advances
+/// smoothly rather than in 100 ms steps. The publish-COUNT tests cluster
+/// samples microseconds apart, so this never fires for them — they still
+/// publish strictly on the sample cadence; the time-flush tests use 250 ms /
+/// 99 µs gaps, well outside this interval.
+constexpr auto kPublishFlushInterval = std::chrono::milliseconds(16);
 
 /// LOD bin sizes per spec §3.4. Three decimation levels above raw.
 constexpr std::uint64_t kLodBinSize1 = 10;
@@ -475,11 +476,14 @@ struct SignalBuffer::TypedBuffer {
             lastPublishTime_ = t;
             publishAnchorValid_ = true;
         }
-        const bool cadenceHit = (++pushesSincePublish_ >= publishCadence_);
+        // M34 P2: the count cadence fires on the ABSOLUTE push count, so the
+        // final batch always publishes even when intermediate time-flushes (the
+        // 16 ms live-smoothness flushes) land in between — the time-flush is
+        // purely additive and no longer resets the count window.
+        const bool cadenceHit = (publishCadence_ > 0 && pushCount_ % static_cast<std::uint64_t>(publishCadence_) == 0);
         const bool timeHit = (t - lastPublishTime_) >= kPublishFlushInterval;
         if (cadenceHit || timeHit) {
             publishSegment();
-            pushesSincePublish_ = 0;
             lastPublishTime_ = t;
             ++publishCount_;
             if (publishesMetric_ != nullptr) {
@@ -636,7 +640,6 @@ protected:
     std::uint64_t pushCount_ = 0;
 
     int publishCadence_ = kDefaultPublishCadence;
-    int pushesSincePublish_ = 0;
     std::uint64_t publishCount_ = 0;
 
     // M25 (C1): time-based publish flush. `lastPublishTime_` is anchored to

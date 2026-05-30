@@ -162,3 +162,16 @@ antialiasing applied to fill/grid/text. Two no-visual-change fixes:
     `queryEnd_` advances.
   - Net: paint work down ~4× (½ cost × ½ frequency). Remaining stutter, if any, is the 100 ms publish
     cadence (data advances in steps) and/or the software compositor — next levers if still janky.
+
+**B-4 — 60 Hz waveform (owner request).** After B-3 the paint is cheap, but 15 Hz still looked choppy. Owner
+asked to try 60 Hz. Bumping the refresh timer alone does nothing — the buffer only published new data to
+readers every 100 ms (so the plot advanced ~10 Hz regardless). Two coupled changes:
+  - **Buffer publish flush 100 ms → 16 ms** so a live 50 Hz signal becomes visible to readers ~per sample
+    (≈50 Hz) — the plot then advances at the data rate, smoothly.
+  - **Count cadence now fires on the ABSOLUTE push count** (`pushCount_ % cadence`), not "samples since
+    last publish". The frequent time-flushes used to reset the count window, so a push-then-stop left the
+    final sub-16 ms batch unpublished (broke 4 LOD tests: 198 vs 200 bins, etc.). Absolute count makes the
+    final batch always publish; the time-flush is now purely additive. Removed the dead
+    `pushesSincePublish_` member. (Writer bench unaffected — it's count-dominated, microseconds apart.)
+  - **Dashboard refresh 15 Hz → 60 Hz**; `skip-repaint` still gates on `queryEnd_`, so it paints at the
+    data rate (~50 Hz), not a fixed 60. 723/723 ctest Debug + Release. Owner evaluating live.
