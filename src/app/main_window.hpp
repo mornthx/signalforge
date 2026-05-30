@@ -13,6 +13,7 @@ class QLabel;
 class QHBoxLayout;
 class QPushButton;
 class QSplitter;
+class QStackedWidget;
 class QTabWidget;
 class QToolButton;
 class QVBoxLayout;
@@ -28,7 +29,6 @@ class DecoderRegistrar;
 }
 namespace signalforge::dashboard {
 class Dashboard;
-class SignalListPanel;
 }  // namespace signalforge::dashboard
 namespace signalforge::inspect {
 class ParsedSignalsView;
@@ -259,6 +259,9 @@ private slots:
     /// Switch the center workspace to the Dashboard tab (used when a panel is
     /// added, so the user/harness sees the result).
     void ensureDashboardVisible();
+    /// Promote a signal from the Parsed tab into a dashboard panel of the named
+    /// type ("numeric"/"state"/"plot"/"bar"/"gauge"), then show the dashboard.
+    void onPromoteSignalToDashboard(const QString& signalId, const QString& typeToken);
     void onLiveToggleChanged(bool live);
     void onTimePresetChanged(int index);
     void refreshStatusBar();
@@ -313,11 +316,11 @@ private:
     // M23 dashboard surface (owns its own TimeAxisManager; the legacy
     // ChartManager/Chart are no longer used by the app).
     signalforge::dashboard::Dashboard* dashboard_ = nullptr;
-    signalforge::dashboard::SignalListPanel* signalListPanel_ = nullptr;
     signalforge::inspect::ParsedSignalsView* parsedView_ = nullptr;
     std::shared_ptr<signalforge::inspect::RawFrameTap> rawFrameTap_;
     signalforge::inspect::RawPacketView* rawPacketView_ = nullptr;
     QTabWidget* workspaceTabs_ = nullptr;
+    QStackedWidget* workspaceStack_ = nullptr;
     QSplitter* centralSplitter_ = nullptr;
     QWidget* chartContainer_ = nullptr;
     QWidget* chartEmptyState_ = nullptr;

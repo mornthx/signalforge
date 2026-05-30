@@ -50,6 +50,10 @@ public:
     /// auto-suggested type for the signal. Returns the hosting panel id.
     QString addSignal(const QString& signalId);
 
+    /// Create a panel of an explicit `type` for `signalId` (records the choice
+    /// as the signal's remembered intent). Used by promote-from-Parsed.
+    QString addSignalAs(const QString& signalId, PanelType type);
+
     /// Add a Plot panel (empty by default; optionally pre-bound to
     /// `signalIds`). The toolbar "+ Plot" uses the empty form.
     QString addPlotPanel(const QStringList& signalIds = {});

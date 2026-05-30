@@ -43,6 +43,18 @@ public:
     /// every row's value + age, then re-apply the active filter.
     void refresh();
 
+Q_SIGNALS:
+    /// Emitted when the user right-clicks a signal row and picks "Add to
+    /// dashboard ▸ <type>". `typeToken` is a `panelTypeName` token
+    /// (numeric/state/plot/bar/gauge). The owner routes it to the dashboard.
+    void addToDashboardRequested(const QString& signalId, const QString& typeToken);
+
+public:
+    /// Build the "Add to dashboard ▸ <type>" menu for `signalId` (owned by the
+    /// caller). Each action emits `addToDashboardRequested`. Used live (on
+    /// right-click) and by interaction tests.
+    [[nodiscard]] class QMenu* buildAddToDashboardMenu(const QString& signalId);
+
     // --- test accessors ---
     [[nodiscard]] int totalRowCount() const;
     [[nodiscard]] int visibleRowCount() const;
@@ -69,6 +81,7 @@ private:
 
     void rebuild(const QStringList& ids);
     void applyFilter();
+    void showRowMenu(const QPoint& pos);
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     QLineEdit* filterEdit_ = nullptr;

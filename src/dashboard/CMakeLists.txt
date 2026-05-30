@@ -13,8 +13,6 @@ add_library(signalforge_dashboard STATIC
     plot_panel.hpp
     dashboard.cpp
     dashboard.hpp
-    signal_list_panel.cpp
-    signal_list_panel.hpp
     table_panel.cpp
     table_panel.hpp
     plot_view.cpp

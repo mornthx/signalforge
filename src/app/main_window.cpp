@@ -10,7 +10,6 @@
 #include "connection/connection_status_widget.hpp"
 #include "dashboard/dashboard.hpp"
 #include "dashboard/plot_view.hpp"
-#include "dashboard/signal_list_panel.hpp"
 #include "decode/decoder_registrar.hpp"
 #include "inspect/parsed_signals_view.hpp"
 #include "inspect/raw_frame_tap.hpp"
@@ -46,6 +45,7 @@
 #include <QScreen>
 #include <QSlider>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QStyle>
 #include <QTabWidget>
@@ -319,26 +319,25 @@ void MainWindow::onAbout() {
 void MainWindow::buildChartUi() {
     centralSplitter_ = new QSplitter(Qt::Horizontal, this);
 
-    // M21: the central area is a Dashboard of heterogeneous panels backed
-    // by the new QPainter PlotView (M23) over a TimeAxisManager the
-    // Dashboard owns. A dashboard-aware SignalListPanel drives it (replaces
-    // the frozen chart::SignalSelector in the UI; that class is untouched).
+    // M21/M32: the Dashboard is one of three workspace tabs. It is composed by
+    // promoting signals from the Parsed tab (M32 dropped the separate signal
+    // picker dock).
     dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_);
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, this,
             &MainWindow::updateEmptyStateVisibility);
 
-    signalListPanel_ = new signalforge::dashboard::SignalListPanel(*signalBufferRegistry_, *dashboard_);
-    connect(signalListPanel_, &signalforge::dashboard::SignalListPanel::signalToggled, this,
-            [this](const QString&, bool) { updateEmptyStateVisibility(); });
-    centralSplitter_->addWidget(signalListPanel_);
-
-    // Right pane: guided empty-state stacked above the dashboard grid.
+    // M32: the dashboard's signal picker is gone — signals are promoted to the
+    // dashboard from the Parsed tab (drill-through). The Dashboard tab content
+    // is just the dashboard surface.
     chartContainer_ = new QWidget;
     chartLayout_ = new QVBoxLayout(chartContainer_);
     chartLayout_->setContentsMargins(0, 0, 0, 0);
     chartLayout_->setSpacing(2);
 
-    chartEmptyState_ = new QFrame(chartContainer_);
+    // M32: the guided onboarding is an app-level state (shown when no
+    // connection exists), not a dashboard-empty detail — mounted in the
+    // workspace stack below.
+    chartEmptyState_ = new QFrame;
     chartEmptyState_->setObjectName(QStringLiteral("chartEmptyState"));
     {
         auto* emptyRoot = new QVBoxLayout(chartEmptyState_);
@@ -347,9 +346,10 @@ void MainWindow::buildChartUi() {
         auto* title = new QLabel(tr("Start a SignalForge workflow"), chartEmptyState_);
         title->setProperty("class", QLatin1String("display"));
         emptyRoot->addWidget(title);
-        auto* caption =
-            new QLabel(tr("Connect a live source and tick signals to build a dashboard, or open an existing replay."),
-                       chartEmptyState_);
+        auto* caption = new QLabel(
+            tr("Connect a live source to inspect raw packets and decoded signals, then build a dashboard from "
+               "them — or open an existing replay."),
+            chartEmptyState_);
         caption->setProperty("class", QLatin1String("caption"));
         caption->setWordWrap(true);
         emptyRoot->addWidget(caption);
@@ -370,35 +370,28 @@ void MainWindow::buildChartUi() {
         connect(emptyOpenSessionButton_, &QPushButton::clicked, this, &MainWindow::onOpenSessionRequested);
         connect(emptyLoadSchemaButton_, &QPushButton::clicked, this, &MainWindow::onAddConnectionRequested);
     }
-    chartLayout_->addWidget(chartEmptyState_, 0);
     chartLayout_->addWidget(dashboard_, 1);
 
-    // M30: the center is a tabbed workspace (architecture §7.1/§7.2). Tier 2
-    // "Parsed" (a live table of every decoded signal) is the default landing
-    // surface; the dashboard (Tier 3) sits on top as its own tab. M31 adds the
-    // Tier 1 "Raw" packet tab to the left of these.
+    // M30/M31: tabbed workspace (architecture §7.1/§7.2), in pipeline order.
+    // Tier 1 Raw → Tier 2 Parsed (default landing) → Tier 3 Dashboard.
     rawPacketView_ = new signalforge::inspect::RawPacketView(*rawFrameTap_);
     parsedView_ = new signalforge::inspect::ParsedSignalsView(*signalBufferRegistry_);
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::addToDashboardRequested, this,
+            &MainWindow::onPromoteSignalToDashboard);
     workspaceTabs_ = new QTabWidget;
     workspaceTabs_->setObjectName(QStringLiteral("workspaceTabs"));
     workspaceTabs_->setDocumentMode(true);
     workspaceTabs_->addTab(rawPacketView_, tr("Raw"));         // Tier 1 (原报文)
     workspaceTabs_->addTab(parsedView_, tr("Parsed"));         // Tier 2 (解析数据)
     workspaceTabs_->addTab(chartContainer_, tr("Dashboard"));  // Tier 3
-    workspaceTabs_->setCurrentWidget(parsedView_);             // land on parsed signals, not the dashboard
-    centralSplitter_->addWidget(workspaceTabs_);
+    workspaceTabs_->setCurrentWidget(parsedView_);
 
-    centralSplitter_->setStretchFactor(0, 1);
-    centralSplitter_->setStretchFactor(1, 4);
-    // Initial split sizes (256 + 1024 = 1280, matching the window's
-    // resize() above). QSplitter's stretch factor only governs *extra*
-    // space distribution on subsequent resizes; initial pane sizes
-    // come from sizeHint(). The chart pane's sizeHint() is dominated
-    // by the QQuickWidget which reports an invalid hint until the
-    // QML scene loads — without explicit setSizes() the chart pane
-    // collapses to ~12 px under offscreen QPA (caught by M14 S1
-    // smoke; see ADR-011 §"Implementation note: splitter sizing").
-    centralSplitter_->setSizes({256, 1024});
+    // M32: app-level center stack — onboarding while nothing is connected, the
+    // workspace tabs once a connection exists.
+    workspaceStack_ = new QStackedWidget;
+    workspaceStack_->addWidget(chartEmptyState_);  // page 0: onboarding
+    workspaceStack_->addWidget(workspaceTabs_);    // page 1: workspace tabs
+    centralSplitter_->addWidget(workspaceStack_);
     setCentralWidget(centralSplitter_);
 
     auto* toolbar = addToolBar(tr("Chart"));
@@ -529,16 +522,10 @@ void MainWindow::buildConnectionUi() {
     connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::configurationSaveStateChanged, this,
             &MainWindow::onConfigurationSaveStateChanged);
 
-    // After loading connections, refresh the SignalSelector tree
-    // so any newly-arriving decoder signals appear in the chart's
-    // selector. Per spec §4.2 we also re-run this on every
-    // connection state change.
+    // M32: on every connection state change, re-evaluate the app-level
+    // onboarding vs. workspace-tabs state.
     connect(connectionManager_.get(), &signalforge::connection::ConnectionManager::connectionStateChanged, this,
-            [this](const QString&, signalforge::connection::Connection::State) {
-                if (signalListPanel_ != nullptr) {
-                    signalListPanel_->refresh();
-                }
-            });
+            [this](const QString&, signalforge::connection::Connection::State) { updateEmptyStateVisibility(); });
 }
 
 void MainWindow::buildThemeUi() {
@@ -575,10 +562,9 @@ void MainWindow::buildThemeUi() {
 
     connect(group, &QActionGroup::triggered, this, &MainWindow::applyThemeFromAction);
 
-    if (connectionList_ != nullptr && signalListPanel_ != nullptr && liveToggle_ != nullptr &&
-        timePresetCombo_ != nullptr && replaySeekSlider_ != nullptr && replaySpeedCombo_ != nullptr) {
-        setTabOrder(connectionList_, signalListPanel_);
-        setTabOrder(signalListPanel_, liveToggle_);
+    if (connectionList_ != nullptr && liveToggle_ != nullptr && timePresetCombo_ != nullptr &&
+        replaySeekSlider_ != nullptr && replaySpeedCombo_ != nullptr) {
+        setTabOrder(connectionList_, liveToggle_);
         setTabOrder(liveToggle_, timePresetCombo_);
         setTabOrder(timePresetCombo_, replaySeekSlider_);
         setTabOrder(replaySeekSlider_, replaySpeedCombo_);
@@ -625,9 +611,6 @@ bool MainWindow::autoSelectSignal(const QString& signalId) {
     // pixel check expects a rendered trace). PlotView renders via QPainter,
     // so grabChartImage captures it.
     const QString panelId = dashboard_->addPlotPanel({signalId});
-    if (signalListPanel_ != nullptr) {
-        signalListPanel_->refresh();
-    }
     updateEmptyStateVisibility();
     ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: autoSelectSignal: '{}' -> plot panel '{}'", signalId.toStdString(), panelId.toStdString());
@@ -639,9 +622,6 @@ bool MainWindow::autoAddDashboardSignal(const QString& signalId) {
         return false;
     }
     const QString panelId = dashboard_->addSignal(signalId);
-    if (signalListPanel_ != nullptr) {
-        signalListPanel_->refresh();
-    }
     updateEmptyStateVisibility();
     ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: autoAddDashboardSignal: '{}' -> panel '{}'", signalId.toStdString(),
@@ -1095,8 +1075,9 @@ bool MainWindow::autoFocusWidgetForVisualTest(const QString& name) {
     QWidget* target = nullptr;
     if (normalized == QStringLiteral("connection_list")) {
         target = connectionList_;
-    } else if (normalized == QStringLiteral("signal_selector") || normalized == QStringLiteral("signal_list")) {
-        target = signalListPanel_;
+    } else if (normalized == QStringLiteral("signal_selector") || normalized == QStringLiteral("signal_list") ||
+               normalized == QStringLiteral("parsed")) {
+        target = parsedView_;  // M32: Parsed tab replaced the signal list
     } else if (normalized == QStringLiteral("live_toggle")) {
         target = liveToggle_;
     } else if (normalized == QStringLiteral("time_preset")) {
@@ -1311,9 +1292,6 @@ void MainWindow::onAddTable() {
         return;
     }
     const QString panelId = dashboard_->addTablePanel(signalBufferRegistry_->signalIds());
-    if (signalListPanel_ != nullptr) {
-        signalListPanel_->refresh();
-    }
     ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added table panel {}", panelId.toStdString());
 }
@@ -1324,9 +1302,6 @@ void MainWindow::onAddBar() {
     }
     const auto ids = signalBufferRegistry_->signalIds();
     const QString panelId = dashboard_->addBarPanel(ids.isEmpty() ? QString() : ids.first());
-    if (signalListPanel_ != nullptr) {
-        signalListPanel_->refresh();
-    }
     ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added bar panel {}", panelId.toStdString());
 }
@@ -1337,22 +1312,32 @@ void MainWindow::onAddGauge() {
     }
     const auto ids = signalBufferRegistry_->signalIds();
     const QString panelId = dashboard_->addGaugePanel(ids.isEmpty() ? QString() : ids.first());
-    if (signalListPanel_ != nullptr) {
-        signalListPanel_->refresh();
-    }
     ensureDashboardVisible();
     SF_LOG_INFO("MainWindow: added gauge panel {}", panelId.toStdString());
 }
 
 void MainWindow::updateEmptyStateVisibility() {
-    if (chartEmptyState_ == nullptr) {
+    if (workspaceStack_ == nullptr) {
         return;
     }
-    // M21: the guided empty-state shows only while the dashboard has no
-    // panels. Once the user ticks a signal or adds a plot, it hides — so
-    // the empty-state and an empty grid never appear together (DR-001).
-    const bool dashboardEmpty = dashboard_ == nullptr || dashboard_->panelCount() == 0;
-    chartEmptyState_->setVisible(dashboardEmpty);
+    // M32: the onboarding is app-level — shown only before the first
+    // connection exists. Once connected (or a connection is configured), the
+    // workspace tabs (Raw/Parsed/Dashboard) take over.
+    const bool noConnection = connectionManager_ == nullptr || connectionManager_->connectionCount() == 0;
+    workspaceStack_->setCurrentWidget(noConnection ? static_cast<QWidget*>(chartEmptyState_)
+                                                   : static_cast<QWidget*>(workspaceTabs_));
+}
+
+void MainWindow::onPromoteSignalToDashboard(const QString& signalId, const QString& typeToken) {
+    if (dashboard_ == nullptr || signalId.isEmpty()) {
+        return;
+    }
+    if (const auto type = signalforge::dashboard::panelTypeFromName(typeToken); type.has_value()) {
+        dashboard_->addSignalAs(signalId, *type);
+    } else {
+        dashboard_->addSignal(signalId);
+    }
+    ensureDashboardVisible();
 }
 
 void MainWindow::onLiveToggleChanged(bool live) {
@@ -1455,9 +1440,6 @@ void MainWindow::refreshStatusBar() {
             bufferBudgetLabel_->setText(text);
             applyLabelClass(bufferBudgetLabel_, cls);
         }
-    }
-    if (signalListPanel_ != nullptr) {
-        signalListPanel_->refresh();
     }
     updateEmptyStateVisibility();
 }

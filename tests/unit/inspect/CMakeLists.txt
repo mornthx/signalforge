@@ -7,6 +7,7 @@ target_link_libraries(parsed_signals_view_test
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
+        Qt6::Test
         signalforge_inspect
         signalforge_buffer
         signalforge_decoder

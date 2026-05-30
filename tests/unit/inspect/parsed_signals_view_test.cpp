@@ -7,8 +7,11 @@
 #include "decode/decoder_interface.hpp"
 #include "inspect/parsed_signals_view.hpp"
 
+#include <QAction>
 #include <QApplication>
 #include <QLineEdit>
+#include <QMenu>
+#include <QtTest/QSignalSpy>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 
@@ -117,4 +120,32 @@ TEST_CASE("M30 S2: an invalid filter is flagged and leaves all rows visible", "[
     view.filterEdit()->setText(QStringLiteral("value =="));  // missing value → parse error
     CHECK_FALSE(view.filterValid());
     CHECK(view.visibleRowCount() == 2);  // invalid filter does not hide anything
+}
+
+TEST_CASE("M32 S1: 'Add to dashboard' menu emits a typed promote request", "[inspect][m32][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double, QStringLiteral("kPa"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+
+    QSignalSpy spy(&view, &insp::ParsedSignalsView::addToDashboardRequested);
+    QMenu* menu = view.buildAddToDashboardMenu(QStringLiteral("rig/pressure"));
+    // Find the "Gauge" action recursively and trigger it.
+    QAction* gauge = nullptr;
+    for (QAction* a : menu->findChildren<QAction*>()) {
+        if (a->text() == QStringLiteral("Gauge")) {
+            gauge = a;
+            break;
+        }
+    }
+    REQUIRE(gauge != nullptr);
+    gauge->trigger();
+    delete menu;
+
+    REQUIRE(spy.count() == 1);
+    const auto args = spy.takeFirst();
+    CHECK(args.at(0).toString() == QStringLiteral("rig/pressure"));
+    CHECK(args.at(1).toString() == QStringLiteral("gauge"));
 }

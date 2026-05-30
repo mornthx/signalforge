@@ -8,11 +8,13 @@
 #include "decode/decoder_interface.hpp"
 
 #include <QAbstractItemView>
+#include <QAction>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -117,6 +119,8 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->horizontalHeader()->setSectionResizeMode(kName, QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(kSource, QHeaderView::ResizeToContents);
+    table_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(table_, &QTableWidget::customContextMenuRequested, this, &ParsedSignalsView::showRowMenu);
     body->addWidget(table_, 1);
 
     layout->addLayout(body, 1);
@@ -253,6 +257,36 @@ void ParsedSignalsView::applyFilter() {
     } else {
         countLabel_->setText(tr("%1 / %2 signals").arg(visible).arg(total));
     }
+}
+
+QMenu* ParsedSignalsView::buildAddToDashboardMenu(const QString& signalId) {
+    auto* menu = new QMenu(this);
+    auto* addMenu = menu->addMenu(tr("Add to dashboard"));
+    struct TypeEntry {
+        QString label;
+        QString token;
+    };
+    const TypeEntry entries[] = {{tr("Numeric"), QStringLiteral("numeric")},
+                                 {tr("State"), QStringLiteral("state")},
+                                 {tr("Plot"), QStringLiteral("plot")},
+                                 {tr("Bar"), QStringLiteral("bar")},
+                                 {tr("Gauge"), QStringLiteral("gauge")}};
+    for (const auto& e : entries) {
+        const QString token = e.token;
+        connect(addMenu->addAction(e.label), &QAction::triggered, this,
+                [this, signalId, token]() { Q_EMIT addToDashboardRequested(signalId, token); });
+    }
+    return menu;
+}
+
+void ParsedSignalsView::showRowMenu(const QPoint& pos) {
+    const int row = table_->rowAt(pos.y());
+    if (row < 0 || row >= static_cast<int>(rows_.size())) {
+        return;
+    }
+    QMenu* menu = buildAddToDashboardMenu(rows_[static_cast<std::size_t>(row)].id);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(table_->viewport()->mapToGlobal(pos));
 }
 
 int ParsedSignalsView::totalRowCount() const {

@@ -171,6 +171,17 @@ QString Dashboard::addSignal(const QString& signalId) {
     return addPanel(std::move(cfg));
 }
 
+QString Dashboard::addSignalAs(const QString& signalId, PanelType type) {
+    if (signalId.isEmpty()) {
+        return {};
+    }
+    PanelConfig cfg;
+    cfg.type = type;
+    cfg.signalIds << signalId;
+    rememberIntent(signalId, cfg);
+    return addPanel(std::move(cfg));
+}
+
 QString Dashboard::addPlotPanel(const QStringList& signalIds) {
     PanelConfig cfg;
     cfg.type = PanelType::Plot;
