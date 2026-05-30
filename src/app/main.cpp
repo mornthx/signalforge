@@ -226,6 +226,9 @@ int main(int argc, char** argv) {
             SF_LOG_ERROR("SignalForge: --auto-no-connect failed for '{}'", fixtureNoConnectPath.toStdString());
         }
     }
+    if (const QString startTab = flagValue(argc, argv, "--start-tab"); !startTab.isEmpty()) {
+        window.showWorkspaceTab(startTab);
+    }
     if (!autoAddChartsArg.isEmpty()) {
         bool ok = false;
         const int extra = autoAddChartsArg.toInt(&ok);

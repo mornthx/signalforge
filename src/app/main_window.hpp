@@ -84,6 +84,11 @@ public:
     /// Returns false if the file is missing or the YAML is malformed.
     [[nodiscard]] bool autoLoadTestFixture(const QString& yamlPath);
 
+    /// Select a workspace tab by name ("raw" / "parsed" / "dashboard").
+    /// No-op for an unknown name. Used by `--start-tab` for inspection and
+    /// per-tier screenshot capture.
+    void showWorkspaceTab(const QString& which);
+
     /// Add `signalId` to the first chart in `chartManager_`. Returns
     /// false if no chart exists or the signal id is empty.
     [[nodiscard]] bool autoSelectSignal(const QString& signalId);

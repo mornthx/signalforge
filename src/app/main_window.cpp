@@ -1279,6 +1279,24 @@ void MainWindow::ensureDashboardVisible() {
     }
 }
 
+void MainWindow::showWorkspaceTab(const QString& which) {
+    if (workspaceTabs_ == nullptr) {
+        return;
+    }
+    const QString w = which.trimmed().toLower();
+    QWidget* target = nullptr;
+    if (w == QLatin1String("raw")) {
+        target = rawPacketView_;
+    } else if (w == QLatin1String("parsed")) {
+        target = parsedView_;
+    } else if (w == QLatin1String("dashboard")) {
+        target = chartContainer_;
+    }
+    if (target != nullptr) {
+        workspaceTabs_->setCurrentWidget(target);
+    }
+}
+
 void MainWindow::onAddChart() {
     if (dashboard_ == nullptr) {
         return;
