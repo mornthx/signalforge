@@ -71,3 +71,39 @@ and the left connection dock are gone.
 - **Connect panel on config-save-failure with 0 connections** shows onboarding (not the empty manager +
   banner); the failure is still surfaced in the status strip. Acceptable IA consequence of onboarding
   living in Connect; revisit if the banner needs prominence.
+
+---
+
+# Phase 2 (P2) — Parsed identity UI (§7.3)
+
+## P2 S1 — swatch + quality badge + on-dashboard marker  ✅
+The Parsed table (Tier 2) becomes a real signal browser. Columns are now: identity swatch + **Name ·
+Quality · Source · Value · Unit · Type · Age · Dashboard**.
+
+- **Identity swatch:** a per-signal colour square (DecorationRole) from the shared `SignalIdentity`
+  palette index resolved against the active theme — the SSOT colour, consistent across views (dashboard
+  unification is later, P4).
+- **Quality badge:** `Good/Stale/Uncertain/Bad` (from `qualityFromAge`, 1.5 s / 5 s thresholds; no data →
+  Bad), coloured green/amber/red per the active theme's status tokens.
+- **"On dashboard" marker** (owner point #2): a "● on" marker per row driven by `Dashboard::showsSignal`,
+  and the **row action flips** — right-click shows *Remove from dashboard* when the signal is already
+  shown, else the *Add to dashboard ▸ <type>* submenu. Removal routes to `removeSignalEverywhere`; markers
+  refresh immediately on `panelsChanged`.
+- **Filterable:** `quality` and `dashboard`/`on_dashboard` are now display-filter fields too (Wireshark
+  direction) — e.g. `quality == bad`, `dashboard == true`.
+- **Architecture:** `ParsedSignalsView` stays in `inspect` and depends on neither the theme nor the
+  dashboard — the app injects three providers (`setSignalColorProvider` / `setQualityColorProvider` /
+  `setDashboardMembershipProvider`). `MainWindow` owns the shared `SignalIdentity` (SSOT). `inspect` now
+  links `workbench` (for `Quality`/`qualityFromAge`).
+- Tests: 2 new interaction cases (swatch consulted + decoration set, quality text, marker reflects
+  membership, both fields filterable; menu Add/Remove flip + remove emission). **722/722 ctest Debug +
+  Release**; clang-format clean.
+- Baselines: the Parsed-showing states recaptured + accepted (new columns render correctly — distinct
+  swatches per signal, quality badges, empty dashboard markers). Widened the recording-status masks for
+  states 27/46 (the activity-rail reflow shifted the runtime recording counter past the old mask edge —
+  status-bar runtime content, unrelated to the table; pending owner review with the rest of the regen).
+
+### Still owed in P2 (next subtasks)
+- **Mini-sparkline** of recent trend per signal (§7.3).
+- **Rate** (Hz) and **last-change** columns; **group-by-driver**.
+- Selecting a row driving the **right inspector** (signal stats) → that's the inspector wiring, **P5**.

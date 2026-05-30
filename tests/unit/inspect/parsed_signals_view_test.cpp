@@ -6,11 +6,16 @@
 #include "buffer/signal_buffer_registry.hpp"
 #include "decode/decoder_interface.hpp"
 #include "inspect/parsed_signals_view.hpp"
+#include "workbench/signal_identity.hpp"
 
 #include <QAction>
 #include <QApplication>
+#include <QColor>
 #include <QLineEdit>
 #include <QMenu>
+#include <QSet>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QtTest/QSignalSpy>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -44,6 +49,20 @@ void pushUntilVisible(buf::SignalBufferRegistry& reg, const QString& id, const d
     for (int i = 0; i < 100; ++i) {
         reg.onSignal(t0 + std::chrono::microseconds(i), id, v);
     }
+}
+
+// Column indices mirror ParsedSignalsView's internal layout (M34 P2).
+constexpr int kColName = 0;
+constexpr int kColQuality = 1;
+constexpr int kColDash = 7;
+
+int rowOf(QTableWidget* table, const QString& id) {
+    for (int r = 0; r < table->rowCount(); ++r) {
+        if (table->item(r, kColName)->data(Qt::UserRole).toString() == id) {
+            return r;
+        }
+    }
+    return -1;
 }
 
 }  // namespace
@@ -148,4 +167,93 @@ TEST_CASE("M32 S1: 'Add to dashboard' menu emits a typed promote request", "[ins
     const auto args = spy.takeFirst();
     CHECK(args.at(0).toString() == QStringLiteral("rig/pressure"));
     CHECK(args.at(1).toString() == QStringLiteral("gauge"));
+}
+
+TEST_CASE("M34 P2: parsed view shows quality, swatch, and the on-dashboard marker", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(
+        QStringLiteral("rig"),
+        {
+            makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double, QStringLiteral("C")),
+            makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double, QStringLiteral("kPa")),
+        });
+    pushUntilVisible(reg, QStringLiteral("rig/temp"), 25.0);
+    pushUntilVisible(reg, QStringLiteral("rig/pressure"), 101.0);
+
+    insp::ParsedSignalsView view(reg);
+    bool colorAsked = false;
+    view.setSignalColorProvider([&colorAsked](const QString&) {
+        colorAsked = true;
+        return QColor(Qt::red);
+    });
+    view.setQualityColorProvider([](signalforge::workbench::Quality) { return QColor(Qt::green); });
+    QSet<QString> onDash{QStringLiteral("rig/temp")};
+    view.setDashboardMembershipProvider([&onDash](const QString& id) { return onDash.contains(id); });
+    view.refresh();
+
+    auto* t = view.table();
+    const int rTemp = rowOf(t, QStringLiteral("rig/temp"));
+    const int rPress = rowOf(t, QStringLiteral("rig/pressure"));
+    REQUIRE(rTemp >= 0);
+    REQUIRE(rPress >= 0);
+
+    // Identity swatch: the provider is consulted and a colour decoration is set.
+    CHECK(colorAsked);
+    CHECK(t->item(rTemp, kColName)->data(Qt::DecorationRole).isValid());
+
+    // Quality: a fresh push reads as "good".
+    CHECK(t->item(rTemp, kColQuality)->text() == QStringLiteral("good"));
+
+    // On-dashboard marker reflects membership.
+    CHECK(t->item(rTemp, kColDash)->text() == QStringLiteral("● on"));
+    CHECK(t->item(rPress, kColDash)->text().isEmpty());
+
+    // Both new fields are filterable (Wireshark-style display filter).
+    view.filterEdit()->setText(QStringLiteral("quality == good"));
+    CHECK(view.visibleRowCount() == 2);
+    view.filterEdit()->setText(QStringLiteral("dashboard == true"));
+    CHECK(view.visibleRowCount() == 1);
+    view.filterEdit()->setText(QString());
+    CHECK(view.visibleRowCount() == 2);
+}
+
+TEST_CASE("M34 P2: the row menu flips between Add and Remove", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double, QStringLiteral("kPa"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+
+    // Not on dashboard → the "Add to dashboard ▸" submenu (no Remove action).
+    {
+        QMenu* menu = view.buildRowMenu(QStringLiteral("rig/pressure"), /*onDashboard=*/false);
+        bool hasRemove = false;
+        bool hasAdd = false;
+        for (QAction* a : menu->findChildren<QAction*>()) {
+            hasRemove = hasRemove || a->text() == QStringLiteral("Remove from dashboard");
+            hasAdd = hasAdd || a->text() == QStringLiteral("Gauge");
+        }
+        CHECK_FALSE(hasRemove);
+        CHECK(hasAdd);
+        delete menu;
+    }
+
+    // On dashboard → a single "Remove from dashboard" action that emits.
+    {
+        QSignalSpy spy(&view, &insp::ParsedSignalsView::removeFromDashboardRequested);
+        QMenu* menu = view.buildRowMenu(QStringLiteral("rig/pressure"), /*onDashboard=*/true);
+        QAction* remove = nullptr;
+        for (QAction* a : menu->findChildren<QAction*>()) {
+            if (a->text() == QStringLiteral("Remove from dashboard")) {
+                remove = a;
+            }
+        }
+        REQUIRE(remove != nullptr);
+        remove->trigger();
+        delete menu;
+        REQUIRE(spy.count() == 1);
+        CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("rig/pressure"));
+    }
 }

@@ -14,6 +14,7 @@ target_link_libraries(signalforge_inspect
         signalforge_buffer
         signalforge_query
         signalforge_pipeline
+        signalforge_workbench
     PRIVATE
         signalforge_observability
 )

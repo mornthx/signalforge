@@ -11,6 +11,7 @@
 #include "dashboard/dashboard.hpp"
 #include "dashboard/plot_view.hpp"
 #include "decode/decoder_registrar.hpp"
+#include "generated_style_tokens.hpp"
 #include "inspect/parsed_signals_view.hpp"
 #include "inspect/raw_frame_tap.hpp"
 #include "inspect/raw_packet_view.hpp"
@@ -22,6 +23,7 @@
 #include "session/session_writer.hpp"
 #include "session/tee_signal_value_sink.hpp"
 #include "workbench/components/segmented_control.hpp"
+#include "workbench/signal_identity.hpp"
 #include "workbench/workbench_frame.hpp"
 
 #include <QAction>
@@ -167,6 +169,67 @@ QString driverTypeName(signalforge::connection::DriverType t) {
         return QStringLiteral("replay");
     }
     return QStringLiteral("unknown");
+}
+
+// M34 P2: resolve a signal-palette index (`color.signal.<i>`) to the active
+// theme's QColor — the swatch colour the Parsed view shows.
+QColor signalPaletteColor(int index) {
+    using signalforge::app::SignalForgeStyle;
+    const int i = ((index % 8) + 8) % 8;
+    namespace tk = signalforge::tokens;
+    const QColor light[] = {tk::light::signal0(), tk::light::signal1(), tk::light::signal2(), tk::light::signal3(),
+                            tk::light::signal4(), tk::light::signal5(), tk::light::signal6(), tk::light::signal7()};
+    const QColor dark[] = {tk::dark::signal0(), tk::dark::signal1(), tk::dark::signal2(), tk::dark::signal3(),
+                           tk::dark::signal4(), tk::dark::signal5(), tk::dark::signal6(), tk::dark::signal7()};
+    const QColor hc[] = {tk::high_contrast::signal0(), tk::high_contrast::signal1(), tk::high_contrast::signal2(),
+                         tk::high_contrast::signal3(), tk::high_contrast::signal4(), tk::high_contrast::signal5(),
+                         tk::high_contrast::signal6(), tk::high_contrast::signal7()};
+    switch (SignalForgeStyle::activeTheme()) {
+    case SignalForgeStyle::Theme::Dark:
+        return dark[i];
+    case SignalForgeStyle::Theme::HighContrast:
+        return hc[i];
+    default:
+        return light[i];
+    }
+}
+
+// M34 P2: resolve a signal quality to the active theme's status colour
+// (good→connected/green, stale+uncertain→connecting/amber, bad→error/red).
+QColor qualityColor(signalforge::workbench::Quality quality) {
+    using signalforge::app::SignalForgeStyle;
+    using Q = signalforge::workbench::Quality;
+    namespace tk = signalforge::tokens;
+    QColor good;
+    QColor warn;
+    QColor bad;
+    switch (SignalForgeStyle::activeTheme()) {
+    case SignalForgeStyle::Theme::Dark:
+        good = tk::dark::statusConnected();
+        warn = tk::dark::statusConnecting();
+        bad = tk::dark::statusError();
+        break;
+    case SignalForgeStyle::Theme::HighContrast:
+        good = tk::high_contrast::statusConnected();
+        warn = tk::high_contrast::statusConnecting();
+        bad = tk::high_contrast::statusError();
+        break;
+    default:
+        good = tk::light::statusConnected();
+        warn = tk::light::statusConnecting();
+        bad = tk::light::statusError();
+        break;
+    }
+    switch (quality) {
+    case Q::Good:
+        return good;
+    case Q::Stale:
+    case Q::Uncertain:
+        return warn;
+    case Q::Bad:
+        return bad;
+    }
+    return good;
 }
 
 }  // namespace
@@ -414,6 +477,22 @@ void MainWindow::buildChartUi() {
     parsedView_ = new signalforge::inspect::ParsedSignalsView(*signalBufferRegistry_);
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::addToDashboardRequested, this,
             &MainWindow::onPromoteSignalToDashboard);
+    // M34 P2: identity + dashboard providers (the view is in `inspect` and must
+    // not depend on the theme or the dashboard — the app injects these).
+    parsedView_->setSignalColorProvider(
+        [this](const QString& id) { return signalPaletteColor(signalIdentity_.colorIndex(id)); });
+    parsedView_->setQualityColorProvider([](signalforge::workbench::Quality q) { return qualityColor(q); });
+    parsedView_->setDashboardMembershipProvider(
+        [this](const QString& id) { return dashboard_ != nullptr && dashboard_->showsSignal(id); });
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::removeFromDashboardRequested, this,
+            [this](const QString& id) {
+                if (dashboard_ != nullptr) {
+                    dashboard_->removeSignalEverywhere(id);
+                }
+            });
+    // Keep the "on dashboard" markers in sync the moment panels change.
+    connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, parsedView_,
+            &signalforge::inspect::ParsedSignalsView::refresh);
 
     // ---- Inspect mode: segmented [Raw | Parsed | Dashboard] over a stack
     // (M34 §6/§7 — the pipeline depth grouped as one activity). -----------

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "workbench/signal_identity.hpp"
+
 #include <QElapsedTimer>
 #include <QImage>
 #include <QMainWindow>
@@ -324,6 +326,7 @@ private:
     std::shared_ptr<signalforge::inspect::RawFrameTap> rawFrameTap_;
     signalforge::inspect::RawPacketView* rawPacketView_ = nullptr;
     // M34 redesign: activity-rail frame replaces the tab/stack workspace.
+    signalforge::workbench::SignalIdentity signalIdentity_;  ///< P2: shared per-signal colour index (SSOT)
     signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;
     signalforge::workbench::SegmentedControl* inspectSegments_ = nullptr;
     QStackedWidget* inspectStack_ = nullptr;    ///< Raw / Parsed / Dashboard views (Inspect mode)

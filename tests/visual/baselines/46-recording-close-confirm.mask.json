@@ -1,13 +1,13 @@
 {
   "regions": [
     {
-      "x": 395,
+      "x": 380,
       "y": 778,
-      "w": 245,
+      "w": 420,
       "h": 22,
-      "rationale": "Recording close-confirm workflow state includes the live recording status-bar counter (elapsed time and byte count). The confirmation dialog is the assertion target; status counter values vary by capture timing and are masked per visual-diff-contract.md Step 3.",
-      "approved_by": "operator@2026-05-25 (M20 close — stable workflow modal coverage with runtime recording counter masked)",
-      "review_at": "When recording status-bar architecture is redesigned or close-confirm visual fixture stops using a live recording."
+      "rationale": "Recording close-confirm workflow state includes the live recording status-bar counter (elapsed time and byte count). The confirmation dialog is the assertion target; the counter values vary by capture timing and are masked per visual-diff-contract.md Step 3. Widened from the original x395/w245 region at M34 P2: the activity-rail redesign reflowed the status-strip cell widths, so the runtime counter now spans x[438-775]; this region (x380..800) covers it with margin.",
+      "approved_by": "claude@2026-05-31 (M34 redesign wholesale baseline regen — pending owner review with the rest of the redesign baseline set)",
+      "review_at": "When the status-bar architecture is redesigned (M34 P5 top-bar connection chip), or the close-confirm fixture stops using a live recording."
     }
   ]
 }

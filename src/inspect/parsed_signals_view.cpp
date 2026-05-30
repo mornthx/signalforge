@@ -9,6 +9,7 @@
 
 #include <QAbstractItemView>
 #include <QAction>
+#include <QBrush>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -20,6 +21,7 @@
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <chrono>
 #include <cmath>
 #include <optional>
 #include <utility>
@@ -30,7 +32,12 @@ namespace {
 
 constexpr int kRefreshIntervalMs = 100;  ///< 10 Hz value/age refresh.
 
-enum Column { kName = 0, kSource, kValue, kUnit, kType, kAge, kColumnCount };
+// Quality freshness thresholds (M34 P2). Fixed for now; a later phase can
+// derive them per-signal from the decoded period.
+constexpr std::chrono::milliseconds kStaleAfter{1500};
+constexpr std::chrono::milliseconds kBadAfter{5000};
+
+enum Column { kName = 0, kQuality, kSource, kValue, kUnit, kType, kAge, kDash, kColumnCount };
 
 QString sourceOf(const QString& signalId) {
     const int slash = signalId.indexOf(QLatin1Char('/'));
@@ -111,14 +118,17 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
 
     table_ = new QTableWidget(this);
     table_->setColumnCount(kColumnCount);
-    table_->setHorizontalHeaderLabels({tr("Name"), tr("Source"), tr("Value"), tr("Unit"), tr("Type"), tr("Age")});
+    table_->setHorizontalHeaderLabels(
+        {tr("Name"), tr("Quality"), tr("Source"), tr("Value"), tr("Unit"), tr("Type"), tr("Age"), tr("Dashboard")});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setAlternatingRowColors(true);
-    table_->horizontalHeader()->setStretchLastSection(true);
+    table_->horizontalHeader()->setStretchLastSection(false);
     table_->horizontalHeader()->setSectionResizeMode(kName, QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(kQuality, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(kSource, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(kDash, QHeaderView::ResizeToContents);
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QTableWidget::customContextMenuRequested, this, &ParsedSignalsView::showRowMenu);
     body->addWidget(table_, 1);
@@ -154,6 +164,18 @@ void ParsedSignalsView::setFilter(const QString& text) {
     applyFilter();
 }
 
+void ParsedSignalsView::setSignalColorProvider(std::function<QColor(const QString&)> provider) {
+    signalColorProvider_ = std::move(provider);
+}
+
+void ParsedSignalsView::setQualityColorProvider(std::function<QColor(signalforge::workbench::Quality)> provider) {
+    qualityColorProvider_ = std::move(provider);
+}
+
+void ParsedSignalsView::setDashboardMembershipProvider(std::function<bool(const QString&)> provider) {
+    dashboardMembershipProvider_ = std::move(provider);
+}
+
 void ParsedSignalsView::rebuild(const QStringList& ids) {
     cachedIds_ = ids;
     rows_.clear();
@@ -178,11 +200,17 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
 
         table_->setItem(row, kName, new QTableWidgetItem(data.name));
         table_->item(row, kName)->setData(Qt::UserRole, id);
+        if (signalColorProvider_) {
+            // A QColor in DecorationRole renders as the signal-identity swatch.
+            table_->item(row, kName)->setData(Qt::DecorationRole, signalColorProvider_(id));
+        }
+        table_->setItem(row, kQuality, new QTableWidgetItem(QStringLiteral("—")));
         table_->setItem(row, kSource, new QTableWidgetItem(data.source));
         table_->setItem(row, kValue, new QTableWidgetItem(QStringLiteral("—")));
         table_->setItem(row, kUnit, new QTableWidgetItem(data.unit));
         table_->setItem(row, kType, new QTableWidgetItem(data.type));
         table_->setItem(row, kAge, new QTableWidgetItem(QStringLiteral("—")));
+        table_->setItem(row, kDash, new QTableWidgetItem(QString()));
 
         rows_.push_back(std::move(data));
         ++row;
@@ -202,16 +230,36 @@ void ParsedSignalsView::refresh() {
         if (buf == nullptr) {
             continue;
         }
+        // Refresh the identity swatch each tick so a runtime theme switch is
+        // reflected (theme changes don't trigger a rebuild).
+        if (signalColorProvider_) {
+            table_->item(row, kName)->setData(Qt::DecorationRole, signalColorProvider_(rows_[r].id));
+        }
+
         const auto latest = buf->queryLatestOne();
+        auto quality = signalforge::workbench::Quality::Bad;  // no data → degraded
         if (latest.has_value()) {
             rows_[r].value = toFieldValue(latest->value);
             table_->item(row, kValue)->setText(signalforge::dashboard::formatValue(latest->value, 3));
             table_->item(row, kAge)->setText(formatAge(latest->age));
+            quality = signalforge::workbench::qualityFromAge(latest->age, kStaleAfter, kBadAfter);
         } else {
             rows_[r].value = QStringLiteral("—");
             table_->item(row, kValue)->setText(QStringLiteral("—"));
             table_->item(row, kAge)->setText(QStringLiteral("—"));
         }
+
+        const QString qLabel = signalforge::workbench::qualityName(quality);
+        rows_[r].quality = qLabel;
+        auto* qItem = table_->item(row, kQuality);
+        qItem->setText(qLabel);
+        if (qualityColorProvider_) {
+            qItem->setForeground(QBrush(qualityColorProvider_(quality)));
+        }
+
+        const bool onDash = dashboardMembershipProvider_ && dashboardMembershipProvider_(rows_[r].id);
+        rows_[r].onDashboard = onDash;
+        table_->item(row, kDash)->setText(onDash ? tr("● on") : QString());
     }
 
     applyFilter();
@@ -240,6 +288,12 @@ void ParsedSignalsView::applyFilter() {
             }
             if (lf == QLatin1String("value")) {
                 return data.value;
+            }
+            if (lf == QLatin1String("quality")) {
+                return signalforge::query::FieldValue(data.quality);
+            }
+            if (lf == QLatin1String("dashboard") || lf == QLatin1String("on_dashboard")) {
+                return signalforge::query::FieldValue(data.onDashboard);
             }
             return std::nullopt;
         };
@@ -279,12 +333,25 @@ QMenu* ParsedSignalsView::buildAddToDashboardMenu(const QString& signalId) {
     return menu;
 }
 
+QMenu* ParsedSignalsView::buildRowMenu(const QString& signalId, bool onDashboard) {
+    // M34 P2: the row action flips — Remove if the signal is already on the
+    // dashboard, otherwise the "Add to dashboard ▸ <type>" submenu.
+    if (!onDashboard) {
+        return buildAddToDashboardMenu(signalId);
+    }
+    auto* menu = new QMenu(this);
+    connect(menu->addAction(tr("Remove from dashboard")), &QAction::triggered, this,
+            [this, signalId]() { Q_EMIT removeFromDashboardRequested(signalId); });
+    return menu;
+}
+
 void ParsedSignalsView::showRowMenu(const QPoint& pos) {
     const int row = table_->rowAt(pos.y());
     if (row < 0 || row >= static_cast<int>(rows_.size())) {
         return;
     }
-    QMenu* menu = buildAddToDashboardMenu(rows_[static_cast<std::size_t>(row)].id);
+    const RowData& rd = rows_[static_cast<std::size_t>(row)];
+    QMenu* menu = buildRowMenu(rd.id, rd.onDashboard);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->popup(table_->viewport()->mapToGlobal(pos));
 }
