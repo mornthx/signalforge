@@ -42,7 +42,10 @@ class RawPacketView;
 namespace signalforge::workbench {
 class WorkbenchFrame;
 class SegmentedControl;
+class InspectorPanel;
 }  // namespace signalforge::workbench
+
+class QTreeWidgetItem;
 namespace signalforge::connection {
 class ConnectionManager;
 class ConnectionListWidget;
@@ -309,6 +312,10 @@ private:
     /// or unloadable schema clears the entry; the Raw view then shows the
     /// raw-bytes-only placeholder for that type's frames.
     void rebuildDissectorForType(const QString& driverType, const QString& decoderSchemaId);
+    /// P5: populate the right inspector from the selected Parsed signal (empty id
+    /// clears it) or the selected Raw dissection-tree field.
+    void onSignalSelectedForInspector(const QString& signalId);
+    void onDissectionFieldSelected(QTreeWidgetItem* item);
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
@@ -340,6 +347,7 @@ private:
     // M34 redesign: activity-rail frame replaces the tab/stack workspace.
     signalforge::workbench::SignalIdentity signalIdentity_;  ///< P2: shared per-signal colour index (SSOT)
     signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;
+    signalforge::workbench::InspectorPanel* inspector_ = nullptr;  ///< P5: right-hand selection details
     signalforge::workbench::SegmentedControl* inspectSegments_ = nullptr;
     QStackedWidget* inspectStack_ = nullptr;    ///< Raw / Parsed / Dashboard views (Inspect mode)
     QStackedWidget* connectStack_ = nullptr;    ///< onboarding ↔ connection manager (Connect mode)

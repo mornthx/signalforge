@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include "app_style.hpp"
+#include "buffer/signal_buffer.hpp"
 #include "buffer/signal_buffer_registry.hpp"
 #include "chart/time_axis_manager.hpp"
 #include "connection/connection.hpp"
@@ -10,6 +11,7 @@
 #include "connection/connection_status_widget.hpp"
 #include "dashboard/dashboard.hpp"
 #include "dashboard/plot_view.hpp"
+#include "dashboard/value_format.hpp"
 #include "decode/decoder_registrar.hpp"
 #include "decode/frame_dissector.hpp"
 #include "decode/schema_validator.hpp"
@@ -24,6 +26,7 @@
 #include "replay/replay_mode_manager.hpp"
 #include "session/session_writer.hpp"
 #include "session/tee_signal_value_sink.hpp"
+#include "workbench/components/inspector_panel.hpp"
 #include "workbench/components/segmented_control.hpp"
 #include "workbench/signal_identity.hpp"
 #include "workbench/workbench_frame.hpp"
@@ -58,7 +61,10 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
+#include <QVector>
 #include <QWindow>
 #include <unordered_map>
 
@@ -563,6 +569,20 @@ void MainWindow::buildChartUi() {
     workbench_->addMode(QStringLiteral("connect"), tr("Connect"), connectStack_);
     workbench_->addMode(QStringLiteral("inspect"), tr("Inspect"), inspectPage);
     setCentralWidget(workbench_);
+
+    // ---- P5: right inspector — details of the current selection ----------
+    // Hidden until the user selects a signal (Parsed) or a dissection field
+    // (Raw); fed directly here (the workbench SelectionModel adopting cross-tier
+    // highlight is a later slice).
+    inspector_ = new signalforge::workbench::InspectorPanel;
+    workbench_->setInspector(inspector_);
+    workbench_->setInspectorVisible(false);
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::signalSelected, this,
+            &MainWindow::onSignalSelectedForInspector);
+    if (rawPacketView_ != nullptr && rawPacketView_->dissectionTree() != nullptr) {
+        connect(rawPacketView_->dissectionTree(), &QTreeWidget::currentItemChanged, this,
+                [this](QTreeWidgetItem* item, QTreeWidgetItem*) { onDissectionFieldSelected(item); });
+    }
 
     fpsLabel_ = new QLabel(tr("Chart idle"));
     fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
@@ -1387,6 +1407,87 @@ void MainWindow::rebuildDissectorForType(const QString& driverType, const QStrin
     }
     if (rawPacketView_ != nullptr) {
         rawPacketView_->redissectCurrent();  // re-dissect the current selection against the new schema
+    }
+}
+
+void MainWindow::onSignalSelectedForInspector(const QString& signalId) {
+    if (inspector_ == nullptr) {
+        return;
+    }
+    if (signalId.isEmpty()) {
+        inspector_->showPlaceholder(tr("Select a signal or packet field to inspect."));
+        if (workbench_ != nullptr) {
+            workbench_->setInspectorVisible(false);
+        }
+        return;
+    }
+    const int slash = signalId.indexOf(QLatin1Char('/'));
+    const QString source = slash > 0 ? signalId.left(slash) : signalId;
+    QString title = slash >= 0 ? signalId.mid(slash + 1) : signalId;
+
+    QVector<signalforge::workbench::InspectorPanel::Row> rows;
+    rows.append({tr("Id"), signalId});
+    rows.append({tr("Source"), source});
+    if (auto* buf = signalBufferRegistry_->bufferFor(signalId); buf != nullptr) {
+        const auto& meta = buf->metadata();
+        if (!meta.name.isEmpty()) {
+            title = meta.name;
+        }
+        const char* typeName = "?";
+        switch (meta.type) {
+        case signalforge::decoder::SignalType::Bool:
+            typeName = "bool";
+            break;
+        case signalforge::decoder::SignalType::Int64:
+            typeName = "int";
+            break;
+        case signalforge::decoder::SignalType::Double:
+            typeName = "double";
+            break;
+        case signalforge::decoder::SignalType::String:
+            typeName = "string";
+            break;
+        }
+        rows.append({tr("Type"), QString::fromLatin1(typeName)});
+        if (!meta.unit.isEmpty()) {
+            rows.append({tr("Unit"), meta.unit});
+        }
+        if (const auto latest = buf->queryLatestOne(); latest.has_value()) {
+            rows.append({tr("Value"), signalforge::dashboard::formatValue(latest->value, 3)});
+            const double ageS = std::chrono::duration<double>(latest->age).count();
+            rows.append({tr("Age"), ageS < 1.0 ? tr("%1 ms").arg(static_cast<int>(ageS * 1000.0))
+                                               : tr("%1 s").arg(ageS, 0, 'f', 1)});
+        } else {
+            rows.append({tr("Value"), QStringLiteral("—")});
+        }
+        if (meta.description.has_value() && !meta.description->isEmpty()) {
+            rows.append({tr("Description"), *meta.description});
+        }
+    }
+    inspector_->showDetails(title, source, rows, signalPaletteColor(signalIdentity_.colorIndex(signalId)));
+    if (workbench_ != nullptr) {
+        workbench_->setInspectorVisible(true);
+    }
+}
+
+void MainWindow::onDissectionFieldSelected(QTreeWidgetItem* item) {
+    if (inspector_ == nullptr || item == nullptr) {
+        return;  // keep the current inspector content on a cleared tree selection
+    }
+    // Raw dissection-tree columns: Field(0) · Value(1) · Type(2) · Bytes(3).
+    QVector<signalforge::workbench::InspectorPanel::Row> rows;
+    if (!item->text(1).isEmpty()) {
+        rows.append({tr("Value"), item->text(1)});
+    }
+    if (!item->text(2).isEmpty()) {
+        rows.append({tr("Type"), item->text(2)});
+    }
+    if (!item->text(3).isEmpty()) {
+        rows.append({tr("Bytes"), item->text(3)});
+    }
+    inspector_->showDetails(item->text(0), tr("Packet field"), rows);
+    if (workbench_ != nullptr) {
+        workbench_->setInspectorVisible(true);
     }
 }
 

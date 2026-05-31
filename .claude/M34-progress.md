@@ -306,3 +306,28 @@ consumer. Revisit only when a plugin/serialization need appears.
 
 ### Still owed
 - **P5** right-inspector/bottom-drawer selection wiring + top-bar connection chip.
+
+---
+
+# Phase 5 (P5) — inspector wiring + selection (§9)
+
+## P5 S1 — right inspector fed by Parsed + Raw selection  ✅
+The frame's right-inspector slot (built empty in S3) now shows the details of the current selection.
+
+- **`InspectorPanel`** (`workbench/components/inspector_panel.{hpp,cpp}`, new): a reusable detail view —
+  swatch + title + subtitle header over a `QFormLayout` of label:value rows, with a centered placeholder
+  when nothing is selected. `showDetails(title, subtitle, rows, accent)` / `showPlaceholder(msg)`. Tracks
+  placeholder state with a bool (not widget `isVisible()`, which is false until the panel itself is shown).
+- **Feeders:** `ParsedSignalsView` emits `signalSelected(id)` on row-selection change (empty = cleared).
+  `MainWindow::onSignalSelectedForInspector` builds signal stats (Id / Source / Type / Unit / Value / Age /
+  Description) + the identity-colour accent and shows the inspector; an empty id hides it. The Raw
+  dissection tree's `currentItemChanged` feeds `onDissectionFieldSelected` → the field's Value / Type / Bytes.
+- Inspector starts **hidden**, shows on selection — so default visual states are unchanged (baselines stay
+  green; selection isn't exercised by the capture harness).
+- Tests: InspectorPanel placeholder↔details↔replace↔placeholder. Build clean; both feeders wired in
+  MainWindow.
+
+**Deferred to later P5 slices:** adopt the existing `workbench::SelectionModel` for **cross-tier highlight**
+(select a Parsed signal → highlight its packets in Raw, drill-through); a **dashboard-panel inspector**
+(select a panel → its config); the **top-bar connection chip** (replace/augment the bottom status strip);
+mode-gating the inspector to Inspect only.

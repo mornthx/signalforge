@@ -84,6 +84,10 @@ Q_SIGNALS:
     /// shown there. The owner routes it to `Dashboard::removeSignalEverywhere`.
     void removeFromDashboardRequested(const QString& signalId);
 
+    /// Emitted when the selected signal row changes (empty id = selection
+    /// cleared). The app routes it to the workbench selection model / inspector.
+    void signalSelected(const QString& signalId);
+
 public:
     /// Build the "Add to dashboard ▸ <type>" menu for `signalId` (owned by the
     /// caller). Each action emits `addToDashboardRequested`. Used live (on

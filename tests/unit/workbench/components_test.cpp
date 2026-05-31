@@ -5,12 +5,14 @@
 
 #include "workbench/components/activity_rail.hpp"
 #include "workbench/components/empty_state.hpp"
+#include "workbench/components/inspector_panel.hpp"
 #include "workbench/components/section_header.hpp"
 #include "workbench/components/segmented_control.hpp"
 #include "workbench/components/status_chip.hpp"
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QColor>
 #include <QPushButton>
 #include <QtTest/QSignalSpy>
 #include <catch2/catch_test_macros.hpp>
@@ -100,4 +102,32 @@ TEST_CASE("M34 S1: empty state holds copy and returns its actions", "[workbench]
     QSignalSpy spy(add, &QPushButton::clicked);
     add->click();
     CHECK(spy.count() == 1);
+}
+
+TEST_CASE("M34 P5: inspector shows details and a placeholder", "[workbench][m34][interaction]") {
+    app();
+    wb::InspectorPanel inspector;
+
+    // Starts on the placeholder (nothing selected).
+    CHECK(inspector.showingPlaceholder());
+    CHECK(inspector.rowCount() == 0);
+
+    inspector.showDetails(QStringLiteral("temperature"), QStringLiteral("udp:rig"),
+                          {{QStringLiteral("Type"), QStringLiteral("double")},
+                           {QStringLiteral("Unit"), QStringLiteral("C")},
+                           {QStringLiteral("Value"), QStringLiteral("23.45")}},
+                          QColor(Qt::red));
+    CHECK_FALSE(inspector.showingPlaceholder());
+    CHECK(inspector.titleText() == QStringLiteral("temperature"));
+    CHECK(inspector.rowCount() == 3);
+
+    // Showing fewer rows replaces (not appends) the prior content.
+    inspector.showDetails(QStringLiteral("status"), QString(), {{QStringLiteral("Value"), QStringLiteral("0x05")}});
+    CHECK(inspector.rowCount() == 1);
+    CHECK(inspector.titleText() == QStringLiteral("status"));
+
+    // Back to the placeholder clears the rows.
+    inspector.showPlaceholder(QStringLiteral("Nothing selected"));
+    CHECK(inspector.showingPlaceholder());
+    CHECK(inspector.rowCount() == 0);
 }

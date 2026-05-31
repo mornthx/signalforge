@@ -199,6 +199,18 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     table_->setItemDelegateForColumn(kTrend, new SparklineDelegate(table_));
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QTableWidget::customContextMenuRequested, this, &ParsedSignalsView::showRowMenu);
+    // Report selection changes to the app (selection model / inspector).
+    connect(table_, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const int row = table_->currentRow();
+        QString id;
+        if (row >= 0 && row < static_cast<int>(tableRowToData_.size())) {
+            const int di = tableRowToData_[static_cast<std::size_t>(row)];
+            if (di >= 0) {
+                id = rows_[static_cast<std::size_t>(di)].id;
+            }
+        }
+        Q_EMIT signalSelected(id);
+    });
     body->addWidget(table_, 1);
 
     layout->addLayout(body, 1);
