@@ -284,6 +284,14 @@ void ParsedSignalsView::setColorOverriddenProvider(std::function<bool(const QStr
     colorOverriddenProvider_ = std::move(provider);
 }
 
+void ParsedSignalsView::setDisplayNameProvider(std::function<QString(const QString&)> provider) {
+    displayNameProvider_ = std::move(provider);
+}
+
+void ParsedSignalsView::invalidateLayout() {
+    layoutDirty_ = true;
+}
+
 void ParsedSignalsView::rebuild(const QStringList& ids) {
     cachedIds_ = ids;
     rows_.clear();
@@ -303,6 +311,12 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
             data.type = typeName(meta.type);
         } else {
             data.name = fieldOf(id);
+        }
+        // A user rename (display-name override) wins over the derived name.
+        if (displayNameProvider_) {
+            if (const QString custom = displayNameProvider_(id); !custom.isEmpty()) {
+                data.name = custom;
+            }
         }
         rows_.push_back(std::move(data));
     }

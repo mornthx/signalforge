@@ -64,6 +64,13 @@ public:
     /// Whether this panel currently hosts `signalId`.
     [[nodiscard]] bool hasSignal(const QString& signalId) const;
 
+    /// Draw a selection accent around the card (the current selection across
+    /// tiers: this panel is selected, or it shows the selected signal).
+    void setHighlighted(bool on);
+    [[nodiscard]] bool isHighlighted() const {
+        return highlighted_;
+    }
+
     /// True if the panel should occupy a full grid row (Plot). Small
     /// cards (Numeric / State) return false. Overridden by `PlotPanel`.
     [[nodiscard]] virtual bool isWide() const {
@@ -137,12 +144,14 @@ protected:
 
     bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
 
     PanelConfig config_;
+    bool highlighted_ = false;  ///< draw a selection accent border
 
 private:
     enum class DragMode { None, Move, Resize };

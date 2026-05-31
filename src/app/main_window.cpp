@@ -50,7 +50,9 @@
 #include <QGroupBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -525,6 +527,7 @@ void MainWindow::buildChartUi() {
     parsedView_->setDashboardMembershipProvider(
         [this](const QString& id) { return dashboard_ != nullptr && dashboard_->showsSignal(id); });
     parsedView_->setColorOverriddenProvider([this](const QString& id) { return signalIdentity_.hasOverride(id); });
+    parsedView_->setDisplayNameProvider([this](const QString& id) { return displayNameOverrides_.value(id); });
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::removeFromDashboardRequested, this,
             [this](const QString& id) {
                 if (dashboard_ != nullptr) {
@@ -606,6 +609,29 @@ void MainWindow::buildChartUi() {
     workbench_->addMode(QStringLiteral("connect"), tr("Connect"), connectStack_);
     workbench_->addMode(QStringLiteral("inspect"), tr("Inspect"), inspectPage);
     setCentralWidget(workbench_);
+    // The inspector belongs to Inspect — leaving for Connect dismisses it (and
+    // drops the selection); it returns on the next selection back in Inspect.
+    connect(workbench_, &signalforge::workbench::WorkbenchFrame::modeChanged, this, [this](const QString& mode) {
+        if (mode != QLatin1String("inspect")) {
+            if (selectionModel_ != nullptr) {
+                selectionModel_->clear();
+            }
+            workbench_->setInspectorVisible(false);
+        }
+    });
+    // Top-bar connection chip: a live, always-visible aggregate of connection
+    // state (self-updates from the manager); clicking it jumps to Connect.
+    auto* topConnectionChip = new signalforge::connection::ConnectionStatusWidget(connectionManager_.get(), this);
+    connect(topConnectionChip, &signalforge::connection::ConnectionStatusWidget::clicked, this, [this]() {
+        // setCurrentMode doesn't emit modeChanged, so the inspector mode-gate
+        // won't fire — dismiss it explicitly when leaving for Connect.
+        if (selectionModel_ != nullptr) {
+            selectionModel_->clear();
+        }
+        workbench_->setInspectorVisible(false);
+        workbench_->setCurrentMode(QStringLiteral("connect"));
+    });
+    workbench_->addTopBarWidget(topConnectionChip);
 
     // ---- P5: right inspector — details of the current selection ----------
     // Hidden until the user selects a signal (Parsed) or a dissection field
@@ -1535,6 +1561,10 @@ void MainWindow::onSignalSelectedForInspector(const QString& signalId) {
         subtitle += QStringLiteral(" · ") + unit;
     }
 
+    if (const QString renamed = displayNameOverrides_.value(signalId); !renamed.isEmpty()) {
+        title = renamed;  // a user rename wins over the metadata / derived name
+    }
+
     QVector<signalforge::workbench::InspectorPanel::Row> rows;
     rows.append({tr("Value"), valueText});
     rows.append({tr("Id"), signalId});
@@ -1547,6 +1577,7 @@ void MainWindow::onSignalSelectedForInspector(const QString& signalId) {
     // surface, not just a readout).
     QVector<signalforge::workbench::InspectorPanel::Action> actions;
     actions.append({tr("Set colour…"), [this, signalId]() { onRecolorRequested(signalId); }});
+    actions.append({tr("Rename…"), [this, signalId]() { onRenameRequested(signalId); }});
     // Add buttons are always available (a signal can carry several card types);
     // Remove appears only once the signal is on the dashboard.
     actions.append(
@@ -1623,10 +1654,17 @@ void MainWindow::onPanelSelectedForInspector(const QString& panelId) {
         }
         minSpin->setValue(cfg.rangeMin.value_or(0.0));
         maxSpin->setValue(cfg.rangeMax.value_or(0.0));
+        auto* unitEdit = new QLineEdit(cfg.unitOverride, form);
+        unitEdit->setPlaceholderText(tr("(signal unit)"));
+        auto* decimalsSpin = new QSpinBox(form);
+        decimalsSpin->setRange(0, 9);
+        decimalsSpin->setValue(cfg.decimals);
         layout->addRow(tr("Range min"), minSpin);
         layout->addRow(tr("Range max"), maxSpin);
-        auto* applyRange = new QPushButton(tr("Apply range"), form);
-        connect(applyRange, &QPushButton::clicked, this, [this, panelId, minSpin, maxSpin]() {
+        layout->addRow(tr("Unit"), unitEdit);
+        layout->addRow(tr("Decimals"), decimalsSpin);
+        auto* apply = new QPushButton(tr("Apply"), form);
+        connect(apply, &QPushButton::clicked, this, [this, panelId, minSpin, maxSpin, unitEdit, decimalsSpin]() {
             auto* p = (dashboard_ != nullptr) ? dashboard_->panel(panelId) : nullptr;
             if (p == nullptr) {
                 return;
@@ -1634,9 +1672,11 @@ void MainWindow::onPanelSelectedForInspector(const QString& panelId) {
             signalforge::dashboard::PanelConfig c = p->config();
             c.rangeMin = minSpin->value();
             c.rangeMax = maxSpin->value();
-            dashboard_->applyPanelConfig(panelId, c);  // re-creates with the new range
+            c.unitOverride = unitEdit->text();
+            c.decimals = decimalsSpin->value();
+            dashboard_->applyPanelConfig(panelId, c);  // re-creates with the new display config
         });
-        layout->addRow(QString(), applyRange);
+        layout->addRow(QString(), apply);
     }
 
     // Card size — applied live (no re-create) via setUserGeometry.
@@ -1689,12 +1729,25 @@ void MainWindow::onSelectionChanged(const signalforge::workbench::Selection& sel
     // The inspector observes the app-wide selection. A signal selection (or its
     // clearing) drives the signal-detail view; other kinds are handled by their
     // own feeders (e.g. Raw dissection fields) until they adopt the model too.
-    if (selection.kind == signalforge::workbench::SelectionKind::Signal) {
+    using signalforge::workbench::SelectionKind;
+    if (selection.kind == SelectionKind::Signal) {
         onSignalSelectedForInspector(selection.id);
-    } else if (selection.kind == signalforge::workbench::SelectionKind::Widget) {
+    } else if (selection.kind == SelectionKind::Widget) {
         onPanelSelectedForInspector(selection.id);
-    } else if (selection.kind == signalforge::workbench::SelectionKind::None) {
+    } else if (selection.kind == SelectionKind::None) {
         onSignalSelectedForInspector(QString());
+    }
+    // Reciprocal cross-tier highlight: accent the dashboard panels for the
+    // current selection (the selected panel, or the panels showing the selected
+    // signal). Cleared for any other / no selection.
+    if (dashboard_ != nullptr) {
+        if (selection.kind == SelectionKind::Signal) {
+            dashboard_->setHighlightedSignal(selection.id);
+        } else if (selection.kind == SelectionKind::Widget) {
+            dashboard_->setSelectedPanel(selection.id);
+        } else {
+            dashboard_->clearHighlights();
+        }
     }
 }
 
@@ -1770,6 +1823,41 @@ void MainWindow::onResetColorRequested(const QString& signalId) {
     if (selectionModel_ != nullptr &&
         selectionModel_->isSelected(signalforge::workbench::SelectionKind::Signal, signalId)) {
         onSignalSelectedForInspector(signalId);
+    }
+}
+
+void MainWindow::onRenameRequested(const QString& signalId) {
+    if (signalId.isEmpty()) {
+        return;
+    }
+    // Seed with the current display name (override, else metadata, else field).
+    QString current = displayNameOverrides_.value(signalId);
+    if (current.isEmpty()) {
+        if (auto* buf = signalBufferRegistry_->bufferFor(signalId); buf != nullptr && !buf->metadata().name.isEmpty()) {
+            current = buf->metadata().name;
+        } else {
+            const int slash = signalId.indexOf(QLatin1Char('/'));
+            current = slash >= 0 ? signalId.mid(slash + 1) : signalId;
+        }
+    }
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Rename signal"), tr("Display name for %1:").arg(signalId),
+                                               QLineEdit::Normal, current, &ok);
+    if (!ok) {
+        return;
+    }
+    if (name.trimmed().isEmpty()) {
+        displayNameOverrides_.remove(signalId);  // empty clears the override
+    } else {
+        displayNameOverrides_.insert(signalId, name.trimmed());
+    }
+    if (parsedView_ != nullptr) {
+        parsedView_->invalidateLayout();  // force a rebuild so the Name column re-renders
+        parsedView_->refresh();
+    }
+    if (selectionModel_ != nullptr &&
+        selectionModel_->isSelected(signalforge::workbench::SelectionKind::Signal, signalId)) {
+        onSignalSelectedForInspector(signalId);  // re-title the inspector
     }
 }
 

@@ -11,6 +11,9 @@
 #include <QEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPainter>
+#include <QPen>
 #include <QResizeEvent>
 #include <QVBoxLayout>
 
@@ -220,6 +223,26 @@ bool Panel::eventFilter(QObject* watched, QEvent* event) {
         break;
     }
     return QFrame::eventFilter(watched, event);
+}
+
+void Panel::setHighlighted(bool on) {
+    if (highlighted_ == on) {
+        return;
+    }
+    highlighted_ = on;
+    update();
+}
+
+void Panel::paintEvent(QPaintEvent* event) {
+    QFrame::paintEvent(event);
+    if (!highlighted_) {
+        return;
+    }
+    // A 2px selection accent inset by 1px so it isn't clipped by the frame edge.
+    QPainter painter(this);
+    QPen pen(palette().color(QPalette::Highlight), 2);
+    painter.setPen(pen);
+    painter.drawRect(rect().adjusted(1, 1, -2, -2));
 }
 
 bool Panel::hasSignal(const QString& signalId) const {

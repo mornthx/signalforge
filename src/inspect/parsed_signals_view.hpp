@@ -55,6 +55,11 @@ public:
     /// every row's value + age, then re-apply the active filter.
     void refresh();
 
+    /// Force the next refresh() to rebuild rows even if the signal set is
+    /// unchanged — e.g. after a display-name override (rename) so the Name
+    /// column re-renders.
+    void invalidateLayout();
+
     /// Toggle grouping the table by driver (source): rows cluster under a
     /// per-driver header row. Off by default (flat list).
     void setGroupByDriver(bool on);
@@ -78,6 +83,10 @@ public:
     /// Report whether a signal has a user colour override (drives the row menu's
     /// "Reset colour" entry).
     void setColorOverriddenProvider(std::function<bool(const QString& signalId)> provider);
+
+    /// Resolve a signal's user display-name override (empty → fall back to the
+    /// metadata name / derived field name). Lets the app rename signals.
+    void setDisplayNameProvider(std::function<QString(const QString& signalId)> provider);
 
 Q_SIGNALS:
     /// Emitted when the user right-clicks a signal row and picks "Add to
@@ -204,6 +213,7 @@ private:
     std::function<QColor(signalforge::workbench::Quality)> qualityColorProvider_;
     std::function<bool(const QString&)> dashboardMembershipProvider_;
     std::function<bool(const QString&)> colorOverriddenProvider_;
+    std::function<QString(const QString&)> displayNameProvider_;
 };
 
 }  // namespace signalforge::inspect

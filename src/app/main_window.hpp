@@ -3,6 +3,7 @@
 #include "workbench/signal_identity.hpp"
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QImage>
 #include <QMainWindow>
 #include <QString>
@@ -337,6 +338,9 @@ private:
     /// (`onResetColorRequested`), then refresh all tiers.
     void onRecolorRequested(const QString& signalId);
     void onResetColorRequested(const QString& signalId);
+    /// P5: rename a signal — set/clear a per-signal display-name override (shown
+    /// in Parsed + the inspector), then refresh.
+    void onRenameRequested(const QString& signalId);
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
@@ -367,6 +371,7 @@ private:
     std::unordered_map<QString, std::shared_ptr<signalforge::decoder::FrameDissector>> dissectors_;
     // M34 redesign: activity-rail frame replaces the tab/stack workspace.
     signalforge::workbench::SignalIdentity signalIdentity_;  ///< P2: shared per-signal colour index (SSOT)
+    QHash<QString, QString> displayNameOverrides_;           ///< P5: signal id → user rename (SSOT)
     signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;
     signalforge::workbench::InspectorPanel* inspector_ = nullptr;       ///< P5: right-hand selection details
     signalforge::workbench::SelectionModel* selectionModel_ = nullptr;  ///< P5: app-wide current selection (backbone)

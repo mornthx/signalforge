@@ -153,6 +153,33 @@ TEST_CASE("M34 P4: Dashboard forwards the identity colour provider to panels", "
     CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::blue));
 }
 
+TEST_CASE("M34 P5: dashboard highlights panels for the current selection", "[dashboard][m34]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double),
+                                                    makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    const QString idA = board.addSignalAs(QStringLiteral("rig/a"), dash::PanelType::Gauge);
+    const QString idB = board.addSignalAs(QStringLiteral("rig/b"), dash::PanelType::Gauge);
+    auto* pA = board.panel(idA);
+    auto* pB = board.panel(idB);
+    REQUIRE(pA != nullptr);
+    REQUIRE(pB != nullptr);
+    CHECK_FALSE(pA->isHighlighted());
+
+    board.setHighlightedSignal(QStringLiteral("rig/a"));  // signal selected → its panel accents
+    CHECK(pA->isHighlighted());
+    CHECK_FALSE(pB->isHighlighted());
+
+    board.setSelectedPanel(idB);  // a panel selected → only it accents
+    CHECK_FALSE(pA->isHighlighted());
+    CHECK(pB->isHighlighted());
+
+    board.clearHighlights();
+    CHECK_FALSE(pA->isHighlighted());
+    CHECK_FALSE(pB->isHighlighted());
+}
+
 TEST_CASE("M34 P5: clicking a panel emits panelSelected", "[dashboard][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;

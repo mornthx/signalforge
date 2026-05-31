@@ -133,6 +133,15 @@ Q_SIGNALS:
     /// its editable properties in the right inspector.
     void panelSelected(const QString& panelId);
 
+public:
+    /// Cross-tier highlight: accent the panel `panelId` (others cleared).
+    void setSelectedPanel(const QString& panelId);
+    /// Cross-tier highlight: accent every panel showing `signalId` (others
+    /// cleared) — e.g. when that signal is selected in the Parsed tier.
+    void setHighlightedSignal(const QString& signalId);
+    /// Clear all selection accents.
+    void clearHighlights();
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;

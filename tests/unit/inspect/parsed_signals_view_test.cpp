@@ -437,6 +437,27 @@ TEST_CASE("M34 P5: drill-through to source packets — row menu + row resolution
     CHECK(view.table()->item(row, kColName)->data(Qt::UserRole).toString() == QStringLiteral("rigB/flow"));
 }
 
+TEST_CASE("M34 P5: a display-name override renames the signal in the table", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    insp::ParsedSignalsView view(reg);
+    QHash<QString, QString> names;
+    view.setDisplayNameProvider([&names](const QString& id) { return names.value(id); });
+    view.refresh();
+
+    int row = rowOf(view.table(), QStringLiteral("rig/temp"));
+    REQUIRE(row >= 0);
+    CHECK(view.table()->item(row, kColName)->text() == QStringLiteral("temp"));  // derived default
+
+    names[QStringLiteral("rig/temp")] = QStringLiteral("Coolant inlet");
+    view.invalidateLayout();
+    view.refresh();
+    row = rowOf(view.table(), QStringLiteral("rig/temp"));
+    CHECK(view.table()->item(row, kColName)->text() == QStringLiteral("Coolant inlet"));  // override wins
+}
+
 TEST_CASE("M34 P5: selectedSignalId reflects the current row", "[inspect][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;

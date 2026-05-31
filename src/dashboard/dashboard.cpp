@@ -418,6 +418,24 @@ void Dashboard::showEvent(QShowEvent* event) {
     relayout();
 }
 
+void Dashboard::setSelectedPanel(const QString& panelId) {
+    for (auto it = panels_.constBegin(); it != panels_.constEnd(); ++it) {
+        it.value()->setHighlighted(it.key() == panelId);
+    }
+}
+
+void Dashboard::setHighlightedSignal(const QString& signalId) {
+    for (Panel* p : panels_) {
+        p->setHighlighted(!signalId.isEmpty() && p->hasSignal(signalId));
+    }
+}
+
+void Dashboard::clearHighlights() {
+    for (Panel* p : panels_) {
+        p->setHighlighted(false);
+    }
+}
+
 int Dashboard::contentBottom() const {
     int maxBottom = 0;
     for (const QString& id : panelOrder_) {
