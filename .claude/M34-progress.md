@@ -357,9 +357,36 @@ the **`workbench::SelectionModel`** (the Phase-0 backbone, until now unused).
   double-click is **not** asserted — it isn't reliably delivered under the headless test platform and `show()`
   trips the xcb teardown crash; the menu path + row-resolution cover the same emission deterministically.)
 
+## P5 S3 — live-check fixes (colour model, drill-through, groups, inspector)  ✅ (`a9c4608`)
+Five issues from the owner's live check:
+
+1. **Drill-through showed no packets.** Root cause: a signal id is `<type>:<connId>/<field>` (the decoder keys
+   signals by the *connection* `driverId`), but a captured frame's `source` is the **sender-stamped**
+   `<type>:<addr>:<port>` (the UDP driver uses `dg.senderAddress():senderPort()`). They share only the
+   transport **type**. Fixed: drill through on `proto == "<type>"` (exact for the common single-connection case;
+   broader only with several connections on one transport — noted in-code).
+2. **Inspector was read-only + duplicated the table.** Now shows only non-redundant detail (full id, live value
+   headline, description; identity in the subtitle) **plus an actions row** — Set colour…, +Plot/+Bar/+Gauge, or
+   Remove. New generic `InspectorPanel::setActions(label, callback)` keeps the component signal-agnostic.
+   (Deferred: rename + range editing — fold into the future dashboard-panel inspector.)
+3 + 5. **Colour now per-DRIVER + per-signal override.** `SignalIdentity` keys its palette index by `driverKeyOf`
+   (the `<driver>/` prefix) so a driver's signals share one colour; an `overrideColor` map holds per-signal
+   picks (right-click ▸ Set colour… / Reset colour). `MainWindow::resolveSignalColor` is the **one** provider
+   shared by Parsed/Dashboard/inspector. Also fixed the real "panels stayed blue" bug: **`recreatePanel` (the
+   panel-edit path) re-made the panel without re-applying the colour provider** — moved the application into the
+   single `makePanel` creation point, so add / reconfigure / type-change all keep colour. (`signal7` = `#d6dae2`
+   grey was the unlucky per-signal index for temperature; per-driver removes that.)
+4. **Collapsible driver groups.** Click a header to hide/show its signals (▾/▸); collapse keeps rows counted as
+   matching so the header + count stay correct. `toggleGroupCollapse` is a slot bound to `cellClicked`.
+
+Tests: SignalIdentity per-driver + override; Parsed Set/Reset-colour menu + collapse toggle; InspectorPanel
+actions; Dashboard reconfigure keeps identity colours. **750/750 ctest Debug + Release, 11/11 visual** (colours
+didn't disturb any baseline), clang-format clean.
+
 ### Still owed (final P5 slices)
 - **Reciprocal highlight**: have Raw/Dashboard *observe* `selectionChanged` to highlight the current signal
   (selection is now centralised; only the observers are missing).
-- **Dashboard-panel inspector** (select a panel → its config in the right inspector).
+- **Dashboard-panel inspector** (select a panel → its config in the right inspector); **inspector rename +
+  range editing** fold in here.
 - **Top-bar connection chip** (replace/augment the bottom status strip).
 - **Mode-gate** the inspector to Inspect only.
