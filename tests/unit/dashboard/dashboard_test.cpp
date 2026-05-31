@@ -153,6 +153,24 @@ TEST_CASE("M34 P4: Dashboard forwards the identity colour provider to panels", "
     CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::blue));
 }
 
+TEST_CASE("M34 P5: the dashboard surface grows to fit panels below the fold", "[dashboard][m34]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double),
+                                                    makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double),
+                                                    makeMeta(QStringLiteral("rig/c"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    board.resize(360, 120);  // a short viewport: stacked cards will overflow it
+
+    board.addSignalAs(QStringLiteral("rig/a"), dash::PanelType::Gauge);
+    board.addSignalAs(QStringLiteral("rig/b"), dash::PanelType::Gauge);
+    board.addSignalAs(QStringLiteral("rig/c"), dash::PanelType::Gauge);
+
+    // The content is taller than the viewport, so the surface (minimumHeight)
+    // grows past it — the scroll area can then reach the cards below the fold.
+    CHECK(board.minimumHeight() > 120);
+}
+
 TEST_CASE("M34 P5: reconfiguring a panel keeps its identity colours", "[dashboard][m34]") {
     app();
     buf::SignalBufferRegistry reg;

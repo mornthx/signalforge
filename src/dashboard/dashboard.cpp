@@ -416,7 +416,29 @@ void Dashboard::showEvent(QShowEvent* event) {
     relayout();
 }
 
+int Dashboard::contentBottom() const {
+    int maxBottom = 0;
+    for (const QString& id : panelOrder_) {
+        if (Panel* p = panels_.value(id, nullptr); p != nullptr) {
+            maxBottom = std::max(maxBottom, p->geometry().bottom());
+        }
+    }
+    return maxBottom;
+}
+
+void Dashboard::updateContentHeight() {
+    constexpr int kPad = 6;
+    const int needed = contentBottom() + kPad;
+    if (needed != minimumHeight()) {
+        setMinimumHeight(needed);  // may re-enter relayout via resizeEvent (guarded)
+    }
+}
+
 void Dashboard::relayout() {
+    if (inRelayout_) {
+        return;  // setMinimumHeight below can re-enter via resizeEvent
+    }
+    inRelayout_ = true;
     // Free-form: panels the user has dragged/resized keep their geometry;
     // everything else flows left-to-right (cards) with Plot/Table on their own
     // full-width row.
@@ -455,6 +477,8 @@ void Dashboard::relayout() {
         x += kCardW + kPad;
         rowH = std::max(rowH, kCardH);
     }
+    inRelayout_ = false;
+    updateContentHeight();  // grow the scroll surface to fit everything
 }
 
 void Dashboard::resolvePanelDrag(const QString& panelId, const QRect& proposed) {
@@ -462,7 +486,11 @@ void Dashboard::resolvePanelDrag(const QString& panelId, const QRect& proposed) 
     if (dragged == nullptr) {
         return;
     }
-    const QSize surface(std::max(width(), 1), std::max(height(), 1));
+    // Relaxed surface: full width, but a tall headroom below the current content
+    // so cards may be dragged past the fold (the scroll surface then grows to
+    // fit). Cards stay within the width — never dragged sideways out of view.
+    constexpr int kDragHeadroom = 400;
+    const QSize surface(std::max(width(), 1), std::max({height(), contentBottom(), 1}) + kDragHeadroom);
     const QRect want = clampToSurface(proposed, surface);
 
     // Push every directly-overlapped neighbor out of `want`, bounded to the
@@ -506,6 +534,7 @@ void Dashboard::resolvePanelDrag(const QString& panelId, const QRect& proposed) 
     for (auto it = moves.constBegin(); it != moves.constEnd(); ++it) {
         panels_.value(it.key())->setUserGeometry(it.value());
     }
+    updateContentHeight();  // a card dragged past the fold grows the scroll surface
 }
 
 }  // namespace signalforge::dashboard

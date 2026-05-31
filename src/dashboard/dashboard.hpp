@@ -135,6 +135,12 @@ protected:
 
 private:
     void relayout();
+    /// Bottom edge (y) of the lowest panel, or 0 when empty — the content height
+    /// the scroll area must accommodate.
+    [[nodiscard]] int contentBottom() const;
+    /// Grow `minimumHeight` to fit every panel so the scroll area can scroll to
+    /// cards placed below the fold.
+    void updateContentHeight();
     [[nodiscard]] QString nextPanelId();
     [[nodiscard]] Panel* makePanel(const PanelConfig& config);
     void recreatePanel(const QString& panelId, PanelConfig newConfig);
@@ -157,6 +163,7 @@ private:
     QHash<QString, PanelConfig> signalIntent_;  ///< signalId -> last widget form (persists across removal).
     int nextPanelSuffix_ = 1;
     SignalColorProvider signalColorProvider_;  ///< P4: identity colours forwarded to panels.
+    bool inRelayout_ = false;                  ///< guards relayout re-entrancy via setMinimumHeight → resizeEvent.
 };
 
 }  // namespace signalforge::dashboard

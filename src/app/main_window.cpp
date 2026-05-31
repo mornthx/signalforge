@@ -54,6 +54,7 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSlider>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -454,7 +455,16 @@ void MainWindow::buildChartUi() {
     connect(addGaugeAction, &QAction::triggered, this, &MainWindow::onAddGauge);
 
     chartLayout_->addWidget(dashToolbar);
-    chartLayout_->addWidget(dashboard_, 1);
+    // Host the free-form dashboard in a vertical scroll area so cards may live
+    // below the fold (the surface grows downward; the viewport scrolls). The
+    // dashboard keeps the viewport width (cards wrap by width, never sideways).
+    auto* dashScroll = new QScrollArea(chartContainer_);
+    dashScroll->setObjectName(QStringLiteral("dashboardScroll"));
+    dashScroll->setWidgetResizable(true);
+    dashScroll->setFrameShape(QFrame::NoFrame);
+    dashScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    dashScroll->setWidget(dashboard_);
+    chartLayout_->addWidget(dashScroll, 1);
 
     // ---- Onboarding empty-state (Connect mode, M34 §7.1) ---------------
     chartEmptyState_ = new QFrame;
