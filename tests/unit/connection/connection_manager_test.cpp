@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QSignalSpy>
 #include <QThread>
+#include <QTemporaryDir>
 #include <QtTest/QtTest>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -197,6 +198,55 @@ TEST_CASE("S3: connectAll / disconnectAll fan out across connections", "[connect
     REQUIRE(waitForState(*m.connection(a), conn::Connection::State::Idle));
     REQUIRE(waitForState(*m.connection(b), conn::Connection::State::Idle));
     REQUIRE(m.connectedCount() == 0);
+}
+
+TEST_CASE("M18: connectStartupConnections only connects opted-in configs",
+          "[connection-manager][m18][lifecycle]") {
+    TestFixture fx;
+    auto& m = fx.manager();
+    auto autoCfg = makeReplayConfig(QStringLiteral("startup-on"));
+    autoCfg.autoConnectOnStartup = true;
+    auto manualCfg = makeReplayConfig(QStringLiteral("startup-off"));
+    manualCfg.autoConnectOnStartup = false;
+
+    const QString autoId = m.addConnection(autoCfg);
+    const QString manualId = m.addConnection(manualCfg);
+    REQUIRE_FALSE(autoId.isEmpty());
+    REQUIRE_FALSE(manualId.isEmpty());
+
+    REQUIRE(m.connectStartupConnections() == 1);
+    REQUIRE(waitForState(*m.connection(autoId), conn::Connection::State::Connected));
+    REQUIRE(m.connection(manualId)->state() == conn::Connection::State::Idle);
+    REQUIRE(m.connectedCount() == 1);
+
+    m.disconnectAll();
+    REQUIRE(waitForState(*m.connection(autoId), conn::Connection::State::Idle));
+}
+
+TEST_CASE("M18: auto-save reports success and failure state", "[connection-manager][m18][persistence]") {
+    TestFixture fx;
+    auto& m = fx.manager();
+    QSignalSpy saveSpy(&m, &conn::ConnectionManager::configurationSaveStateChanged);
+    QTemporaryDir tmp;
+    REQUIRE(tmp.isValid());
+
+    const QString okPath = tmp.filePath(QStringLiteral("connections.yaml"));
+    REQUIRE_FALSE(m.loadConfigFile(okPath));
+    REQUIRE_FALSE(m.addConnection(makeReplayConfig(QStringLiteral("saved"))).isEmpty());
+    REQUIRE(saveSpy.count() == 1);
+    REQUIRE(saveSpy.last().at(0).toBool());
+    REQUIRE(saveSpy.last().at(1).toString() == okPath);
+
+    TestFixture fx2;
+    auto& failing = fx2.manager();
+    QSignalSpy failSpy(&failing, &conn::ConnectionManager::configurationSaveStateChanged);
+    const QString badPath = tmp.filePath(QStringLiteral("missing-dir/connections.yaml"));
+    REQUIRE_FALSE(failing.loadConfigFile(badPath));
+    REQUIRE_FALSE(failing.addConnection(makeReplayConfig(QStringLiteral("unsaved"))).isEmpty());
+    REQUIRE(failSpy.count() == 1);
+    REQUIRE_FALSE(failSpy.last().at(0).toBool());
+    REQUIRE(failSpy.last().at(1).toString() == badPath);
+    REQUIRE(failSpy.last().at(2).toString().contains(QStringLiteral("Could not save")));
 }
 
 TEST_CASE("S3: connectionIds returns insertion order", "[connection-manager][s3][lookup]") {

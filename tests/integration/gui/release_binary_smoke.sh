@@ -268,5 +268,18 @@ else
     echo "             to promote tests/screenshots/m14-s1-smoke.png)"
 fi
 
+# ---- Tier D: clean-exit assertion (M21 C2 regression guard) -----------
+# The binary must not crash on teardown. SIGSEGV (139) / SIGABRT (134)
+# indicates a teardown fault (e.g. the M21 C2 pipeline/connection
+# member-order UAF). Timeout kills (124/137/143) are tolerated — other
+# tiers gate functional behavior; only crash signals fail here.
+if [ "$APP_RC" -eq 139 ] || [ "$APP_RC" -eq 134 ]; then
+    echo "FAIL Tier D: binary crashed on exit (rc=$APP_RC — SIGSEGV/SIGABRT)" >&2
+    echo "--- signalforge.stderr (tail) ---" >&2
+    tail -40 "$RUNDIR/signalforge.stderr" >&2
+    exit 1
+fi
+echo "PASS Tier D: no crash signal on exit (rc=$APP_RC)"
+
 echo "=== M14 S1 smoke PASS (rc=$APP_RC) ==="
 exit 0

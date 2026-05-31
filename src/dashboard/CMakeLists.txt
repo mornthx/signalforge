@@ -1,0 +1,41 @@
+add_library(signalforge_dashboard STATIC
+    panel_types.hpp
+    panel.cpp
+    panel.hpp
+    panel_factory.cpp
+    panel_factory.hpp
+    value_format.hpp
+    numeric_panel.cpp
+    numeric_panel.hpp
+    state_panel.cpp
+    state_panel.hpp
+    plot_panel.cpp
+    plot_panel.hpp
+    dashboard.cpp
+    dashboard.hpp
+    panel_config_dialog.cpp
+    panel_config_dialog.hpp
+    table_panel.cpp
+    table_panel.hpp
+    plot_view.cpp
+    plot_view.hpp
+    meter_view.cpp
+    meter_view.hpp
+    meter_panel.cpp
+    meter_panel.hpp
+)
+set_target_properties(signalforge_dashboard PROPERTIES AUTOMOC ON)
+target_include_directories(signalforge_dashboard PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(signalforge_dashboard
+    PUBLIC
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::Quick
+        Qt6::QuickWidgets
+        signalforge_buffer
+        signalforge_decoder
+        signalforge_chart
+    PRIVATE
+        signalforge_observability
+)

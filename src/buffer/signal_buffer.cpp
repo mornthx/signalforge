@@ -39,6 +39,17 @@ constexpr auto kPrefixQueryUs = QLatin1String("signal_buffer_query_us_");
 /// tuning pass per plan §S4 note.
 constexpr int kDefaultPublishCadence = 100;
 
+/// M25 (C1): also publish when this much *sample-time* has elapsed since the
+/// last publish, so slow signals become visible to readers without waiting for
+/// `kDefaultPublishCadence` samples (a 1 Hz signal would otherwise take ~100 s).
+/// M34 P2: lowered 100 ms → ~16 ms so live readers see new data at ~60 Hz
+/// (data published every push for a 50 Hz signal) — the live plot then advances
+/// smoothly rather than in 100 ms steps. The publish-COUNT tests cluster
+/// samples microseconds apart, so this never fires for them — they still
+/// publish strictly on the sample cadence; the time-flush tests use 250 ms /
+/// 99 µs gaps, well outside this interval.
+constexpr auto kPublishFlushInterval = std::chrono::milliseconds(16);
+
 /// LOD bin sizes per spec §3.4. Three decimation levels above raw.
 constexpr std::uint64_t kLodBinSize1 = 10;
 constexpr std::uint64_t kLodBinSize2 = 100;
@@ -54,12 +65,17 @@ constexpr std::uint64_t kLodBinSize3 = 1000;
 
 }  // namespace
 
-/// LOD aggregate: min/max envelope plus the bin's time bounds.
+/// LOD aggregate: min/max envelope plus the bin's time bounds and the
+/// timestamps at which the min and max samples actually occurred (M34 P2 —
+/// so a query can emit the extremes at their real times and the plot traces
+/// the true envelope instead of a fixed-position sawtooth).
 template <typename T> struct LodBin {
     T min_val;
     T max_val;
     std::chrono::steady_clock::time_point t_start;
     std::chrono::steady_clock::time_point t_end;
+    std::chrono::steady_clock::time_point t_min;
+    std::chrono::steady_clock::time_point t_max;
 };
 
 namespace {
@@ -343,6 +359,36 @@ template <typename T> void accumulateMinMax(T value, T& mn, T& mx, bool& hasValu
     }
 }
 
+/// As `accumulateMinMax`, but also records the INDEX at which each extreme
+/// occurred (M34 P2). The caller reads the two timestamps once after the loop
+/// (not per sample), so the LOD bin can be emitted at the real min/max times —
+/// the plot then traces the true envelope instead of a fixed-position sawtooth.
+template <typename T>
+void accumulateMinMaxIdx(T value, std::size_t idx, T& mn, T& mx, std::size_t& minIdx, std::size_t& maxIdx,
+                         bool& hasValue) {
+    if constexpr (std::is_floating_point_v<T>) {
+        if (std::isnan(value)) {
+            return;
+        }
+    }
+    if (!hasValue) {
+        mn = value;
+        mx = value;
+        minIdx = idx;
+        maxIdx = idx;
+        hasValue = true;
+    } else {
+        if (value < mn) {
+            mn = value;
+            minIdx = idx;
+        }
+        if (value > mx) {
+            mx = value;
+            maxIdx = idx;
+        }
+    }
+}
+
 }  // namespace
 
 /// Internal polymorphic per-variant typed buffer.
@@ -351,8 +397,10 @@ template <typename T> void accumulateMinMax(T value, T& mn, T& mx, bool& hasValu
 /// every variant; derived classes manage the typed value storage.
 struct SignalBuffer::TypedBuffer {
     TypedBuffer(const SignalMetadata& meta, const SignalBufferConfig& cfg)
-        : windowDuration_(toSteadyDuration(cfg.windowSeconds)), capSamples_(cfg.capSamples),
-          estimatedRateHz_(cfg.estimatedRateHz.value_or(1000.0)) {
+        : windowDuration_(toSteadyDuration(cfg.windowSeconds)), capSamples_(cfg.capSamples) {
+        // Note: cfg.estimatedRateHz is no longer consulted — LOD level selection
+        // is count-based as of M34 P2 (see selectLodLevel). The config field is
+        // retained for source/config compatibility.
         auto& reg = MetricsRegistry::instance();
         samplesStoredMetric_ = reg.getOrCreate(kPrefixSamplesStored + meta.id, MetricKind::Counter);
         samplesEvictedMetric_ = reg.getOrCreate(kPrefixSamplesEvicted + meta.id, MetricKind::Counter);
@@ -421,9 +469,22 @@ struct SignalBuffer::TypedBuffer {
         // current state and atomic-store it for readers. Memory-bytes gauge
         // is also updated here (rather than per push) since publish is the
         // natural amortization point for accounting work.
-        if (++pushesSincePublish_ >= publishCadence_) {
+        // Anchor the time-flush window to the first sample so clustered fast
+        // pushes (e.g. tests microseconds apart) still publish on the sample
+        // cadence, not on the very first push.
+        if (!publishAnchorValid_) {
+            lastPublishTime_ = t;
+            publishAnchorValid_ = true;
+        }
+        // M34 P2: the count cadence fires on the ABSOLUTE push count, so the
+        // final batch always publishes even when intermediate time-flushes (the
+        // 16 ms live-smoothness flushes) land in between — the time-flush is
+        // purely additive and no longer resets the count window.
+        const bool cadenceHit = (publishCadence_ > 0 && pushCount_ % static_cast<std::uint64_t>(publishCadence_) == 0);
+        const bool timeHit = (t - lastPublishTime_) >= kPublishFlushInterval;
+        if (cadenceHit || timeHit) {
             publishSegment();
-            pushesSincePublish_ = 0;
+            lastPublishTime_ = t;
             ++publishCount_;
             if (publishesMetric_ != nullptr) {
                 publishesMetric_->add(1);
@@ -492,31 +553,35 @@ protected:
         std::chrono::steady_clock::time_point start_;
     };
 
-    /// LOD level selection per spec §4.5.
-    /// Returns 0 (raw) / 1 / 2 / 3 based on density thresholds.
-    [[nodiscard]] int selectLodLevel(std::chrono::steady_clock::time_point t_start,
-                                     std::chrono::steady_clock::time_point t_end,
-                                     std::size_t target_sample_count) const noexcept {
-        if (target_sample_count == 0) {
+    /// LOD level selection (M6 §4.5, recalibrated at M34 P2).
+    ///
+    /// Choose the FINEST pyramid level whose decimated output still fits the
+    /// caller's budget, from the ACTUAL number of raw samples in the query
+    /// window. Count-based — it does NOT rely on a static rate estimate. The
+    /// prior form derived density from `estimatedRateHz_`, which production never
+    /// populated (it defaulted to 1000 Hz), so any live window selected level 3
+    /// and a multi-second plot collapsed to a handful of min/max bins (the
+    /// "triangle wave" / frozen-plot bug). Bin sizes are 10 / 100 / 1000;
+    /// returns 0 (raw) / 1 / 2 / 3.
+    [[nodiscard]] static int selectLodLevel(std::size_t window_sample_count, std::size_t target_sample_count) noexcept {
+        if (target_sample_count == 0 || window_sample_count == 0) {
             return 0;
         }
-        const auto delta_ns = (t_end - t_start).count();
-        if (delta_ns <= 0) {
-            return 0;
+        // LOD emits 2 points per bin (min @ t_start, max @ t_end), so the output
+        // budget is 2 * target. Pick the finest representation that fits it: raw
+        // when it fits, otherwise the smallest bin whose decimated count
+        // (~2 * window / bin) still fits. Keeps output in [target, 2*target] for
+        // dense data instead of collapsing far below the pixel budget.
+        if (window_sample_count <= 2 * target_sample_count) {
+            return 0;  // raw fits — maximal fidelity
         }
-        const double samples_per_pixel = static_cast<double>(delta_ns) / static_cast<double>(target_sample_count);
-        const double signal_period_ns = 1e9 / estimatedRateHz_;
-        const double effective_density = signal_period_ns / samples_per_pixel;
-        if (effective_density < 0.5) {
-            return 3;
+        if (window_sample_count <= 10 * target_sample_count) {
+            return 1;  // bin 10
         }
-        if (effective_density < 5.0) {
-            return 2;
+        if (window_sample_count <= 100 * target_sample_count) {
+            return 2;  // bin 100
         }
-        if (effective_density < 50.0) {
-            return 1;
-        }
-        return 0;
+        return 3;  // bin 1000
     }
 
 public:
@@ -573,11 +638,15 @@ protected:
     std::size_t capSamples_;
     std::uint64_t totalEvicted_ = 0;
     std::uint64_t pushCount_ = 0;
-    double estimatedRateHz_;
 
     int publishCadence_ = kDefaultPublishCadence;
-    int pushesSincePublish_ = 0;
     std::uint64_t publishCount_ = 0;
+
+    // M25 (C1): time-based publish flush. `lastPublishTime_` is anchored to
+    // the first sample's timestamp (lazily, via `publishAnchorValid_`) so
+    // clustered fast pushes still publish strictly on the sample cadence.
+    std::chrono::steady_clock::time_point lastPublishTime_{};
+    bool publishAnchorValid_ = false;
 };
 
 namespace {
@@ -780,18 +849,20 @@ public:
             return out;
         }
 
-        // Decide whether to use LOD or raw.
+        // Count the raw samples actually in the window — this drives both the
+        // LOD level choice (M34 P2: count-based, not rate-based) and, at level
+        // 0, the raw copy below.
+        const std::size_t lo = snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
+        const std::size_t hi = snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+        const std::size_t windowCount = (hi > lo) ? (hi - lo) : 0;
+
         int level = 0;
         if (lodEnabled_ && target_sample_count > 0) {
-            level = selectLodLevel(t_start, t_end, target_sample_count);
+            level = selectLodLevel(windowCount, target_sample_count);
         }
 
         if (level == 0) {
-            // Raw range: binary search timestamps, copy values across.
-            const std::size_t lo =
-                snapshotLowerBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_start);
-            const std::size_t hi =
-                snapshotUpperBound<std::chrono::steady_clock::time_point>(seg->timestamps, t_end);
+            // Raw range: copy values across [lo, hi).
             if (hi <= lo) {
                 return out;
             }
@@ -802,7 +873,10 @@ public:
             return out;
         }
 
-        // LOD output: 2 SignalSamples per bin (min @ t_start, max @ t_end).
+        // LOD output: 2 SignalSamples per bin — the min and max emitted at the
+        // timestamps where they actually occurred, in chronological order, so a
+        // connected polyline traces the true envelope (M34 P2; fixed-position
+        // min@t_start / max@t_end produced a sawtooth on oscillating signals).
         const auto& binsSnap = (level == 1) ? seg->lod1 : (level == 2) ? seg->lod2 : seg->lod3;
         if (binsSnap.empty()) {
             return out;
@@ -814,8 +888,13 @@ public:
             if (bin.t_end < t_start || bin.t_start > t_end) {
                 continue;
             }
-            out.push_back({bin.t_start, SignalValue{bin.min_val}});
-            out.push_back({bin.t_end, SignalValue{bin.max_val}});
+            if (bin.t_min <= bin.t_max) {
+                out.push_back({bin.t_min, SignalValue{bin.min_val}});
+                out.push_back({bin.t_max, SignalValue{bin.max_val}});
+            } else {
+                out.push_back({bin.t_max, SignalValue{bin.max_val}});
+                out.push_back({bin.t_min, SignalValue{bin.min_val}});
+            }
         }
         return out;
     }
@@ -917,14 +996,22 @@ protected:
                     const std::size_t end = static_cast<std::size_t>((binIdx + 1) * lvl.binSize - E);
                     LodBin<T> entry{};
                     bool hasValue = false;
+                    std::size_t minIdx = start;
+                    std::size_t maxIdx = start;
                     for (std::size_t i = start; i < end; ++i) {
-                        accumulateMinMax<T>(values_.at(i), entry.min_val, entry.max_val, hasValue);
+                        accumulateMinMaxIdx<T>(values_.at(i), i, entry.min_val, entry.max_val, minIdx, maxIdx,
+                                               hasValue);
                     }
                     if (!hasValue) {
                         // All samples in the bin were NaN; emit the first sample's value.
                         entry.min_val = values_.at(start);
                         entry.max_val = values_.at(start);
+                        minIdx = start;
+                        maxIdx = start;
                     }
+                    // Read the two extreme timestamps once (not per sample).
+                    entry.t_min = timestamps_.at(minIdx);
+                    entry.t_max = timestamps_.at(maxIdx);
                     entry.t_start = timestamps_.at(start);
                     entry.t_end = timestamps_.at(end - 1);
                     if (lvl.bins.empty()) {

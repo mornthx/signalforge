@@ -6,6 +6,8 @@ build-*/
 CMakeUserPresets.json
 CMakeCache.txt
 CMakeFiles/
+Testing/
+FETCH_HEAD
 
 # Qt
 *.qmlc
@@ -40,6 +42,10 @@ Thumbs.db
 # tests/visual/baselines/.
 tests/screenshots/
 
+# Benchmark output is produced by local/soak runs; source benchmarks live
+# under tests/benchmark/.
+tests/benchmark/results/
+
 # Python bytecode caches (M15 visual harness)
 __pycache__/
 *.pyc
@@ -48,3 +54,8 @@ __pycache__/
 # fetched via tests/visual/scripts/setup_m16_spike.sh; ephemeral until
 # S4 lands proper resources/fonts/ + Qt resource compile.
 .m16-spike/
+
+# Local operator helpers and dependency caches.
+scripts/fix_codex_sandbox_permissions.sh
+tests/visual/scripts/capture_hardware_rhi_chart.py
+tools/crash_test/_deps/

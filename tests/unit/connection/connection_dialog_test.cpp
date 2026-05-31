@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QGroupBox>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <catch2/catch_test_macros.hpp>
@@ -59,6 +60,12 @@ TEST_CASE("S5: empty dialog is invalid (display name missing)", "[connection][s5
     conn::ConnectionDialog d({});
     REQUIRE_FALSE(d.isValid());
     REQUIRE_FALSE(d.okButton()->isEnabled());
+}
+
+TEST_CASE("M18 UX: new connection dialog defaults to UDP workflow", "[connection][m18][dialog]") {
+    conn::ConnectionDialog d({});
+    REQUIRE(d.config().driverType == conn::DriverType::Udp);
+    REQUIRE(d.stackedWidget()->currentIndex() == static_cast<int>(conn::DriverType::Udp));
 }
 
 TEST_CASE("S5: setConfig + readback round-trips Serial config", "[connection][s5][roundtrip]") {
@@ -180,4 +187,40 @@ TEST_CASE("S5: setConfig pre-fills auto-connect commands; config() reads them ba
     REQUIRE(out.autoConnectCommands[0].payload[2] == '\0');
     REQUIRE(out.autoConnectCommands[0].timeout.count() == 2500);
     REQUIRE(out.autoConnectCommands[0].delayBefore.count() == 100);
+}
+
+TEST_CASE("M18 UX: advanced auto-connect commands are collapsed by default", "[connection][m18][dialog]") {
+    conn::ConnectionDialog d({});
+    REQUIRE(d.advancedCommandsGroup() != nullptr);
+    REQUIRE(d.advancedCommandsGroup()->isCheckable());
+    REQUIRE_FALSE(d.advancedCommandsGroup()->isChecked());
+    REQUIRE(d.advancedCommandsBody() != nullptr);
+    REQUIRE(d.advancedCommandsBody()->isHidden());
+}
+
+TEST_CASE("M18 UX: advanced auto-connect commands expand when config already has commands",
+          "[connection][m18][dialog]") {
+    conn::ConnectionDialog d({});
+    conn::ConnectionConfig in;
+    in.id = QStringLiteral("c1");
+    in.displayName = QStringLiteral("Cmds");
+    in.driverType = conn::DriverType::Tcp;
+    in.driverConfig = dr::TcpConfig{.host = QStringLiteral("h"), .port = 80};
+    conn::AutoConnectCommand cmd;
+    cmd.name = QStringLiteral("init");
+    cmd.payload = QByteArray::fromHex("4142");
+    in.autoConnectCommands.push_back(cmd);
+
+    d.setConfig(in);
+
+    REQUIRE(d.advancedCommandsGroup() != nullptr);
+    REQUIRE(d.advancedCommandsGroup()->isChecked());
+    REQUIRE_FALSE(d.advancedCommandsBody()->isHidden());
+}
+
+TEST_CASE("M18 UX: connection dialog exposes validation button, not a fake test connection action",
+          "[connection][m18][dialog]") {
+    conn::ConnectionDialog d({});
+    REQUIRE(d.validateButton() != nullptr);
+    REQUIRE(d.validateButton()->text() == QStringLiteral("Validate fields"));
 }

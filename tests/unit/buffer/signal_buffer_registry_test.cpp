@@ -136,7 +136,7 @@ TEST_CASE("S7: budget soft-warn at 80% threshold", "[buffer][s7][registry][budge
     const std::int64_t before = warnedMetric->value();
 
     // Per-signal estimate (Double, 1 kHz, 1 s, LOD-enabled):
-    //   1000 samples × (8 value + sizeof(time_point)) × 1.11 LOD-factor.
+    //   1000 samples × (8 value + sizeof(time_point)) × 1.22 LOD-factor.
     // To safely cross 80% (8 MB) we register a count high enough that
     // the resulting estimate covers a 10 MB budget's 80% threshold even
     // when sizeof(time_point) is the smaller 8-byte representation.

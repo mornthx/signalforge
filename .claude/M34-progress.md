@@ -1,0 +1,444 @@
+# M34 — progress (UI redesign Phase 1: the frame)
+
+## S1 — component primitives  ✅
+- `src/workbench/components/` (module now links Qt6::Widgets): the reusable building blocks the frame is
+  composed from —
+  - **ActivityRail** — vertical exclusive mode buttons (Connect/Inspect/…); `addMode`/`setCurrentMode`/
+    `modeSelected`. The signature left-nav.
+  - **StatusChip** — labeled pill with a semantic `state` property for QSS (connection/mode/quality).
+  - **SectionHeader** — title + caption + trailing actions; one header for every surface.
+  - **EmptyState** — title/caption/action buttons; reused for onboarding + per-context empties.
+- Additive, not yet mounted → zero app risk. Tests: 4 cases / 17 assertions; clean xcb teardown
+  (leaked-QApplication pattern). 715/715 ctest Debug + Release; fmt clean.
+
+## S2 — design tokens v2  ✅
+- `tokens.json` v1.1 → **v1.2** (additive): one new semantic colour token **`accent`** — the brand accent
+  for primary actions + active navigation (proposal §8). Aliases `border.focus` per-theme today
+  (light #3b7ddd / dark #7fb2ff / hc #00e5ff); a separate token so a future rebrand is a one-line change.
+  Documented in `_manifesto_refs` + `_notes.v1_2_design_decisions` (mirrors the existing signal/status
+  overlap precedent).
+- `tools/generate_style_assets.py` `gen_qss()` extended with a **Workbench frame** section, generated for
+  all three themes: `#workbenchTopBar`, `#activityRail` + `#railButton` (left-accent on `:checked`),
+  `#segmentButton` (bottom-accent on `:checked`), `#workbenchInspector`, `#workbenchDrawer`, `#statusChip`
+  (rounded pill, `[state=…]`-coloured label), `#emptyState`. objectName-scoped → matches only the new
+  frame; **zero pixel change** to the current app (none of these objectNames are mounted yet).
+- Regenerated all 5 consumers (qss ×3, hpp, py). Gates green: `--validate`, `--check` fresh, `lint_qss`
+  clean, `test_qss_linter` 18/18. **715/715 ctest Debug + Release** (all 11 visual baselines unchanged).
+
+## S3 — WorkbenchFrame shell (rail | content | inspector | drawer)  ✅
+- **SegmentedControl** (`components/segmented_control.{hpp,cpp}`) — horizontal exclusive `#segmentButton`s
+  that switch a sub-view within a mode (Raw / Parsed / Dashboard inside Inspect). Mirrors `ActivityRail`'s
+  API on the horizontal axis: `addSegment`/`setCurrentSegment`/`segmentSelected`.
+- **WorkbenchFrame** (`workbench_frame.{hpp,cpp}`) — the redesigned shell, a pure layout container with no
+  business logic:
+  - top bar (`#workbenchTopBar`): title + trailing chip/action region (`setTitle`, `addTopBarWidget`).
+  - left `ActivityRail` → `QStackedWidget` content; `addMode(id,label,content)`, `setCurrentMode` (silent),
+    `modeChanged` on user click. First mode auto-current; duplicate ids ignored.
+  - right inspector (`#workbenchInspector`) + bottom drawer (`#workbenchDrawer`): `setInspector`/`setDrawer`
+    (content swap, old deleteLater'd) + `set*Visible`; both hidden until shown. Horizontal + vertical
+    `QSplitter`s give resizable content|inspector and middle|drawer with non-collapsible panes.
+- Additive, **not yet mounted** → zero app risk. Tests: frame 4 cases (mode swap + emit, silent set,
+  inspector/drawer show-hide + content, duplicate-id) + SegmentedControl 1 case. **720/720 ctest Debug +
+  Release**; clang-format clean; clean xcb teardown (leaked-QApplication).
+
+## S4 — integrate into MainWindow + regenerate baselines  ✅
+The activity-rail frame is now the application's central widget; the QTabWidget/QStackedWidget workspace
+and the left connection dock are gone.
+
+- **Frame mounted:** `WorkbenchFrame` is the central widget. Rail = **Connect · Inspect** (v1 per §11).
+  - **Connect mode** (§7.1): a `QStackedWidget` — page 0 the onboarding empty-state, page 1 the connection
+    manager (the legacy left `QDockWidget` is dissolved into this mode; `connectionManagerBody_`). No
+    connection → onboarding + park on Connect; first connection → reveal the manager + move to Inspect.
+  - **Inspect mode** (§6/§7): a `SegmentedControl` **[Raw | Parsed | Dashboard]** over a `QStackedWidget`
+    of the existing views, default landing Parsed.
+- **Dashboard toolbar relocated** (§7.4, owner point #1): the +Plot/+Table/+Bar/+Gauge / Live / time-range
+  toolbar moved off the global `addToolBar` into a **dashboard-local toolbar** inside the Dashboard segment
+  page — it only appears with the Dashboard view.
+- **Switch plumbing rewired:** `showWorkspaceTab` / `ensureDashboardVisible` drive the segmented control +
+  force Inspect mode; `updateEmptyStateVisibility` drives the Connect stack + rail mode; the
+  connection-status-strip click and the M19 harness now switch to Connect mode (dock is gone).
+- **Baselines:** all 48 visual states recaptured and accepted wholesale (PNG + env sidecar). Per-theme
+  accent verified (light blue / dark blue / high-contrast cyan). **720/720 ctest Debug + Release**;
+  clang-format clean.
+
+### Deferred (later phases, per proposal §12 — NOT regressions)
+- **Parsed "on dashboard" marker** (§7.3, owner point #2) → **P2**: needs Dashboard→Parsed membership
+  wiring; out of frame-integration scope. Still owed.
+- **Right inspector + bottom drawer** are built into the frame but mounted **empty/hidden** — selection-
+  driven content (packet fields / signal stats / widget config) is **P5** (§9).
+- **Top bar** carries the app title only; the connection chip / clock / palette / settings (§6) are a later
+  refinement — the existing bottom status strip is retained for now (coexists below the frame).
+- **Connect panel on config-save-failure with 0 connections** shows onboarding (not the empty manager +
+  banner); the failure is still surfaced in the status strip. Acceptable IA consequence of onboarding
+  living in Connect; revisit if the banner needs prominence.
+
+---
+
+# Phase 2 (P2) — Parsed identity UI (§7.3)
+
+## P2 S1 — swatch + quality badge + on-dashboard marker  ✅
+The Parsed table (Tier 2) becomes a real signal browser. Columns are now: identity swatch + **Name ·
+Quality · Source · Value · Unit · Type · Age · Dashboard**.
+
+- **Identity swatch:** a per-signal colour square (DecorationRole) from the shared `SignalIdentity`
+  palette index resolved against the active theme — the SSOT colour, consistent across views (dashboard
+  unification is later, P4).
+- **Quality badge:** `Good/Stale/Uncertain/Bad` (from `qualityFromAge`, 1.5 s / 5 s thresholds; no data →
+  Bad), coloured green/amber/red per the active theme's status tokens.
+- **"On dashboard" marker** (owner point #2): a "● on" marker per row driven by `Dashboard::showsSignal`,
+  and the **row action flips** — right-click shows *Remove from dashboard* when the signal is already
+  shown, else the *Add to dashboard ▸ <type>* submenu. Removal routes to `removeSignalEverywhere`; markers
+  refresh immediately on `panelsChanged`.
+- **Filterable:** `quality` and `dashboard`/`on_dashboard` are now display-filter fields too (Wireshark
+  direction) — e.g. `quality == bad`, `dashboard == true`.
+- **Architecture:** `ParsedSignalsView` stays in `inspect` and depends on neither the theme nor the
+  dashboard — the app injects three providers (`setSignalColorProvider` / `setQualityColorProvider` /
+  `setDashboardMembershipProvider`). `MainWindow` owns the shared `SignalIdentity` (SSOT). `inspect` now
+  links `workbench` (for `Quality`/`qualityFromAge`).
+- Tests: 2 new interaction cases (swatch consulted + decoration set, quality text, marker reflects
+  membership, both fields filterable; menu Add/Remove flip + remove emission). **722/722 ctest Debug +
+  Release**; clang-format clean.
+- Baselines: the Parsed-showing states recaptured + accepted (new columns render correctly — distinct
+  swatches per signal, quality badges, empty dashboard markers). Widened the recording-status masks for
+  states 27/46 (the activity-rail reflow shifted the runtime recording counter past the old mask edge —
+  status-bar runtime content, unrelated to the table; pending owner review with the rest of the regen).
+
+## P2 S2 — trend + rate  ✅
+Parsed table gains two §7.3 columns: **Trend** (a mini-sparkline of the last ~48 samples, painted by a
+`SparklineDelegate` from a normalized `QPolygonF` + identity colour stored on the cell) and **Rate** (Hz,
+measured from `queryLatest` timestamps). New layout: Name · Trend · Quality · Source · Value · Unit · Rate ·
+Type · Age · Dashboard. `rate` is now a filterable field too. Test extended (rate populated + sparkline
+polygon built). 724/724 ctest Debug + Release.
+- **Visual baselines:** the animated Parsed view (sparklines + faster 16 ms publish) made 5 live-data states
+  (22/27/33/36/46 — recording/replay/buffer) non-deterministic in the table region. Regenerated the
+  Parsed-showing baselines and **masked the full table** for those 5 (the assertion there is the
+  dialog/status chrome, not the live table) — sanctioned per visual-diff-contract §1 Step 3, stable over 2
+  runs. **Systemic note:** the redesign's live-animated Parsed view is fundamentally at odds with pixel
+  baselines for any state that shows it with flowing data; the real fix is for the harness to seed
+  deterministic/frozen data (or not capture Parsed for those states) — flagged in the mask `review_at`.
+
+### Still owed in P2
+- Selecting a row driving the **right inspector** (signal stats) → inspector wiring, **P5**.
+
+## P2 S3 — last-change column + group-by-driver  ✅
+Closes out the P2 remainder.
+- **Changed column** (after Age): time since the signal's *formatted value last differed* — a stuck signal's
+  Age stays small (still arriving) while Changed grows, surfacing frozen feeds. Tracked per-id in a
+  `changeTracker_` that survives row rebuilds. Filterable as `changed` (seconds), e.g. `changed > 5`.
+- **Group by driver** toggle (header): clusters rows by `source` under a bold, full-width, non-selectable
+  **driver header row**. Needed a table-row↔data-index remap (`RowData.tableRow` + `tableRowToData_`) since
+  header rows break the old 1:1 invariant; `refresh`/`applyFilter`/`showRowMenu`/`visibleRowCount` all route
+  through it, and an empty group's header hides when a filter removes all its rows.
+- Also unified earlier: a signal's **own name is a filter field** (`temperature > 10`, parity with Raw —
+  live-check fix `fa79d6d`), and the stale `source == udp:rig` placeholder replaced.
+- New layout: Name · Trend · Quality · Source · Value · Unit · Rate · Type · Age · **Changed** · Dashboard.
+- Tests: grouping (header rows inserted, signal count unchanged, empty-group header hides, toggle off) +
+  Changed column populated/filterable. Parsed-showing visual baselines regenerated for the new column.
+
+### P2-S3 follow-up — live-check UX refinements  ✅
+Owner-requested after a live UDP session:
+- **Parsed column show/hide:** right-click the table header → a checkable menu per column (Name pinned).
+  `buildColumnMenu()` (testable) + `showHeaderMenu`.
+- **Parsed columns resizable:** header sections switched from Stretch/ResizeToContents to **Interactive**
+  with explicit initial widths + `stretchLastSection` — column borders now drag like the Raw view's.
+- **Raw "Info" → "Data":** the packet-list last column renamed (enum `kInfo`→`kData`, header label).
+- Test: header menu toggles a column's visibility, Name stays pinned. 18 Parsed-showing visual baselines
+  regenerated for the new column widths (deterministic no-data capture — the live stream had to be paused;
+  it contaminated a first regen with transient values, reaffirming the systemic note above). 11/11 visual.
+
+## P2 live-rendering fixes (owner-observed, A + B)  ✅
+Live UDP observation surfaced two rendering bugs:
+
+**A — dashboard jank (my P2 regression).** `ParsedSignalsView`'s 10 Hz refresh did full per-row work even
+while hidden behind the Dashboard segment. Gated the timer tick on `isVisible()` (direct `refresh()` calls
+unaffected) + refresh on `showEvent`. Commit `ac7b38e`.
+
+**B — plot waveform corruption (triangles / freeze / ¼-glitch).** Root cause: `SignalBufferConfig::
+estimatedRateHz` was **never populated in production** → defaulted to **1000 Hz** in `selectLodLevel`, so
+every live window selected LOD level 3 (bin = 1000 samples = 20 s of 50 Hz data). A 1-min plot collapsed to
+~3 min/max bins ("two triangles," frozen ~20 s); short windows flickered as 20 s bins intermittently
+overlapped.
+  - Fix: **count-based LOD selection** — `selectLodLevel(windowSampleCount, target)` picks the finest
+    level whose output (2 pts/bin) fits the `2*target` budget, using the ACTUAL in-window sample count. No
+    rate estimate at all; removed the dead `estimatedRateHz_` member (config field retained for compat).
+  - **Deviation (recorded):** this recalibrates the LOD level-selection thresholds described in
+    `docs/milestones/M6-signal-buffer.md §4.5` (a milestone doc, not `architecture.md`). The old
+    density/rate thresholds are superseded; behaviour is now count-driven. Tests updated:
+    `signal_buffer_query_test` (target 100→200 pts @ L1, target 1000→1000 raw, L3 envelope forced via
+    target 1) and the S9 `test_chart_lod_selection` (full window → L2 ~1200 pts, fills the budget instead
+    of collapsing to ~200).
+  - **Benchmark (perf path, §5.4 #2):** reader `queryRange(60 s/1 kHz, target 2000)` **337 k → ~107 k
+    queries/s**. Intentional: the old path was fast only because LOD 3 returned ~120 points (the bug); the
+    new path returns ~1200 (faithful). Still **10.6× over the ≥10 k/s target**; the live app needs ~120/s.
+  - 722/722 ctest Debug + Release; **no visual-baseline impact** (baselines capture static states, not
+    live waveforms). Plot's empty→raw fallback retained for sparse/recent data.
+
+**B-2 — LOD "sawtooth" after B.** Once B made 1-min windows actually use LOD (level 1), the plot drew a
+sawtooth: the min/max envelope was emitted at fixed positions (min @ `t_start`, max @ `t_end`) regardless
+of where the extremes actually occurred — on falling segments that inverts the two points.
+  - Fix: each `LodBin` now records `t_min`/`t_max` (the timestamps of the min and max samples, tracked by
+    index in the writer's bin builder — read twice per bin, not per sample). `queryRange` emits the two
+    extremes at their real times in chronological order, so a connected polyline traces the true envelope.
+    Test ramps are monotonic so their assertions are unchanged; added a falling-bin test asserting
+    max-before-min ordering. S10 envelope check now takes min/max by value, not position. LOD-memory
+    overhead factor 1.11 → 1.22 (the bin grew ~1.5×); S7 estimate-vs-actual stays within 20%.
+  - **Benchmark:** writer (double) ~9.6 M → ~7.2 M samples/s idle (the larger bin), still ~15× over the
+    ingest target; reader ~117 k q/s. 723/723 ctest Debug + Release.
+
+**Dashboard 30 Hz (`a70232d`).** Owner experiment: panel refresh 15 Hz → 30 Hz to test whether the jank is
+frame-rate-bound. Result: **more** janky → it's per-refresh *work*-bound, not rate-bound. Reverted to 15 Hz.
+
+**B-3 — dashboard jank (measured).** Instrumented `PlotView` under xvfb/software raster:
+`recompute_avg_us ≈ 6` (so the LOD/query change is **not** the cost — B exonerated), `paint_avg_us ≈ 650`
+per plot (≈ **320** with antialiasing off). The cost is the software-raster paint, dominated by global
+antialiasing applied to fill/grid/text. Two no-visual-change fixes:
+  - **Scope AA to the data polyline only** — fill/grid/text/border are axis-aligned, so AA there is wasted;
+    halves per-frame paint (650 → ~320 µs). 723/723 incl. visual (axis-aligned 1 px lines are identical
+    AA-on/off; the trace keeps AA).
+  - **Skip the repaint when the newest sample is unchanged** — live data publishes in ~100 ms bursts, so at
+    15 Hz most ticks re-stroked an identical frame; `PlotView::refresh` now `update()`s only when
+    `queryEnd_` advances.
+  - Net: paint work down ~4× (½ cost × ½ frequency). Remaining stutter, if any, is the 100 ms publish
+    cadence (data advances in steps) and/or the software compositor — next levers if still janky.
+
+**B-4 — 60 Hz waveform (owner request).** After B-3 the paint is cheap, but 15 Hz still looked choppy. Owner
+asked to try 60 Hz. Bumping the refresh timer alone does nothing — the buffer only published new data to
+readers every 100 ms (so the plot advanced ~10 Hz regardless). Two coupled changes:
+  - **Buffer publish flush 100 ms → 16 ms** so a live 50 Hz signal becomes visible to readers ~per sample
+    (≈50 Hz) — the plot then advances at the data rate, smoothly.
+  - **Count cadence now fires on the ABSOLUTE push count** (`pushCount_ % cadence`), not "samples since
+    last publish". The frequent time-flushes used to reset the count window, so a push-then-stop left the
+    final sub-16 ms batch unpublished (broke 4 LOD tests: 198 vs 200 bins, etc.). Absolute count makes the
+    final batch always publish; the time-flush is now purely additive. Removed the dead
+    `pushesSincePublish_` member. (Writer bench unaffected — it's count-dominated, microseconds apart.)
+  - **Dashboard refresh 15 Hz → 60 Hz**; `skip-repaint` still gates on `queryEnd_`, so it paints at the
+    data rate (~50 Hz), not a fixed 60. 723/723 ctest Debug + Release. **Owner confirmed smooth.**
+
+**B-5 — configurable refresh rate (owner request).** The rate is no longer a hard-coded constant:
+`Dashboard::setRefreshRateHz` / `refreshRateHz()` (default 60, clamped [1, 144]) + a **View → Refresh rate**
+menu (15 / 30 / 60 Hz). 724/724 ctest Debug + Release. Future: per-panel rates (video panels will run at
+their own cadence — see [[heterogeneous_frame_rates]] / proposal §10).
+
+---
+
+# Phase 3 (P3) — Raw Wireshark dissection (§7.2)
+
+The Raw tier (原报文) becomes a real packet dissector: packet list → schema-driven dissection tree → hex
+pane with byte-range highlighting + field-level display filter. Deferred from M31 (the M31 Raw view was
+list + hex only).
+
+## P3 S1 — dissection core (`FrameDissector` + shared `field_codec`)  ✅
+- **`decode/field_codec.hpp`** (new, header-only): the byte-reading primitives (`readUnsigned`/`signExtend`/
+  `readFloat32`/`readFloat64`, encoding classifiers, `layoutMatches`) extracted out of `schema_decoder.cpp`'s
+  anonymous namespace into one shared, inline source of truth. **`SchemaDecoder` migrated onto them** (its
+  private `layoutMatches` now delegates) — no public-interface or schema change, so the M5 freeze holds; the
+  point is that the live decode path and the UI dissector can never disagree on how a byte becomes a value.
+- **`decode/frame_dissector.{hpp,cpp}`** (new): `FrameDissector(Schema)` → `dissect(payload)` returns a
+  `Dissection{matched, layoutName, diagnostic, payloadSize, fields[]}` where each `DissectedField` carries
+  `name / byteOffset / byteLength / bitStart / bitCount / rawHex / value / unit / typeLabel / truncated /
+  children`. Bitfields expand into bit-slice children; the magic fingerprint is a synthetic `(magic)` node so
+  every pinned byte is accounted for. **Unlike the decoder it does not bail on a malformed frame** — it
+  dissects every in-bounds field and marks the rest `truncated`, because a short/garbled frame is exactly
+  what the Raw view exists to explain.
+- Tests: 8 cases (per-field byte ranges + decoded values, bitfield children, big-endian + signed
+  sign-extension, float32 + fixed string, multi-layout first-match, unmatched/empty/malformed diagnostics).
+  732/732 ctest Debug + Release; clang-format clean. Commit `bbfd1ab`.
+
+## P3 S2 — dissection tree UI + byte highlighting  ✅
+- **`RawPacketView` → three panes** (list │ dissection tree │ hex, a vertical splitter 4:4:3). Selecting a
+  packet dissects it into a **Field · Value · Type · Bytes** `QTreeWidget` (bitfield children nested, magic
+  node first); selecting a tree node **highlights that field's byte range in both the hex and ASCII columns**
+  of the dump (extra-selection spans recorded as the dump is built) and scrolls it into view.
+- **Decoupled like the Parsed identity**: the app injects a `DissectorProvider` mapping a frame's `source` to
+  its dissector. `MainWindow` builds one `FrameDissector` **per driver type** (the source's `:`-prefix —
+  `udp`/`serial`/… — since a frame's self-reported `source` is `udp:127.0.0.1:port`, not the connection
+  driverId) from the connection's `decoderSchemaId` on connect, mirroring the `DecoderRegistrar`'s per-type,
+  last-config-wins model. With no schema for a source the tree shows a raw-bytes placeholder; the list + hex
+  panes still work (the Raw view never hard-depends on a decoder). `inspect` now links `signalforge_decoder`
+  (PUBLIC, no cycle).
+- Tests: 2 interaction cases (tree built with decoded values + byte-range highlight on field select;
+  placeholder when no dissector). **734/734 ctest Debug + Release, 11/11 visual** — Raw is not a captured
+  default state (landing is Parsed), so **no baseline change**. clang-format clean. Commit `d67914d`.
+
+## P3 S3 — field-level display filter  ✅
+- The Raw filter bar now resolves **dissected field names** in addition to packet metadata: `temperature >
+  20`, `status.alarm == 1`, dotted `parent.child` for bit slices (both `alarm` and `status.alarm` resolve).
+  Values are typed to match `ParsedSignalsView` (bool for true/false, double when numeric, else string).
+- **Lazy**: a filter that only references builtins (`len`, `source`, …) never pays for dissection; the
+  per-row field map is filled on the first non-builtin lookup and reused across the expression. Cost is
+  bounded (~µs/frame × visible rows, only when a field filter is active).
+- Test: filter narrows on a dissected numeric field, combined builtin + field, clear restores. Builtins win
+  on name collisions (documented). 734/734 ctest Debug + Release (non-visual; S3 changes no rendered output).
+  clang-format clean.
+
+### Still owed (later phases, per proposal §12)
+- **P4** Dashboard view/edit + widget registry (+ unify dashboard colours onto `SignalIdentity`).
+- **P5** right-inspector / bottom-drawer selection wiring (frame slots exist but mount empty) + top-bar
+  connection chip. The Raw dissection tree is a natural P5 inspector feeder (select a field → inspector).
+- **P2 remainder**: last-change column, group-by-driver.
+
+---
+
+# Phase 4 (P4) — Dashboard colour unification (§7.4)
+
+## P4 S1 — unify panel colours onto SignalIdentity  ✅
+A signal was a *different* colour in each tier: Parsed used the shared `SignalIdentity` palette, PlotView used
+a local round-robin `kPalette` (reset per plot, unstable), MeterView used one hardcoded fill. P4-S1 routes
+**all** panel colours through the same identity provider, so a signal's plot trace / bar / gauge fill matches
+its Parsed swatch.
+
+- New `SignalColorProvider` alias (`panel_types.hpp`): `std::function<QColor(const QString&)>`. `Panel` gains
+  a virtual `setSignalColorProvider` (no-op; Numeric/State/Table show no colour). **PlotPanel** forwards it to
+  `PlotView::setColorProvider` (resolves new series + re-colours existing ones on re-set — theme-change path);
+  **MeterPanel** forwards the bound signal's colour to `MeterView::setColor` (applied on set + each refresh).
+- `Dashboard::setSignalColorProvider` stores + forwards to every current/future panel. **MainWindow injects
+  the same lambda it gives ParsedSignalsView** (`signalPaletteColor(signalIdentity_.colorIndex(id))`), so the
+  SSOT is shared — no new dashboard→workbench/theme dependency (colour is injected, like the Parsed view).
+- Fallbacks preserved: no provider → PlotView's round-robin, MeterView's default accent.
+- Tests: PlotView resolves + re-colours via provider; Dashboard forwards to a plot panel (new + on re-set).
+  **Zero visual-baseline impact** (the identity palette matches the old plot colours; 11/11 visual unchanged).
+  728+/... ctest Debug + Release; clang-format clean.
+
+**Deliberately NOT done (avoided over-abstraction):** a standalone panel "widget registry" / factory class —
+the existing `makePanel()` switch + `PanelConfig` + `PanelConfigDialog` (type/signals/range/unit/decimals) +
+free-form drag/resize already cover add/configure/remove, so a registry would be abstraction before a second
+consumer. Revisit only when a plugin/serialization need appears.
+
+### Still owed
+- **P5** right-inspector/bottom-drawer selection wiring + top-bar connection chip.
+
+---
+
+# Phase 5 (P5) — inspector wiring + selection (§9)
+
+## P5 S1 — right inspector fed by Parsed + Raw selection  ✅
+The frame's right-inspector slot (built empty in S3) now shows the details of the current selection.
+
+- **`InspectorPanel`** (`workbench/components/inspector_panel.{hpp,cpp}`, new): a reusable detail view —
+  swatch + title + subtitle header over a `QFormLayout` of label:value rows, with a centered placeholder
+  when nothing is selected. `showDetails(title, subtitle, rows, accent)` / `showPlaceholder(msg)`. Tracks
+  placeholder state with a bool (not widget `isVisible()`, which is false until the panel itself is shown).
+- **Feeders:** `ParsedSignalsView` emits `signalSelected(id)` on row-selection change (empty = cleared).
+  `MainWindow::onSignalSelectedForInspector` builds signal stats (Id / Source / Type / Unit / Value / Age /
+  Description) + the identity-colour accent and shows the inspector; an empty id hides it. The Raw
+  dissection tree's `currentItemChanged` feeds `onDissectionFieldSelected` → the field's Value / Type / Bytes.
+- Inspector starts **hidden**, shows on selection — so default visual states are unchanged (baselines stay
+  green; selection isn't exercised by the capture harness).
+- Tests: InspectorPanel placeholder↔details↔replace↔placeholder. Build clean; both feeders wired in
+  MainWindow.
+
+**Deferred to later P5 slices:** adopt the existing `workbench::SelectionModel` for **cross-tier highlight**
+(select a Parsed signal → highlight its packets in Raw, drill-through); a **dashboard-panel inspector**
+(select a panel → its config); the **top-bar connection chip** (replace/augment the bottom status strip);
+mode-gating the inspector to Inspect only.
+
+## P5 S2 — cross-tier drill-through (Parsed signal → source packets in Raw)  ✅
+The owner-reserved differentiator: from a decoded signal, jump to the raw packets that produced it. Built on
+the **`workbench::SelectionModel`** (the Phase-0 backbone, until now unused).
+
+- **Selection backbone adopted.** `MainWindow` now owns a `SelectionModel`. A Parsed row selection routes
+  through it (`signalSelected → select(Signal,id)` / `clear()`), and the inspector observes
+  `selectionChanged` (`onSelectionChanged` → `onSignalSelectedForInspector`) rather than the view's signal
+  directly. So the model has a real consumer (the inspector) and Raw/Dashboard highlight can subscribe later.
+  (Raw dissection-field → inspector stays a direct Raw-internal detail feed; a field isn't a cross-tier
+  selection kind.)
+- **Drill-through gesture.** `ParsedSignalsView` emits a new `drillToSourceRequested(signalId)` from **(a)** a
+  row **double-click** (the Wireshark "follow" idiom) and **(b)** a **"Show source packets in Raw"** row-menu
+  item (present in both Add/Remove states — it's about the wire, not dashboard membership). A small
+  `signalIdAtRow()` helper resolves a table row → signal id, skipping group-header / out-of-range rows (reused
+  by selection + double-click).
+- **Handler.** `MainWindow::onDrillToSourcePackets` computes the source (`"<source>/<field>"` → prefix before
+  the first `/`, which equals a captured frame's `source`), switches to **Inspect → Raw**, and applies a
+  `source == "<src>"` display filter via the new **`RawPacketView::setFilterText`** (sets the *visible* bar,
+  unlike `setFilter`, so the filter is transparent + user-editable + reversible). The source-axis match is
+  exact because a signal id's source prefix is the same driver-stamped id the Raw `source` column carries.
+- Tests: Parsed `drillToSourceRequested` fires from the row menu (both states) + row-id resolution is correct;
+  Raw `setFilterText` populates the bar, narrows the list, and is re-entry-safe. (The synthetic mouse
+  double-click is **not** asserted — it isn't reliably delivered under the headless test platform and `show()`
+  trips the xcb teardown crash; the menu path + row-resolution cover the same emission deterministically.)
+
+## P5 S3 — live-check fixes (colour model, drill-through, groups, inspector)  ✅ (`a9c4608`)
+Five issues from the owner's live check:
+
+1. **Drill-through showed no packets.** Root cause: a signal id is `<type>:<connId>/<field>` (the decoder keys
+   signals by the *connection* `driverId`), but a captured frame's `source` is the **sender-stamped**
+   `<type>:<addr>:<port>` (the UDP driver uses `dg.senderAddress():senderPort()`). They share only the
+   transport **type**. Fixed: drill through on `proto == "<type>"` (exact for the common single-connection case;
+   broader only with several connections on one transport — noted in-code).
+2. **Inspector was read-only + duplicated the table.** Now shows only non-redundant detail (full id, live value
+   headline, description; identity in the subtitle) **plus an actions row** — Set colour…, +Plot/+Bar/+Gauge, or
+   Remove. New generic `InspectorPanel::setActions(label, callback)` keeps the component signal-agnostic.
+   (Deferred: rename + range editing — fold into the future dashboard-panel inspector.)
+3 + 5. **Colour now per-DRIVER + per-signal override.** `SignalIdentity` keys its palette index by `driverKeyOf`
+   (the `<driver>/` prefix) so a driver's signals share one colour; an `overrideColor` map holds per-signal
+   picks (right-click ▸ Set colour… / Reset colour). `MainWindow::resolveSignalColor` is the **one** provider
+   shared by Parsed/Dashboard/inspector. Also fixed the real "panels stayed blue" bug: **`recreatePanel` (the
+   panel-edit path) re-made the panel without re-applying the colour provider** — moved the application into the
+   single `makePanel` creation point, so add / reconfigure / type-change all keep colour. (`signal7` = `#d6dae2`
+   grey was the unlucky per-signal index for temperature; per-driver removes that.)
+4. **Collapsible driver groups.** Click a header to hide/show its signals (▾/▸); collapse keeps rows counted as
+   matching so the header + count stay correct. `toggleGroupCollapse` is a slot bound to `cellClicked`.
+
+Tests: SignalIdentity per-driver + override; Parsed Set/Reset-colour menu + collapse toggle; InspectorPanel
+actions; Dashboard reconfigure keeps identity colours. **750/750 ctest Debug + Release, 11/11 visual** (colours
+didn't disturb any baseline), clang-format clean.
+
+## P5 S4 — live-check round 2 (multi-card, no-jump, dismissible inspector)  ✅ (`68c2a9f`)
+1. **Could not add a 2nd card type** for a signal already on the dashboard (menu/inspector flipped to
+   Remove-only). The Add submenu + inspector +Plot/+Bar/+Gauge are now **always** offered; Remove appears *in
+   addition* once on the dashboard. (`addSignalAs` already makes a fresh panel per call.)
+2. **Right-click jumped to Dashboard, inspector stayed** — inconsistent. Unified: **adding a card no longer
+   auto-switches tiers** (add several in a row). Jump-on-add recorded as a deferred config option in
+   **`docs/v0.4/configurable-options.md`** (default off, not built — a registry of behaviour defaults).
+4b. **Inspector bled across tiers + couldn't close.** Added a **× close button** (`InspectorPanel::
+   closeRequested` → hide sidebar + clear selection); a **manual segment switch clears the selection + hides the
+   inspector** so a Parsed selection no longer leaks into Dashboard.
+3 (partial). **`Dashboard::showEvent` → relayout** so panels promoted while the Dashboard page was hidden don't
+   overlap at the top-left on first show. (Bottom-left cascade + off-viewport/scroll deferred — they'd churn
+   visual baselines, so a dedicated layout pass with regen.)
+
+Tests: row menu always-Add + Remove-when-on-dashboard; InspectorPanel close button. 751/751 ctest Debug +
+Release, 11/11 visual, clang-format clean.
+
+## P5 S5 — dedicated dashboard pass (#3 layout + #4a panel inspector)  ✅ (`5bb37a3`, `7eb9514`)
+**#3 — scrollable surface (`5bb37a3`).** The dashboard now lives in a vertical `QScrollArea`; `relayout`'s
+`updateContentHeight()` sets `minimumHeight` to the lowest card's bottom so cards below the fold are reachable
+(re-entrancy-guarded vs `setMinimumHeight`→resizeEvent). The drag clamp is relaxed with a tall headroom so a
+card can be dragged past the fold (the surface then grows). Combined with the earlier `showEvent`→relayout,
+cards no longer overlap at the top-left and overflow scrolls. (Kept the grid auto-flow — tidy + sequential —
+rather than a strict bottom-left stack; the overlap was the real complaint.)
+
+**#4a — dashboard-panel inspector (`7eb9514`).** Clicking a card selects it (`Panel::selected` →
+`Dashboard::panelSelected` → SelectionModel `Widget` kind) and the right inspector shows its editable
+properties: **range min/max** (Apply → `applyPanelConfig`, re-creates) and **live card width/height**
+(→ `setUserGeometry`, no re-create), plus **Remove**. New generic `InspectorPanel::setContent(QWidget*)` hosts
+the form (cleared by `showDetails`/`showPlaceholder`), keeping the component selection-agnostic. This also gives
+the **Dashboard tier its own inspector content** (no more stale-Parsed-signal bleed). Rewrote the M29
+"push refused when no viewport room" test → "pushed past the fold" (the intended relaxation).
+
+Tests: surface grows past a short viewport; panel click → `panelSelected`; InspectorPanel content set/clear.
+754/754 ctest Debug + Release, 11/11 visual (captured dashboards fit → no scrollbar → no reflow), clang-format clean.
+
+## P5 S6 — final polish  ✅ (`cd3a77f`, `ddb2aa6`, `10c3ad0`)
+- **Inspector actions wrap** (new reusable `workbench::FlowLayout`) + **plot card range** now applies
+  (`PlotPanel` pushes `config.rangeMin/Max` to the view) (`cd3a77f`).
+- **Per-tier inspector restore + re-click reopen** (`ddb2aa6`): leaving a tier hides the inspector; re-entering
+  Parsed restores it for the still-highlighted row (`selectedSignalId()`); a click on an already-selected row
+  re-affirms (cellClicked → signalSelected) so a closed inspector reopens.
+- **`10c3ad0`:** **mode-gate** the inspector (only in Inspect); **card selected-highlight + reciprocal
+  highlight** (`Panel::setHighlighted` paint accent; `Dashboard::setSelectedPanel/setHighlightedSignal/
+  clearHighlights` driven by the SelectionModel — signal-selected accents its panels, panel-selected accents
+  it); **inline unit + decimals** in the panel inspector (one Apply → `applyPanelConfig`); **signal rename**
+  (per-signal display-name override SSOT in MainWindow; `ParsedSignalsView::setDisplayNameProvider` +
+  `invalidateLayout`; inspector "Rename…" + title); **top-bar connection chip** (a live `ConnectionStatusWidget`
+  in the workbench top bar, click → Connect). Regenerated the `00-empty-launch` visual baseline (top-bar chip).
+
+**P5 (right-inspector + selection) is COMPLETE.** Pushed to `origin/milestone/M34` through `ddb2aa6`
+(incl. `cd3a77f` + `ddb2aa6`); only the final polish commit `10c3ad0` + this docs commit (2 commits) are local.
+
+### Optional future ideas (not owed)
+- Distinguish "selected panel" vs "panel shows selected signal" with two highlight styles (one accent today).
+- Strict bottom-left cascade placement (grid auto-flow is fine today).
+- Propagate signal rename to dashboard panel titles (today rename shows in Parsed + inspector; panels keep their
+  own `config.title`).
+- Raw tier observing `selectionChanged` (drill-through already covers Parsed→Raw).

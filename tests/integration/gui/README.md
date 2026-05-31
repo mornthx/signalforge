@@ -24,7 +24,7 @@ The M13 18-test HW verification protocol
 |---|---|
 | T3 UDP driver connect + decode + chart paint | **CC-automated via `release_binary_smoke.sh`** (M14 S1) |
 | T4 Replay file picker | Operator-visual (file-open dialog) |
-| T6 Auto-connect on startup | Operator (verify `autoConnectOnStartup=true` flow) |
+| T6 Auto-connect on startup | Unit-covered through `ConnectionManager::connectStartupConnections`; GUI smoke can reuse persisted `autoConnectOnStartup=true` fixtures when needed |
 | T9 Quit-while-recording prompt | Operator-visual (confirm dialog) |
 | T13–T17 Replay UI (charts populate, Play/Pause, Step, Scrubber, Speed) | Operator-visual (chart rendering + button feedback) |
 | T18 Live ↔ Replay 3-option dialog | Operator-visual |

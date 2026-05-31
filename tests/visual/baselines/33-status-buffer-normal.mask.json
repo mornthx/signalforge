@@ -1,13 +1,22 @@
 {
   "regions": [
     {
+      "x": 95,
+      "y": 198,
+      "w": 1180,
+      "h": 298,
+      "rationale": "Parsed view table (swatch / Trend sparkline / Quality / Value / Rate / Age) is live-animated while data flows and not pixel-deterministic between capture runs (quality-driven column resizes shift the row, sparklines/values tick). This state asserts the dialog/status chrome, not the live table behind it. Masked per visual-diff-contract.md Step 3 (M34 P2-S2 \u2014 redesign's animated Parsed view).",
+      "approved_by": "claude@2026-05-31 (M34 P2 wholesale regen \u2014 pending owner review with the redesign baseline set)",
+      "review_at": "When the visual harness seeds deterministic/frozen data for live-data states, or the Parsed view is not the captured view for these states."
+    },
+    {
       "x": 615,
       "y": 778,
       "w": 320,
       "h": 22,
-      "rationale": "Status-bar live counters — runtime throughput-dependent values (FPS / Dropped count / throttle indicator / buffer percent / buffer MiB). Operator dev box and Azure CI runner have different rendering throughput, producing sub-percent pixel drift in this region (cluster ~1067 px at S6.5 ADR-014 measurement). V1 production architecture choice (status bar shows runtime diagnostics); not an M16 regression. Masked per visual-diff-contract.md §1 Step 3. Per R8 universal pattern approval — same mask region applies to all 7 affected baselines (02, 04, 12, 13, 30, 31, 33); states with modal/menu overlays occluding the status bar (25, 26, 32) do not need this mask. R12 second-application finding at S6.6 amendment.",
-      "approved_by": "operator@2026-05-12 (S6.6 Phase 4 — universal R8 single-approval for V1 status-bar live-counter pattern across the 7 status-bar-visible baselines)",
-      "review_at": "V0.4 keystone or any future M-level milestone that redesigns the status bar architecture (M17 widget rebuild + M18 workflow rebuild candidates per V0.3 charter §amendment)"
+      "rationale": "Status-bar live counter (recording elapsed/bytes or buffer %) \u2014 runtime-dependent, masked per visual-diff-contract.md Step 3.",
+      "approved_by": "claude@2026-05-31 (M34 P2 regen \u2014 preserved/widened)",
+      "review_at": "When the status-bar architecture is redesigned (M34 P5 top-bar)."
     }
   ]
 }

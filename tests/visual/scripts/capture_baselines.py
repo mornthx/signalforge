@@ -51,7 +51,7 @@ def ensure_replay_fixture() -> Path:
     binary records via ``--auto-record-to``; in parallel a
     helper Python script feeds UDP frames into the listener.
     """
-    if REPLAY_FIXTURE.is_file() and REPLAY_FIXTURE.stat().st_size > 64:
+    if REPLAY_FIXTURE.is_file() and REPLAY_FIXTURE.stat().st_size > 1200:
         return REPLAY_FIXTURE
 
     TMP_RUN_DIR.mkdir(parents=True, exist_ok=True)
@@ -74,8 +74,8 @@ def ensure_replay_fixture() -> Path:
         str(binary),
         "--auto-load-test-fixture", "tests/integration/gui/fixtures/m14_smoke.yaml",
         "--auto-record-to", str(REPLAY_FIXTURE),
-        "--auto-stop-recording-after-ms", "1500",
-        "--exit-after-ms", "2200",
+        "--auto-stop-recording-after-ms", "4500",
+        "--exit-after-ms", "5200",
     ]
 
     sf_proc = subprocess.Popen(sf_cmd, env=env, cwd=REPO_ROOT,
@@ -86,15 +86,15 @@ def ensure_replay_fixture() -> Path:
     sender_cmd = [
         "python3", "tests/integration/gui/helpers/udp_fixture_sender.py",
         "--host", "127.0.0.1", "--port", "9998",
-        "--frames", "50", "--rate-hz", "50",
-        "--initial-delay-s", "0",
+        "--frames", "150", "--rate-hz", "50",
+        "--initial-delay-s", "1.2",
     ]
     subprocess.run(sender_cmd, cwd=REPO_ROOT, check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     sf_proc.wait(timeout=15)
 
-    if not REPLAY_FIXTURE.is_file() or REPLAY_FIXTURE.stat().st_size <= 64:
+    if not REPLAY_FIXTURE.is_file() or REPLAY_FIXTURE.stat().st_size <= 1200:
         stderr = sf_proc.stderr.read().decode(errors="replace")[-800:] if sf_proc.stderr else ""
         raise RuntimeError(
             f"replay-fixture generation produced no usable session file at {REPLAY_FIXTURE}\n"
@@ -205,44 +205,53 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="03-conn-udp-connecting",
             description="Connecting UDP — transient state",
-            mechanism="manual",
-            note="UDP bind is synchronous; this state may not be observable headlessly. Operator captures via real GUI.",
+            mechanism="C",
+            launch_args=["--auto-connection-state", "connecting"],
+            capture_after_ms=1300,
+            exit_after_ms=2300,
+            note="M19 visual hook renders the production connection widgets in Connecting state.",
         ),
         StateSpec(
             name="06-conn-udp-disconnecting",
             description="Disconnecting UDP — transient state",
-            mechanism="manual",
-            note="Transient; needs operator-driven disconnect-then-capture timing.",
+            mechanism="C",
+            launch_args=["--auto-connection-state", "disconnecting"],
+            capture_after_ms=1300,
+            exit_after_ms=2300,
+            note="M19 visual hook renders the production connection widgets in Disconnecting state.",
         ),
         StateSpec(
             name="07-conn-udp-error",
             description="UDP connection in error state",
-            mechanism="manual",
-            note="Needs an intentional bind failure or driver fault injection. Operator captures.",
+            mechanism="C",
+            launch_args=["--auto-connection-state", "error"],
+            capture_after_ms=1300,
+            exit_after_ms=2300,
+            note="M19 visual hook renders the production connection widgets in Error state.",
         ),
         StateSpec(
             name="08-conn-serial-idle",
             description="Idle Serial connection",
-            mechanism="manual",
-            note="Serial requires hardware or virtual pty; out-of-scope without socat fixture extension.",
+            mechanism="dynamic",
+            note="Automated by tests/visual/tests/test_states_m19_extended.py with generated serial fixture YAML.",
         ),
         StateSpec(
             name="09-conn-serial-connected",
             description="Connected Serial connection",
-            mechanism="manual",
-            note="Same hardware constraint as 08.",
+            mechanism="dynamic",
+            note="Automated by tests/visual/tests/test_states_m19_extended.py with socat PTY fixture.",
         ),
         StateSpec(
             name="10-conn-tcp-idle",
             description="Idle TCP connection",
-            mechanism="manual",
-            note="Needs TCP-server fixture; not yet built.",
+            mechanism="dynamic",
+            note="Automated by tests/visual/tests/test_states_m19_extended.py with generated TCP fixture YAML.",
         ),
         StateSpec(
             name="11-conn-tcp-connected",
             description="Connected TCP connection",
-            mechanism="manual",
-            note="Needs TCP-server fixture coordinator.",
+            mechanism="dynamic",
+            note="Automated by tests/visual/tests/test_states_m19_extended.py with local loopback TCP server.",
         ),
         StateSpec(
             name="12-multi-2-drivers",
@@ -301,8 +310,12 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="16-replay-open-dialog",
             description="File-open dialog modal (replay)",
-            mechanism="manual",
-            note="Modal QFileDialog; needs mechanism B (xvfb screen grab) + xdotool to trigger. Operator captures.",
+            mechanism="C",
+            launch_args=["--auto-m19-modal", "replay-open-dialog"],
+            capture_after_ms=2600,
+            exit_after_ms=3600,
+            fullscreen=True,
+            note="M19 deterministic non-native QFileDialog modal capture.",
         ),
         StateSpec(
             name="17-replay-loaded",
@@ -384,14 +397,32 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="22-mode-live-to-replay",
             description="Live → Replay confirm dialog",
-            mechanism="manual",
-            note="Modal QMessageBox; needs B mechanism + interaction trigger.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-test-fixture",
+                "tests/integration/gui/fixtures/m14_smoke.yaml",
+                "--auto-m19-modal",
+                "live-to-replay",
+            ],
+            capture_after_ms=2600,
+            exit_after_ms=3600,
+            fullscreen=True,
+            note="M19 deterministic QMessageBox capture.",
         ),
         StateSpec(
             name="23-mode-replay-to-live",
             description="Replay → Live 3-option dialog",
-            mechanism="manual",
-            note="Modal; needs B mechanism + replay-loaded prerequisite.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-replay",
+                "tests/screenshots/_runs/m15-replay-fixture.sfreplay",
+                "--auto-m19-modal",
+                "replay-to-live",
+            ],
+            capture_after_ms=2600,
+            exit_after_ms=3600,
+            fullscreen=True,
+            note="M19 deterministic QMessageBox capture with replay fixture loaded.",
         ),
         StateSpec(
             name="24-dialog-add-serial",
@@ -437,20 +468,39 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="27-dialog-quit-recording",
             description="Quit-while-recording prompt",
-            mechanism="manual",
-            note="Modal triggered by quit gesture during recording; needs B + closeEvent injection.",
+            mechanism="C",
+            launch_args=[
+                "--auto-load-test-fixture",
+                "tests/integration/gui/fixtures/m14_smoke.yaml",
+                "--auto-record-to",
+                "tests/screenshots/27-dialog-quit-recording.sfreplay",
+                "--auto-close-window-after-ms",
+                "1500",
+            ],
+            capture_after_ms=2100,
+            exit_after_ms=3200,
+            fullscreen=True,
+            note="M19 drives production closeEvent while recording.",
         ),
         StateSpec(
             name="28-dialog-recording-error",
             description="Recording-error dialog",
-            mechanism="manual",
-            note="Triggered by SessionWriter::start failure; needs error injection + B mechanism.",
+            mechanism="C",
+            launch_args=["--auto-m19-modal", "recording-error"],
+            capture_after_ms=2600,
+            exit_after_ms=3600,
+            fullscreen=True,
+            note="M19 fault modal plus recording status strip error state.",
         ),
         StateSpec(
             name="29-dialog-replay-error",
             description="Replay-error dialog",
-            mechanism="manual",
-            note="Triggered by malformed session file; needs error injection + B mechanism.",
+            mechanism="C",
+            launch_args=["--auto-m19-modal", "replay-error"],
+            capture_after_ms=2600,
+            exit_after_ms=3600,
+            fullscreen=True,
+            note="M19 fault modal plus replay status strip error state.",
         ),
         StateSpec(
             name="30-menu-file-open",
@@ -499,14 +549,20 @@ def specs_phase_b_skipped() -> list[StateSpec]:
         StateSpec(
             name="34-status-buffer-warn",
             description="Buffer ≥ 80 % usage indicator",
-            mechanism="manual",
-            note="Needs traffic-flooding sender + timing — operator captures or S4 builds a flood fixture.",
+            mechanism="C",
+            launch_args=["--auto-buffer-status", "warning"],
+            capture_after_ms=1200,
+            exit_after_ms=2200,
+            note="M19 uses the M18 buffer-pressure visual state hook.",
         ),
         StateSpec(
             name="35-status-buffer-full",
             description="Buffer FULL indicator",
-            mechanism="manual",
-            note="Same as 34 plus drop-overflow timing.",
+            mechanism="C",
+            launch_args=["--auto-buffer-status", "full"],
+            capture_after_ms=1200,
+            exit_after_ms=2200,
+            note="M19 uses the M18 buffer-pressure visual state hook.",
         ),
         StateSpec(
             name="36-multi-chart-2",

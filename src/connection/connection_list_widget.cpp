@@ -98,6 +98,23 @@ QColor ConnectionListWidget::colorForState(Connection::State s) {
     return statusIdle();
 }
 
+bool ConnectionListWidget::setVisualStateForTest(const QString& id, Connection::State state) {
+    auto* item = findItem(id);
+    if (item == nullptr || manager_ == nullptr) {
+        return false;
+    }
+    const Connection* c = manager_->connection(id);
+    if (c == nullptr) {
+        return false;
+    }
+    item->setText(QStringLiteral("%1 [%2] — %3")
+                      .arg(c->config().displayName.isEmpty() ? id : c->config().displayName)
+                      .arg(driverTypeLabel(c->config().driverType))
+                      .arg(stateLabel(state)));
+    applyRowColor(item, state);
+    return true;
+}
+
 void ConnectionListWidget::applyRowColor(QListWidgetItem* item, Connection::State state) {
     if (item == nullptr) {
         return;

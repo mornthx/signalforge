@@ -90,8 +90,12 @@ TEST_CASE("S10 integration: LOD level 3 selection and envelope correctness", "[i
     constexpr int kLodBinSize = 1000;
     const std::size_t numBins = out.size() / 2;  // 2 SignalSamples per bin
     for (std::size_t b = 0; b < numBins; ++b) {
-        const double minV = std::get<double>(out[2 * b].value);
-        const double maxV = std::get<double>(out[2 * b + 1].value);
+        // M34 P2: the pair is emitted in time order (min/max at their real
+        // timestamps), so take the extremes by value, not by position.
+        const double v0 = std::get<double>(out[2 * b].value);
+        const double v1 = std::get<double>(out[2 * b + 1].value);
+        const double minV = std::min(v0, v1);
+        const double maxV = std::max(v0, v1);
         REQUIRE(minV <= maxV);
         const std::size_t rawStart = b * kLodBinSize;
         const std::size_t rawEnd = std::min(rawStart + kLodBinSize, static_cast<std::size_t>(kSampleCount));

@@ -1,14 +1,24 @@
 #pragma once
 
+#include "workbench/signal_identity.hpp"
+
+#include <QElapsedTimer>
+#include <QHash>
 #include <QImage>
 #include <QMainWindow>
 #include <QString>
 #include <memory>
+#include <unordered_map>
 
 class QComboBox;
 class QDockWidget;
+class QFrame;
 class QLabel;
+class QHBoxLayout;
+class QPushButton;
 class QSplitter;
+class QStackedWidget;
+class QTabWidget;
 class QToolButton;
 class QVBoxLayout;
 
@@ -20,11 +30,25 @@ class SignalBufferRegistry;
 }
 namespace signalforge::decoder {
 class DecoderRegistrar;
-}
-namespace signalforge::chart {
-class ChartManager;
-class SignalSelector;
-}  // namespace signalforge::chart
+class FrameDissector;
+}  // namespace signalforge::decoder
+namespace signalforge::dashboard {
+class Dashboard;
+}  // namespace signalforge::dashboard
+namespace signalforge::inspect {
+class ParsedSignalsView;
+class RawFrameTap;
+class RawPacketView;
+}  // namespace signalforge::inspect
+namespace signalforge::workbench {
+class WorkbenchFrame;
+class SegmentedControl;
+class InspectorPanel;
+class SelectionModel;
+struct Selection;
+}  // namespace signalforge::workbench
+
+class QTreeWidgetItem;
 namespace signalforge::connection {
 class ConnectionManager;
 class ConnectionListWidget;
@@ -43,8 +67,10 @@ enum class AppMode;
 }  // namespace signalforge::replay
 
 class QAction;
+class QMenu;
 class QSlider;
 class QToolBar;
+class QTimer;
 
 namespace signalforge::app {
 
@@ -72,9 +98,29 @@ public:
     /// Returns false if the file is missing or the YAML is malformed.
     [[nodiscard]] bool autoLoadTestFixture(const QString& yamlPath);
 
+    /// Select a workspace tab by name ("raw" / "parsed" / "dashboard").
+    /// No-op for an unknown name. Used by `--start-tab` for inspection and
+    /// per-tier screenshot capture.
+    void showWorkspaceTab(const QString& which);
+
     /// Add `signalId` to the first chart in `chartManager_`. Returns
     /// false if no chart exists or the signal id is empty.
     [[nodiscard]] bool autoSelectSignal(const QString& signalId);
+
+    /// M21 visual harness: add `signalId` to the dashboard via the normal
+    /// auto-suggest path (Numeric/State card or reused panel), as if the
+    /// user ticked it in the signal list. Returns false if empty/no
+    /// dashboard. Used to capture heterogeneous-panel baselines.
+    [[nodiscard]] bool autoAddDashboardSignal(const QString& signalId);
+
+    /// M22 visual harness: add a Table panel of every current signal, as the
+    /// toolbar "+ Table" action does. Returns false if no dashboard.
+    [[nodiscard]] bool autoAddTablePanel();
+
+    /// M24 visual harness: add a Bar / Gauge panel for the first registered
+    /// signal, as the toolbar "+ Bar" / "+ Gauge" actions do.
+    [[nodiscard]] bool autoAddBarPanel();
+    [[nodiscard]] bool autoAddGaugePanel();
 
     /// Grab the first chart-hosting QQuickWidget's framebuffer as a
     /// QImage. Returns a null QImage if no chart widget is laid out.
@@ -138,6 +184,28 @@ public:
     /// same conditions as ``autoReplayPlay``.
     [[nodiscard]] bool autoReplayPause();
 
+    /// M18 UX visual harness: step replay to its terminal Ended state.
+    [[nodiscard]] bool autoReplayStepToEnd();
+
+    /// M18 UX visual harness: force Buffer status strip warning/full states.
+    [[nodiscard]] bool autoSetBufferStatusForVisualTest(const QString& status);
+
+    /// M18 UX visual harness: force Chart status strip interrupted state.
+    [[nodiscard]] bool autoSetChartStatusForVisualTest(const QString& status);
+
+    /// M18 UX visual harness: force connection-config save status states.
+    [[nodiscard]] bool autoSetConfigSaveStatusForVisualTest(const QString& status);
+
+    /// M19 visual harness: force a connection row/status strip to render a
+    /// transient/error state without mutating frozen connection contracts.
+    [[nodiscard]] bool autoSetConnectionStateForVisualTest(const QString& status);
+
+    /// M19 visual harness: show deterministic modal/fault-flow windows.
+    [[nodiscard]] bool autoShowM19ModalForVisualTest(const QString& modal);
+
+    /// M20 visual harness: focus a named keyboard-reachable control.
+    [[nodiscard]] bool autoFocusWidgetForVisualTest(const QString& name);
+
     /// M15 S3 Round 3: seek replay to ``percent`` of the loaded
     /// session's duration (0–100). Returns false on out-of-range
     /// input or null playback controller.
@@ -174,7 +242,7 @@ public:
     /// / ``"tcp"`` / ``"replay"`` (case-insensitive); empty
     /// string leaves the driver-type combo at its default.
     /// Returns false if the dialog cannot be created.
-    [[nodiscard]] bool autoShowAddConnectionDialog(const QString& driverType = QString());
+    [[nodiscard]] bool autoShowAddConnectionDialog(const QString& driverType = QString(), bool expandAdvanced = false);
 
     /// M15 S3 Round 4: same as ``autoShowAddConnectionDialog``
     /// but for the connection-edit flow. Picks the first
@@ -199,6 +267,15 @@ private slots:
     void onConnectAllAction();
     void onDisconnectAllAction();
     void onAddChart();
+    void onAddTable();
+    void onAddBar();
+    void onAddGauge();
+    /// Switch the center workspace to the Dashboard tab (used when a panel is
+    /// added, so the user/harness sees the result).
+    void ensureDashboardVisible();
+    /// Promote a signal from the Parsed tab into a dashboard panel of the named
+    /// type ("numeric"/"state"/"plot"/"bar"/"gauge"), then show the dashboard.
+    void onPromoteSignalToDashboard(const QString& signalId, const QString& typeToken);
     void onLiveToggleChanged(bool live);
     void onTimePresetChanged(int index);
     void refreshStatusBar();
@@ -215,15 +292,55 @@ private slots:
     void onReplayPositionChanged(std::int64_t timestampNs, std::size_t recordIndex);
     void onReplayStateChanged();
     void onReplayError(const QString& message);
+    void onAbout();
 
 private:
+    void buildMenuBar();
     void buildChartUi();
     void buildConnectionUi();
     void buildSessionUi();
     void buildReplayUi();
+    void buildThemeUi();
+    void applyThemeFromAction(QAction* action);
     void updateReplayActionStates();
-    void rebuildChartWidgets();
+    void updateRecordingStatusLabel();
+    void updateWorkflowModeLabel();
+    void updateReplayStatusLabel();
+    void updateEmptyStateVisibility();
+    void onConfigurationSaveStateChanged(bool saved, const QString& path, const QString& message);
+    [[nodiscard]] bool confirmExitReplayForClose();
     [[nodiscard]] QStringList enumerateAvailableSchemaIds() const;
+    /// P3-S2: (re)build the Raw-view dissector for `driverType` from
+    /// `decoderSchemaId` (the `examples/schemas/<id>.yaml` convention). An empty
+    /// or unloadable schema clears the entry; the Raw view then shows the
+    /// raw-bytes-only placeholder for that type's frames.
+    void rebuildDissectorForType(const QString& driverType, const QString& decoderSchemaId);
+    /// P5: populate the right inspector from the selected Parsed signal (empty id
+    /// clears it) or the selected Raw dissection-tree field.
+    void onSignalSelectedForInspector(const QString& signalId);
+    void onDissectionFieldSelected(QTreeWidgetItem* item);
+    /// P5: populate the right inspector with a selected dashboard panel's
+    /// editable properties (range, size) + Remove.
+    void onPanelSelectedForInspector(const QString& panelId);
+    /// P5: react to the app-wide selection model (feeds the inspector; the
+    /// backbone for cross-tier highlight).
+    void onSelectionChanged(const signalforge::workbench::Selection& selection);
+    /// P5: cross-tier drill-through — switch to the Raw tier filtered to the
+    /// source of `signalId` (the packets that produced it).
+    void onDrillToSourcePackets(const QString& signalId);
+    /// P5: resolve a signal's colour — the user's per-signal override if set,
+    /// else the driver's palette colour. The one provider shared by Parsed,
+    /// Dashboard, and the inspector.
+    [[nodiscard]] QColor resolveSignalColor(const QString& signalId);
+    /// P5: re-push the colour provider to every view after an override changes.
+    void refreshSignalColors();
+    /// P5: per-signal colour override — pick (`onRecolorRequested`) / clear
+    /// (`onResetColorRequested`), then refresh all tiers.
+    void onRecolorRequested(const QString& signalId);
+    void onResetColorRequested(const QString& signalId);
+    /// P5: rename a signal — set/clear a per-signal display-name override (shown
+    /// in Parsed + the inspector), then refresh.
+    void onRenameRequested(const QString& signalId);
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
@@ -233,28 +350,71 @@ private:
     std::unique_ptr<signalforge::connection::ConnectionManager> connectionManager_;
     std::unique_ptr<signalforge::session::SessionWriter> sessionWriter_;
 
-    // M8 chart UI.
-    std::unique_ptr<signalforge::chart::ChartManager> chartManager_;
-    signalforge::chart::SignalSelector* signalSelector_ = nullptr;
-    QSplitter* centralSplitter_ = nullptr;
-    QWidget* chartContainer_ = nullptr;
+    // M26: menu bar owned by buildMenuBar() in one place (File | Connections |
+    // Session | View | Help); feature modules register their actions into these.
+    QMenu* menuFile_ = nullptr;
+    QMenu* menuConnections_ = nullptr;
+    QMenu* menuSession_ = nullptr;
+    QMenu* menuView_ = nullptr;
+    QMenu* menuHelp_ = nullptr;
+
+    // M23 dashboard surface (owns its own TimeAxisManager; the legacy
+    // ChartManager/Chart are no longer used by the app).
+    signalforge::dashboard::Dashboard* dashboard_ = nullptr;
+    signalforge::inspect::ParsedSignalsView* parsedView_ = nullptr;
+    std::shared_ptr<signalforge::inspect::RawFrameTap> rawFrameTap_;
+    signalforge::inspect::RawPacketView* rawPacketView_ = nullptr;
+    /// P3-S2: schema dissectors keyed by driver type ("udp"/"serial"/...), the
+    /// `:`-prefix of a captured frame's source. Matches the DecoderRegistrar's
+    /// per-type, last-config-wins model. The Raw view reads these to build its
+    /// dissection tree.
+    std::unordered_map<QString, std::shared_ptr<signalforge::decoder::FrameDissector>> dissectors_;
+    // M34 redesign: activity-rail frame replaces the tab/stack workspace.
+    signalforge::workbench::SignalIdentity signalIdentity_;  ///< P2: shared per-signal colour index (SSOT)
+    QHash<QString, QString> displayNameOverrides_;           ///< P5: signal id → user rename (SSOT)
+    signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;
+    signalforge::workbench::InspectorPanel* inspector_ = nullptr;       ///< P5: right-hand selection details
+    signalforge::workbench::SelectionModel* selectionModel_ = nullptr;  ///< P5: app-wide current selection (backbone)
+    signalforge::workbench::SegmentedControl* inspectSegments_ = nullptr;
+    QStackedWidget* inspectStack_ = nullptr;    ///< Raw / Parsed / Dashboard views (Inspect mode)
+    QStackedWidget* connectStack_ = nullptr;    ///< onboarding ↔ connection manager (Connect mode)
+    QWidget* connectionManagerBody_ = nullptr;  ///< connection list + save banner (Connect mode page 1)
+    QWidget* chartContainer_ = nullptr;         ///< Dashboard segment page: local toolbar + dashboard surface
+    QWidget* chartEmptyState_ = nullptr;        ///< onboarding empty-state (Connect mode page 0)
+    QPushButton* emptyAddConnectionButton_ = nullptr;
+    QPushButton* emptyOpenSessionButton_ = nullptr;
+    QPushButton* emptyLoadSchemaButton_ = nullptr;
     QVBoxLayout* chartLayout_ = nullptr;
     QToolButton* liveToggle_ = nullptr;
     QComboBox* timePresetCombo_ = nullptr;
+    QFrame* statusStrip_ = nullptr;
+    QHBoxLayout* statusStripLayout_ = nullptr;
+    QLabel* workflowModeLabel_ = nullptr;
     QLabel* fpsLabel_ = nullptr;
     QLabel* droppedLabel_ = nullptr;
     QLabel* throttledLabel_ = nullptr;
     QLabel* bufferBudgetLabel_ = nullptr;  ///< M14 F15: signal_buffer budget usage
+    QString bufferBudgetOverrideText_;
+    QString bufferBudgetOverrideClass_;
+    QString chartStatusOverrideText_;
+    QString chartStatusOverrideClass_;
 
-    // M9 connection UI.
-    QDockWidget* connectionDock_ = nullptr;
+    // M9 connection UI. (M34: the legacy left dock is dissolved into Connect
+    // mode — see connectionManagerBody_ above.)
     signalforge::connection::ConnectionListWidget* connectionList_ = nullptr;
     signalforge::connection::ConnectionStatusWidget* connectionStatus_ = nullptr;
+    QLabel* configSaveDockBanner_ = nullptr;
+    QLabel* configSaveStatusLabel_ = nullptr;
+    bool configSaveHealthy_ = true;
+    QString lastConfigSaveMessage_;
 
     // M10 session recording UI.
     QAction* recordAction_ = nullptr;
     QLabel* recordingStatusLabel_ = nullptr;
+    QTimer* recordingHeartbeatTimer_ = nullptr;
+    QElapsedTimer recordingElapsed_;
     QString currentRecordingPath_;
+    std::size_t lastRecordingBytes_ = 0;
 
     // M11 replay UX.
     std::unique_ptr<signalforge::replay::PlaybackController> playbackController_;
@@ -269,6 +429,11 @@ private:
     QAction* replayExitAction_ = nullptr;
     QLabel* replayStatusLabel_ = nullptr;
     bool replaySliderUserDriven_ = true;
+
+    // M20 theme runtime toggle.
+    QAction* lightThemeAction_ = nullptr;
+    QAction* darkThemeAction_ = nullptr;
+    QAction* highContrastThemeAction_ = nullptr;
 };
 
 }  // namespace signalforge::app

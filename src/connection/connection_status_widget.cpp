@@ -31,6 +31,15 @@ ConnectionStatusWidget::ConnectionStatusWidget(ConnectionManager* manager, QWidg
 
 ConnectionStatusWidget::~ConnectionStatusWidget() = default;
 
+void ConnectionStatusWidget::setVisualStateForTest(const QString& text, AggregateState state) {
+    aggregateState_ = state;
+    label_->setText(text);
+    label_->setProperty("class", QLatin1String(classForState(aggregateState_)));
+    label_->style()->unpolish(label_);
+    label_->style()->polish(label_);
+    label_->update();
+}
+
 const char* ConnectionStatusWidget::classForState(AggregateState s) noexcept {
     switch (s) {
     case AggregateState::Error:

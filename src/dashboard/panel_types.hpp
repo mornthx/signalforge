@@ -1,0 +1,52 @@
+// src/dashboard/panel_types.hpp
+#pragma once
+
+#include <QColor>
+#include <QRect>
+#include <QString>
+#include <QStringList>
+#include <functional>
+#include <optional>
+
+namespace signalforge::dashboard {
+
+/// Resolves a signal id to its identity colour. Injected by the app (backed by
+/// the shared `workbench::SignalIdentity` + active theme) so a signal renders
+/// the **same** colour across the Parsed swatch and every dashboard panel.
+/// The dashboard never depends on the theme directly.
+using SignalColorProvider = std::function<QColor(const QString& signalId)>;
+
+/// Kind of widget a panel renders. P0 ships Plot / Numeric / State;
+/// Table, Bar, Gauge land in later phases (see
+/// docs/v0.3/dashboard-interaction-design.md §3).
+enum class PanelType {
+    Plot,     ///< Time-series trend (wraps the legacy chart for P0).
+    Numeric,  ///< Big current value + unit (single signal).
+    State,    ///< Boolean ●/○ or string/enum state (single signal).
+    Table,    ///< Current values of N signals, one row each (P1).
+    Bar,      ///< Single scalar as a horizontal bar vs a range (P3).
+    Gauge,    ///< Single scalar as an arc gauge with a needle (P3).
+};
+
+/// Stable lowercase token for a panel type (config / diagnostics).
+[[nodiscard]] QString panelTypeName(PanelType type);
+
+/// Inverse of `panelTypeName`; nullopt for unknown tokens.
+[[nodiscard]] std::optional<PanelType> panelTypeFromName(const QString& name);
+
+/// Per-panel configuration. Zero-config by default: empty/unset fields
+/// are derived from the bound signal's metadata and observed data at
+/// render time. Any field may be overridden per panel (design §2.1).
+struct PanelConfig {
+    QString id;                           ///< Stable unique id (e.g. "panel-1").
+    PanelType type = PanelType::Numeric;  ///< Widget kind.
+    QString title;                        ///< Empty → derived from signal metadata.
+    QStringList signalIds;                ///< Numeric/State: 1 signal; Plot: N.
+    std::optional<double> rangeMin;       ///< Unset → use observed minimum.
+    std::optional<double> rangeMax;       ///< Unset → use observed maximum.
+    QString unitOverride;                 ///< Empty → use SignalMetadata.unit.
+    int decimals = 3;                     ///< Numeric display precision.
+    QRect geometry;                       ///< Free-form position+size; invalid → auto-placed.
+};
+
+}  // namespace signalforge::dashboard

@@ -24,7 +24,8 @@ namespace signalforge::connection {
 ///     `DecoderRegistrar` (for schema lookup at connect-time;
 ///     also kept as a non-owning pointer for re-binding on edit).
 ///   - `loadConfigFile(path)` is called on app start; produces
-///     `Connection` instances all in Idle.
+///     `Connection` instances all in Idle. `connectStartupConnections()`
+///     then connects only entries explicitly marked for startup.
 ///   - User actions (connect / disconnect / add / edit / remove)
 ///     mutate state. Auto-save fires on every CRUD.
 ///
@@ -76,6 +77,11 @@ public:
     /// Disconnect every non-Idle connection.
     void disconnectAll();
 
+    /// Connect connections whose persisted config opts into startup
+    /// auto-connect. Returns the number of connect attempts accepted by
+    /// the underlying `Connection`.
+    [[nodiscard]] int connectStartupConnections();
+
     // ── Lookup ──────────────────────────────────────────────
 
     /// Returns the connection with the given id, or `nullptr` if
@@ -109,11 +115,12 @@ signals:
     void connectionRemoved(const QString& id);
     void connectionStateChanged(const QString& id, signalforge::connection::Connection::State newState);
     void connectionError(const QString& id, const QString& errorMessage);
+    void configurationSaveStateChanged(bool saved, const QString& path, const QString& message);
 
 private:
     QString generateId(const QString& prefix) const;
     void wireConnection(const QString& id, Connection& conn);
-    bool autoSave() const;
+    bool autoSave();
     void insertConnection(const QString& id, std::unique_ptr<Connection> conn);
 
     signalforge::decoder::DecoderRegistrar* decoderRegistrar_;

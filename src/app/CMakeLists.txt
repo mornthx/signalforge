@@ -23,9 +23,12 @@ target_link_libraries(signalforge_app_ui
         signalforge_decoder
         signalforge_buffer
         signalforge_chart
+        signalforge_dashboard
+        signalforge_inspect
         signalforge_connection
         signalforge_session
         signalforge_replay
+        signalforge_workbench
     PRIVATE
         signalforge_observability
         signalforge_platform

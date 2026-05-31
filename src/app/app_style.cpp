@@ -33,8 +33,49 @@ namespace signalforge::app {
 
 namespace {
 
-// Active theme storage. M16: always Light; M20 may flip.
-SignalForgeStyle::Theme g_active_theme = SignalForgeStyle::Theme::Light;
+SignalForgeStyle::Theme g_active_theme = SignalForgeStyle::Theme::Dark;
+
+struct ThemeTokens {
+    const char* bgPrimary;
+    const char* bgSurface;
+    const char* bgElevated;
+    const char* border;
+    const char* borderFocus;
+    const char* textPrimary;
+    const char* textSecondary;
+    const char* textDisabled;
+    const char* signal4;
+    const char* fontSans;
+    int fontBody;
+    const char* qssResource;
+};
+
+ThemeTokens tokensForTheme(SignalForgeStyle::Theme theme) {
+    switch (theme) {
+    case SignalForgeStyle::Theme::Dark:
+        return {tokens::dark::kBgPrimaryHex,     tokens::dark::kBgSurfaceHex,
+                tokens::dark::kBgElevatedHex,    tokens::dark::kBorderHex,
+                tokens::dark::kBorderFocusHex,   tokens::dark::kTextPrimaryHex,
+                tokens::dark::kTextSecondaryHex, tokens::dark::kTextDisabledHex,
+                tokens::dark::kSignal4Hex,       tokens::dark::kFontFamilySans,
+                tokens::dark::kFontSizeBody,     ":/styles/tokens-dark.qss"};
+    case SignalForgeStyle::Theme::HighContrast:
+        return {tokens::high_contrast::kBgPrimaryHex,     tokens::high_contrast::kBgSurfaceHex,
+                tokens::high_contrast::kBgElevatedHex,    tokens::high_contrast::kBorderHex,
+                tokens::high_contrast::kBorderFocusHex,   tokens::high_contrast::kTextPrimaryHex,
+                tokens::high_contrast::kTextSecondaryHex, tokens::high_contrast::kTextDisabledHex,
+                tokens::high_contrast::kSignal4Hex,       tokens::high_contrast::kFontFamilySans,
+                tokens::high_contrast::kFontSizeBody,     ":/styles/tokens-high-contrast.qss"};
+    case SignalForgeStyle::Theme::Light:
+        return {tokens::light::kBgPrimaryHex,     tokens::light::kBgSurfaceHex,
+                tokens::light::kBgElevatedHex,    tokens::light::kBorderHex,
+                tokens::light::kBorderFocusHex,   tokens::light::kTextPrimaryHex,
+                tokens::light::kTextSecondaryHex, tokens::light::kTextDisabledHex,
+                tokens::light::kSignal4Hex,       tokens::light::kFontFamilySans,
+                tokens::light::kFontSizeBody,     ":/styles/tokens.qss"};
+    }
+    return tokensForTheme(SignalForgeStyle::Theme::Light);
+}
 
 // Internal flag set by applyAtStartup once Fusion + fonts + palette
 // + QSS have been applied. verifyEnvironmentContract reads this in
@@ -93,14 +134,15 @@ void SignalForgeStyle::applyAtStartup(QApplication* app) {
         qFatal("SignalForgeStyle::applyAtStartup: bundled fonts failed to load — M16 rendering contract violated");
     }
 
-    // ── 3. Apply 18-ColorRole light palette ─────────────────────────────
-    applyLightPalette(app);
+    // ── 3. Apply 18-ColorRole palette for the active theme ──────────────
+    applyPalette(app, g_active_theme);
 
     // ── 4. Apply :/styles/tokens.qss stylesheet ─────────────────────────
     applyGlobalStylesheet(app);
 
     // ── 5. Default app font: Inter @ tokens body size ───────────────────
-    QApplication::setFont(QFont(QString::fromLatin1(tokens::light::kFontFamilySans), tokens::light::kFontSizeBody));
+    const ThemeTokens tt = tokensForTheme(g_active_theme);
+    QApplication::setFont(QFont(QString::fromLatin1(tt.fontSans), tt.fontBody));
 
     g_contract_applied = true;
 
@@ -112,7 +154,8 @@ void SignalForgeStyle::applyAtStartup(QApplication* app) {
         SF_LOG_INFO("SignalForgeStyle: SF_VERIFY_RENDER_ENV check PASS");
     }
 
-    SF_LOG_INFO("SignalForgeStyle: applied (Fusion + Inter@{}pt + tokens.qss)", tokens::light::kFontSizeBody);
+    SF_LOG_INFO("SignalForgeStyle: applied (Fusion + Inter@{}pt + theme={})", tt.fontBody,
+                themeName(g_active_theme).toStdString());
 }
 
 SignalForgeStyle::Theme SignalForgeStyle::activeTheme() noexcept {
@@ -120,42 +163,66 @@ SignalForgeStyle::Theme SignalForgeStyle::activeTheme() noexcept {
 }
 
 void SignalForgeStyle::setActiveTheme(Theme t) {
-    if (t == Theme::Dark) {
-        SF_LOG_WARN("SignalForgeStyle::setActiveTheme(Dark): not implemented at M16 — remaining on Light (M20 slot)");
-        g_active_theme = Theme::Light;
+    auto* app = qobject_cast<QApplication*>(QApplication::instance());
+    g_active_theme = t;
+    if (app == nullptr) {
         return;
     }
-    g_active_theme = t;
+    applyPalette(app, t);
+    applyGlobalStylesheet(app);
+    const ThemeTokens tt = tokensForTheme(t);
+    QApplication::setFont(QFont(QString::fromLatin1(tt.fontSans), tt.fontBody));
+    SF_LOG_INFO("SignalForgeStyle: theme switched to '{}'", themeName(t).toStdString());
+}
+
+QString SignalForgeStyle::themeName(Theme t) {
+    switch (t) {
+    case Theme::Light:
+        return QStringLiteral("light");
+    case Theme::Dark:
+        return QStringLiteral("dark");
+    case Theme::HighContrast:
+        return QStringLiteral("high_contrast");
+    }
+    return QStringLiteral("light");
+}
+
+SignalForgeStyle::Theme SignalForgeStyle::themeFromName(const QString& name, bool* ok) {
+    const QString normalized = name.trimmed().toLower().replace(QLatin1Char('-'), QLatin1Char('_'));
+    if (ok != nullptr) {
+        *ok = true;
+    }
+    if (normalized == QStringLiteral("light")) {
+        return Theme::Light;
+    }
+    if (normalized == QStringLiteral("dark")) {
+        return Theme::Dark;
+    }
+    if (normalized == QStringLiteral("high_contrast") || normalized == QStringLiteral("contrast") ||
+        normalized == QStringLiteral("highcontrast")) {
+        return Theme::HighContrast;
+    }
+    if (ok != nullptr) {
+        *ok = false;
+    }
+    return Theme::Light;
 }
 
 bool SignalForgeStyle::verifyEnvironmentContract() {
-    // Tier 2 — Qt rendering stack. Check the internal flag set
-    // by applyAtStartup rather than QApplication::style()->objectName()
-    // because Qt wraps the active style in QStyleSheetStyle when
-    // setStyleSheet() is called, obscuring the original Fusion
-    // instance's objectName. The flag confirms SignalForgeStyle
-    // applied the contract; for a deeper QStyle assertion the
-    // S6 cross-env pixel-diff (compare_with_contract) is the
-    // authoritative gate.
     if (!g_contract_applied) {
         SF_LOG_ERROR("SignalForgeStyle::verifyEnvironmentContract: applyAtStartup not invoked");
         return false;
     }
 
-    // Tier 1 — Font cascade. Verify app default family matches
-    // the M16 expected sans family. Qt's family resolution may
-    // pick a closest match if Inter weren't loaded; comparing
-    // the QApplication::font() family name is the cheapest
-    // honest check.
     const QString default_family = QApplication::font().family();
-    const QString expected_sans = QString::fromLatin1(tokens::light::kFontFamilySans);
+    const ThemeTokens tt = tokensForTheme(g_active_theme);
+    const QString expected_sans = QString::fromLatin1(tt.fontSans);
     if (default_family != expected_sans) {
         SF_LOG_ERROR("SignalForgeStyle::verifyEnvironmentContract: default font family is '{}', expected '{}'",
                      default_family.toStdString(), expected_sans.toStdString());
         return false;
     }
 
-    // Tier 3 — Display geometry. DPR forced 1.0 per contract.
     if (QGuiApplication::primaryScreen() != nullptr) {
         const qreal dpr = QGuiApplication::primaryScreen()->devicePixelRatio();
         if (dpr < 0.99 || dpr > 1.01) {
@@ -169,23 +236,16 @@ bool SignalForgeStyle::verifyEnvironmentContract() {
 }
 
 bool SignalForgeStyle::loadBundledFonts() {
-    // Inter Regular — fail-fast. The S0.5 spike empirical
-    // foundation depends on this exact OTF (sha256 in env contract).
     const bool inter_regular = addFont(QStringLiteral(":/fonts/Inter-Regular.otf"),
                                        /*fail_fast_on_error=*/true);
     if (!inter_regular) {
         return false;
     }
 
-    // Inter Medium / Bold / Italic — advisory (M17+ widget rebuild
-    // consumes these for emphasis / headings / italic accent).
     (void)addFont(QStringLiteral(":/fonts/Inter-Medium.otf"), /*fail_fast_on_error=*/false);
     (void)addFont(QStringLiteral(":/fonts/Inter-Bold.otf"), /*fail_fast_on_error=*/false);
     (void)addFont(QStringLiteral(":/fonts/Inter-Italic.otf"), /*fail_fast_on_error=*/false);
 
-    // JetBrains Mono Regular / Medium — required for measurement
-    // readouts per manifesto §2.2. Regular fail-fast; Medium
-    // advisory.
     const bool jbm_regular = addFont(QStringLiteral(":/fonts/JetBrainsMono-Regular.ttf"),
                                      /*fail_fast_on_error=*/true);
     if (!jbm_regular) {
@@ -196,50 +256,54 @@ bool SignalForgeStyle::loadBundledFonts() {
     return true;
 }
 
-void SignalForgeStyle::applyLightPalette(QApplication* app) {
+void SignalForgeStyle::applyPalette(QApplication* app, Theme theme) {
+    if (app == nullptr) {
+        return;
+    }
     QPalette p;
+    const ThemeTokens tt = tokensForTheme(theme);
 
     // 18 standard QPalette::ColorRole values mapped from
     // generated_style_tokens.hpp. Sources per M16-concerns §C5
     // mapping table.
 
     // Top-level surfaces
-    p.setColor(QPalette::Window, hexColor(tokens::light::kBgPrimaryHex));
-    p.setColor(QPalette::WindowText, hexColor(tokens::light::kTextPrimaryHex));
-    p.setColor(QPalette::Base, hexColor(tokens::light::kBgSurfaceHex));
-    p.setColor(QPalette::AlternateBase, hexColor(tokens::light::kBgElevatedHex));
+    p.setColor(QPalette::Window, hexColor(tt.bgPrimary));
+    p.setColor(QPalette::WindowText, hexColor(tt.textPrimary));
+    p.setColor(QPalette::Base, hexColor(tt.bgSurface));
+    p.setColor(QPalette::AlternateBase, hexColor(tt.bgElevated));
 
     // Tooltips
-    p.setColor(QPalette::ToolTipBase, hexColor(tokens::light::kBgElevatedHex));
-    p.setColor(QPalette::ToolTipText, hexColor(tokens::light::kTextPrimaryHex));
+    p.setColor(QPalette::ToolTipBase, hexColor(tt.bgElevated));
+    p.setColor(QPalette::ToolTipText, hexColor(tt.textPrimary));
 
     // Text & controls
-    p.setColor(QPalette::Text, hexColor(tokens::light::kTextPrimaryHex));
-    p.setColor(QPalette::Button, hexColor(tokens::light::kBgElevatedHex));
-    p.setColor(QPalette::ButtonText, hexColor(tokens::light::kTextPrimaryHex));
-    p.setColor(QPalette::BrightText, hexColor(tokens::light::kTextPrimaryHex));
+    p.setColor(QPalette::Text, hexColor(tt.textPrimary));
+    p.setColor(QPalette::Button, hexColor(tt.bgElevated));
+    p.setColor(QPalette::ButtonText, hexColor(tt.textPrimary));
+    p.setColor(QPalette::BrightText, hexColor(tt.textPrimary));
 
     // Selection / focus
-    p.setColor(QPalette::Highlight, hexColor(tokens::light::kBorderFocusHex));
-    p.setColor(QPalette::HighlightedText, hexColor(tokens::light::kBgPrimaryHex));
+    p.setColor(QPalette::Highlight, hexColor(tt.borderFocus));
+    p.setColor(QPalette::HighlightedText, hexColor(tt.bgPrimary));
 
     // Links (rarely used; mapped sensibly anyway)
-    p.setColor(QPalette::Link, hexColor(tokens::light::kBorderFocusHex));
-    p.setColor(QPalette::LinkVisited, hexColor(tokens::light::kSignal4Hex));  // purple
+    p.setColor(QPalette::Link, hexColor(tt.borderFocus));
+    p.setColor(QPalette::LinkVisited, hexColor(tt.signal4));
 
     // Frame / shadow shades (Fusion uses these for borders + gradients)
-    p.setColor(QPalette::Light, hexColor(tokens::light::kBgSurfaceHex));
-    p.setColor(QPalette::Midlight, hexColor(tokens::light::kBgElevatedHex));
-    p.setColor(QPalette::Dark, hexColor(tokens::light::kTextSecondaryHex));
-    p.setColor(QPalette::Mid, hexColor(tokens::light::kBorderHex));
-    p.setColor(QPalette::Shadow, hexColor(tokens::light::kTextPrimaryHex));
+    p.setColor(QPalette::Light, hexColor(tt.bgSurface));
+    p.setColor(QPalette::Midlight, hexColor(tt.bgElevated));
+    p.setColor(QPalette::Dark, hexColor(tt.textSecondary));
+    p.setColor(QPalette::Mid, hexColor(tt.border));
+    p.setColor(QPalette::Shadow, hexColor(tt.textPrimary));
 
     // PlaceholderText (Qt 5.12+; QLineEdit / QTextEdit placeholder)
-    p.setColor(QPalette::PlaceholderText, hexColor(tokens::light::kTextDisabledHex));
+    p.setColor(QPalette::PlaceholderText, hexColor(tt.textDisabled));
 
     // Disabled ColorGroup — override Text / ButtonText / WindowText
     // with the disabled token so visually-disabled controls demote.
-    const QColor disabled_text = hexColor(tokens::light::kTextDisabledHex);
+    const QColor disabled_text = hexColor(tt.textDisabled);
     p.setColor(QPalette::Disabled, QPalette::WindowText, disabled_text);
     p.setColor(QPalette::Disabled, QPalette::Text, disabled_text);
     p.setColor(QPalette::Disabled, QPalette::ButtonText, disabled_text);
@@ -247,19 +311,24 @@ void SignalForgeStyle::applyLightPalette(QApplication* app) {
     QApplication::setPalette(p);
 }
 
+void SignalForgeStyle::applyLightPalette(QApplication* app) {
+    applyPalette(app, Theme::Light);
+}
+
 void SignalForgeStyle::applyGlobalStylesheet(QApplication* app) {
     if (app == nullptr) {
         return;
     }
-    QFile qss(QStringLiteral(":/styles/tokens.qss"));
+    const ThemeTokens tt = tokensForTheme(g_active_theme);
+    QFile qss(QString::fromLatin1(tt.qssResource));
     if (!qss.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        SF_LOG_WARN("SignalForgeStyle::applyGlobalStylesheet: :/styles/tokens.qss not found in resources");
+        SF_LOG_WARN("SignalForgeStyle::applyGlobalStylesheet: '{}' not found in resources", tt.qssResource);
         return;
     }
     const QByteArray content = qss.readAll();
     qss.close();
     app->setStyleSheet(QString::fromUtf8(content));
-    SF_LOG_INFO("SignalForgeStyle: applied stylesheet ({} bytes)", content.size());
+    SF_LOG_INFO("SignalForgeStyle: applied stylesheet '{}' ({} bytes)", tt.qssResource, content.size());
 }
 
 namespace {
@@ -336,8 +405,9 @@ bool SignalForgeStyle::dumpEnvironmentJson(const QString& outPath) {
 
     // ── Tier 1 — Font cascade (the determinism keystone per S0.5) ────────
     QJsonObject tier1;
-    tier1.insert(QStringLiteral("app_default_family"), QString::fromLatin1(tokens::light::kFontFamilySans));
-    tier1.insert(QStringLiteral("app_default_size_pt"), tokens::light::kFontSizeBody);
+    const ThemeTokens tt = tokensForTheme(g_active_theme);
+    tier1.insert(QStringLiteral("app_default_family"), QString::fromLatin1(tt.fontSans));
+    tier1.insert(QStringLiteral("app_default_size_pt"), tt.fontBody);
     tier1.insert(QStringLiteral("app_mono_family"), QString::fromLatin1(tokens::light::kFontFamilyMono));
     // Observed (post-applyAtStartup) — verify the running QApplication font matches.
     tier1.insert(QStringLiteral("observed_default_family"), QApplication::font().family());
@@ -397,6 +467,7 @@ bool SignalForgeStyle::dumpEnvironmentJson(const QString& outPath) {
     QJsonObject root;
     root.insert(QStringLiteral("spike"), QStringLiteral(""));  // M16 S5: no longer spike runs
     root.insert(QStringLiteral("captured_by"), QStringLiteral("SignalForgeStyle::dumpEnvironmentJson"));
+    root.insert(QStringLiteral("theme"), themeName(g_active_theme));
     root.insert(QStringLiteral("contract_version"),
                 QStringLiteral("M16 S5; matches tests/visual/lib/compare.py ENV_CONTRACT_REQUIRED_KEYS"));
     root.insert(QStringLiteral("tier_1_font_cascade"), tier1);
