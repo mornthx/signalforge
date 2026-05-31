@@ -1,40 +1,37 @@
 # M35 — Understanding (bootstrap)
 
 ## Where we are
-- **M34 merged** (PR #32 → `main`, merge `7289cd7`, tag `v0.0.34.1`). Branch `milestone/M35`
-  created from `main` and pushed.
-- M34 delivered the **entire v0.4 UI redesign plan P0–P5** (`docs/v0.4/ui-redesign-proposal.md §12`):
-  activity-rail workbench, Parsed signal browser, Raw Wireshark dissection, Dashboard colour
-  unification + scroll, and the right inspector with cross-tier selection / drill-through /
-  highlight / recolor / rename / panel config / top-bar chip.
-- CI gate: build + ~750 unit/logic tests green on debug / release / **debug-asan** (ASan/UBSan/LSan
-  clean). Full-window visual baselines are **non-blocking** (env-specific font rendering; see
-  `memory/ci_visual_baseline_divergence.md`).
+- **M34 merged** (PR #32 → `main`, merge `7289cd7`, tag `v0.0.34.1`). `milestone/M35` created from
+  `main`. M34 delivered the entire v0.4 UI redesign (P0–P5).
+- CI gate: build + ~750 unit/logic tests green on debug / release / **debug-asan** (sanitizers clean).
+  Full-window visual baselines are non-blocking (see `memory/ci_visual_baseline_divergence.md`).
 
-## The gap M35 must resolve
-**There is no M35 spec.** The redesign plan ended at P5 — which is done. Recent milestones
-(M18–M34) were not tracked as `docs/milestones/M<n>-*.md`; they were driven by the v0.4 proposal +
-`.claude/` files. So M35 is a **new direction the owner must set**. I will not invent a plan
-(CLAUDE.md ambiguity rule).
+## M35 direction (owner-set, 2026-05-31)
+**Add image & video playback support, likely over UDP.** The owner asked to **think first** about
+communication / architecture / feature / UI before defining concrete M35 content — so this milestone
+opens with a **design-exploration phase**, not a fixed plan.
 
-## What the redesign explicitly left open
-The product pipeline (proposal §6): **Connect → Decode/verify → Observe → Visualise → Control →
-Record/Replay**.
-- **Control (reserved, design-only)** — the *command/control path*: sending commands **to** the
-  device (handshake / polling / manual dispatch / macros / ACK matching). The activity rail kept a
-  reserved slot for it. A distinct, substantial **new core capability** (≠ replay control). See
-  proposal §7.5.
-- **Replay — FROZEN** (owner-frozen; not to be built).
-- **Redesign polish backlog** (optional, from `.claude/M34-progress.md`): two-style selection
-  highlight (selected-panel vs shows-selected-signal); propagate signal rename to dashboard panel
-  titles; strict bottom-left cascade placement; Raw filter autocomplete (P3 stretch); Raw tier
-  observing `selectionChanged`; re-tighten the visual CI gate by capturing baselines in the CI env.
+**Deliverable produced:** `docs/v0.4/media-playback-exploration.md` — explores transport, architecture,
+feature surface, and UI, and lists the decisions to make. Key findings:
+- **Codec is the load-bearing fork** (`architecture.md §4.1` allows Qt Core/Widgets/Quick/Network/
+  SerialPort — **no Multimedia, no FFmpeg**). **Image + Motion-JPEG decode with `QImage` needs ZERO
+  new dependencies**; **H.264 needs FFmpeg/Qt-Multimedia → a §4.1 amendment + owner approval (HALT).**
+  → recommend MJPEG-only first, H.264 behind a pluggable decoder later.
+- **Transport:** UDP needs app-level chunking + reassembly (a JPEG frame spans many datagrams). Custom
+  chunk protocol (we own the device) vs RTP/RTSP (real IP cameras, more deps). The existing `UdpDriver`
+  + `FrameSink` model is reused; a new `MediaReassembler` sink branches off the scalar decode path.
+- **Architecture:** a media path parallel to the scalar pipeline (Reassembler → Decoder(worker thread)
+  → bounded MediaFrameBuffer → VideoPanel), on its **own cadence** (push-on-arrival, not the 60 Hz
+  signal timer) — lands the deferred `heterogeneous_frame_rates` design.
+- **UI:** a new `VideoPanel`/`ImagePanel` dashboard panel type (fits `makePanel` + PanelConfig +
+  inspector); open question whether media also deserves a first-class tier.
 
-## Candidate scopes for M35 (owner picks — see `M35-concerns.md`)
-- **A — Control mode**: build the reserved command/control tier (the next pipeline capability).
-- **B — Polish & harden**: clear the redesign backlog + hardening before new capability.
-- **C — Owner-defined**: a different direction (perf, a specific feature, etc.).
+## Decisions pending from the owner (see exploration §5)
+1. Source type → codec/transport: **custom device (MJPEG, no deps)** vs IP cameras (RTP/H.264, deps).
+2. M35 P1 scope: still image + live MJPEG only, or also replay/scrub + signal-time sync?
+3. H.264 in M35 or deferred? (the only part forcing a new dependency)
+4. UI home: dashboard panel only, or a first-class media tier?
 
 ## Status
-Awaiting the owner's M35 scope decision before writing `.claude/M35-plan.md`. Merge/tag/bootstrap
-(Phase 3 a–i) are complete; the plan (Phase 3 j–k) is blocked on scope.
+Exploration delivered; **awaiting the owner's answers to the 4 decisions** before writing
+`.claude/M35-plan.md`. No code yet.

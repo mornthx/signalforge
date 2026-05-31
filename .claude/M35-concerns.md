@@ -1,26 +1,26 @@
 # M35 — Concerns
 
-## C1 — M35 has no defined scope (blocks the plan)
-The v0.4 redesign plan (P0–P5) is fully delivered by M34, and no `docs/milestones/M35` spec exists.
-Per CLAUDE.md ("when the spec is ambiguous, do not proceed; never guess silently"), I am **not**
-writing a speculative `M35-plan.md`. Two best interpretations, with their implication differences:
+## C1 — Codec dependency (the load-bearing decision)
+`architecture.md §4.1` permits no Qt Multimedia / FFmpeg / codec library. Per CLAUDE.md §1 a new
+dependency is a HALT / owner-approval event.
+- **Image + Motion-JPEG**: decoded by `QImage::loadFromData` (Qt Gui, already linked) → **no new dep.**
+- **H.264 / H.265**: needs FFmpeg or Qt Multimedia → **§4.1 amendment + owner approval.**
 
-- **Interpretation A — Control mode (the reserved capability).**
-  Build the command/control path: send commands to the device (handshake / polling / manual dispatch
-  / macros / ACK matching), with the `≈ Control` rail slot becoming a first-class mode.
-  *Implications:* large, new outbound-IO surface (drivers must support write/command framing — check
-  `DriverInterface::write` state machine, already present); new UI tier; new tests + benchmarks
-  (perf-sensitive outbound path). Highest product value (advances the pipeline) but biggest scope.
+**Recommendation:** ship MJPEG-only first (whole pipeline, zero dep risk); keep the decoder behind an
+interface so H.264 is a later, owner-gated add-on. Do not pull a codec dependency without explicit
+approval.
 
-- **Interpretation B — Polish & harden the redesign.**
-  Clear the `M34-progress.md` backlog (two-style highlight, rename→panel titles, strict cascade, Raw
-  filter autocomplete, Raw selection observer) + re-tighten the visual CI gate (CI-env baselines) +
-  general hardening.
-  *Implications:* small, low-risk, fast green; no new core capability. Good if the owner wants to
-  stabilise before the next big feature.
+## C2 — Transport / source ambiguity
+Whether the source is a **custom device** (→ simple custom chunk protocol, MJPEG) or **off-the-shelf
+IP cameras** (→ RTP/RTSP, likely a dependency) changes most of the design. Needs an owner answer
+before the transport layer is fixed. Do not guess.
 
-These are mutually exclusive as a *primary* M35 theme (B could also be folded into A's early slices).
+## C3 — Perf + memory (new highest-bandwidth path)
+30 fps × multi-MB frames is a different cost class from scalar refresh: decode must be off the UI
+thread (CLAUDE.md §8), the media buffer must be explicitly memory-bounded (QImages are large), and the
+path needs before/after benchmarks (CLAUDE.md §5). Reuses the deferred per-component-cadence design
+(`memory/heterogeneous_frame_rates.md`).
 
 ## Resolution
-Await the owner's pick (A / B / other). On decision, write `M35-plan.md` and present for the
-Phase-4 execute approval.
+Exploration (`docs/v0.4/media-playback-exploration.md`) lays out the options. Await the owner's 4
+decisions (exploration §5) before writing `M35-plan.md`; then plan → Phase-4 execute approval.
