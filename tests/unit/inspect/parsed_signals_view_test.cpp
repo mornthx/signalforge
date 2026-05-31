@@ -146,6 +146,39 @@ TEST_CASE("M30 S2: an invalid filter is flagged and leaves all rows visible", "[
     CHECK(view.visibleRowCount() == 2);  // invalid filter does not hide anything
 }
 
+TEST_CASE("M34 P3: a signal name acts as a filter field (parity with Raw)", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(
+        QStringLiteral("rig"),
+        {
+            makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double, QStringLiteral("C")),
+            makeMeta(QStringLiteral("rig/pressure"), dec::SignalType::Double, QStringLiteral("kPa")),
+        });
+    pushUntilVisible(reg, QStringLiteral("rig/temp"), 25.0);
+    pushUntilVisible(reg, QStringLiteral("rig/pressure"), 101.0);
+
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+    REQUIRE(view.totalRowCount() == 2);
+
+    // `temp` resolves to the temp row's value; pressure row reports it absent.
+    view.filterEdit()->setText(QStringLiteral("temp > 20"));
+    CHECK(view.filterValid());
+    CHECK(view.visibleRowCount() == 1);
+
+    // A threshold the temp value fails hides its row entirely.
+    view.filterEdit()->setText(QStringLiteral("temp > 30"));
+    CHECK(view.visibleRowCount() == 0);
+
+    // Each signal name narrows to its own row.
+    view.filterEdit()->setText(QStringLiteral("pressure > 100"));
+    CHECK(view.visibleRowCount() == 1);
+
+    view.filterEdit()->setText(QString());
+    CHECK(view.visibleRowCount() == 2);
+}
+
 TEST_CASE("M32 S1: 'Add to dashboard' menu emits a typed promote request", "[inspect][m32][interaction]") {
     app();
     buf::SignalBufferRegistry reg;

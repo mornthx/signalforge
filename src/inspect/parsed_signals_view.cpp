@@ -155,7 +155,7 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
 
     filterEdit_ = new QLineEdit(this);
     filterEdit_->setObjectName(QStringLiteral("parsedFilterEdit"));
-    filterEdit_->setPlaceholderText(tr("Filter, e.g.  source == udp:rig && value > 20"));
+    filterEdit_->setPlaceholderText(tr("Filter, e.g.  temperature > 20 && quality == good   (or value/rate/source)"));
     connect(filterEdit_, &QLineEdit::textChanged, this, &ParsedSignalsView::setFilter);
     body->addWidget(filterEdit_);
 
@@ -397,6 +397,14 @@ void ParsedSignalsView::applyFilter() {
             }
             if (lf == QLatin1String("dashboard") || lf == QLatin1String("on_dashboard")) {
                 return signalforge::query::FieldValue(data.onDashboard);
+            }
+            // Signal-name-as-field: mirror the Raw bar so `temperature > 10`
+            // works here too. For the row that *is* this signal, expose its
+            // current value under its own name (and the id's field part);
+            // other rows report the field as absent, so a name filter narrows
+            // to that signal. Builtins above win on any name collision.
+            if (lf == data.name.toLower() || lf == fieldOf(data.id).toLower()) {
+                return data.value;
             }
             return std::nullopt;
         };
