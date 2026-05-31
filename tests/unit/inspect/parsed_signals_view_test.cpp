@@ -395,3 +395,41 @@ TEST_CASE("M34 P2: the row menu flips between Add and Remove", "[inspect][m34][i
         CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("rig/pressure"));
     }
 }
+
+TEST_CASE("M34 P5: drill-through to source packets — row menu + row resolution", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rigA"),
+                            {makeMeta(QStringLiteral("rigA/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    reg.onSignalsRegistered(QStringLiteral("rigB"),
+                            {makeMeta(QStringLiteral("rigB/flow"), dec::SignalType::Double, QStringLiteral("L"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+
+    // The row menu carries "Show source packets in Raw" in BOTH states (it is
+    // about drilling to the wire, independent of dashboard membership).
+    for (bool onDash : {false, true}) {
+        QSignalSpy spy(&view, &insp::ParsedSignalsView::drillToSourceRequested);
+        QMenu* menu = view.buildRowMenu(QStringLiteral("rigB/flow"), onDash);
+        QAction* drill = nullptr;
+        for (QAction* a : menu->findChildren<QAction*>()) {
+            if (a->text() == QStringLiteral("Show source packets in Raw")) {
+                drill = a;
+            }
+        }
+        REQUIRE(drill != nullptr);
+        drill->trigger();
+        delete menu;
+        REQUIRE(spy.count() == 1);
+        CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("rigB/flow"));
+    }
+
+    // The same emission is wired to a row double-click (the Wireshark "follow"
+    // gesture); its handler resolves a table row to its signal id, skipping
+    // group-header / out-of-range rows. Exercise that resolution path directly —
+    // the synthetic mouse double-click is not reliably delivered under the
+    // headless test platform (and `show()` trips the xcb teardown crash).
+    const int row = rowOf(view.table(), QStringLiteral("rigB/flow"));
+    REQUIRE(row >= 0);
+    CHECK(view.table()->item(row, kColName)->data(Qt::UserRole).toString() == QStringLiteral("rigB/flow"));
+}

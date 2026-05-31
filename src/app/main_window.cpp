@@ -28,6 +28,7 @@
 #include "session/tee_signal_value_sink.hpp"
 #include "workbench/components/inspector_panel.hpp"
 #include "workbench/components/segmented_control.hpp"
+#include "workbench/selection_model.hpp"
 #include "workbench/signal_identity.hpp"
 #include "workbench/workbench_frame.hpp"
 
@@ -572,13 +573,24 @@ void MainWindow::buildChartUi() {
 
     // ---- P5: right inspector — details of the current selection ----------
     // Hidden until the user selects a signal (Parsed) or a dissection field
-    // (Raw); fed directly here (the workbench SelectionModel adopting cross-tier
-    // highlight is a later slice).
+    // (Raw). A Parsed selection flows through the app-wide SelectionModel (the
+    // cross-tier backbone); the inspector observes it. A Parsed double-click /
+    // "Show source packets" drills through to the Raw tier filtered to source.
     inspector_ = new signalforge::workbench::InspectorPanel;
     workbench_->setInspector(inspector_);
     workbench_->setInspectorVisible(false);
-    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::signalSelected, this,
-            &MainWindow::onSignalSelectedForInspector);
+    selectionModel_ = new signalforge::workbench::SelectionModel(this);
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::signalSelected, this, [this](const QString& id) {
+        if (id.isEmpty()) {
+            selectionModel_->clear();
+        } else {
+            selectionModel_->select(signalforge::workbench::SelectionKind::Signal, id);
+        }
+    });
+    connect(selectionModel_, &signalforge::workbench::SelectionModel::selectionChanged, this,
+            &MainWindow::onSelectionChanged);
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::drillToSourceRequested, this,
+            &MainWindow::onDrillToSourcePackets);
     if (rawPacketView_ != nullptr && rawPacketView_->dissectionTree() != nullptr) {
         connect(rawPacketView_->dissectionTree(), &QTreeWidget::currentItemChanged, this,
                 [this](QTreeWidgetItem* item, QTreeWidgetItem*) { onDissectionFieldSelected(item); });
@@ -1488,6 +1500,42 @@ void MainWindow::onDissectionFieldSelected(QTreeWidgetItem* item) {
     inspector_->showDetails(item->text(0), tr("Packet field"), rows);
     if (workbench_ != nullptr) {
         workbench_->setInspectorVisible(true);
+    }
+}
+
+void MainWindow::onSelectionChanged(const signalforge::workbench::Selection& selection) {
+    // The inspector observes the app-wide selection. A signal selection (or its
+    // clearing) drives the signal-detail view; other kinds are handled by their
+    // own feeders (e.g. Raw dissection fields) until they adopt the model too.
+    if (selection.kind == signalforge::workbench::SelectionKind::Signal) {
+        onSignalSelectedForInspector(selection.id);
+    } else if (selection.kind == signalforge::workbench::SelectionKind::None) {
+        onSignalSelectedForInspector(QString());
+    }
+}
+
+void MainWindow::onDrillToSourcePackets(const QString& signalId) {
+    if (signalId.isEmpty()) {
+        return;
+    }
+    // A signal id is "<source>/<field>"; everything before the first '/' is the
+    // driver-stamped source, which equals a captured frame's `source` column —
+    // so a `source ==` filter on the Raw tier shows exactly the packets that
+    // produced this signal.
+    const int slash = signalId.indexOf(QLatin1Char('/'));
+    const QString source = slash > 0 ? signalId.left(slash) : signalId;
+
+    if (workbench_ != nullptr) {
+        workbench_->setCurrentMode(QStringLiteral("inspect"));
+    }
+    if (inspectSegments_ != nullptr) {
+        inspectSegments_->setCurrentSegment(QStringLiteral("raw"));  // no emission — switch the stack ourselves
+    }
+    if (inspectStack_ != nullptr && rawPacketView_ != nullptr) {
+        inspectStack_->setCurrentWidget(rawPacketView_);
+    }
+    if (rawPacketView_ != nullptr) {
+        rawPacketView_->setFilterText(QStringLiteral("source == \"%1\"").arg(source));
     }
 }
 

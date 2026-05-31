@@ -200,16 +200,14 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QTableWidget::customContextMenuRequested, this, &ParsedSignalsView::showRowMenu);
     // Report selection changes to the app (selection model / inspector).
-    connect(table_, &QTableWidget::itemSelectionChanged, this, [this]() {
-        const int row = table_->currentRow();
-        QString id;
-        if (row >= 0 && row < static_cast<int>(tableRowToData_.size())) {
-            const int di = tableRowToData_[static_cast<std::size_t>(row)];
-            if (di >= 0) {
-                id = rows_[static_cast<std::size_t>(di)].id;
-            }
+    connect(table_, &QTableWidget::itemSelectionChanged, this,
+            [this]() { Q_EMIT signalSelected(signalIdAtRow(table_->currentRow())); });
+    // Double-click drills through to the source packets in the Raw tier.
+    connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+        const QString id = signalIdAtRow(row);
+        if (!id.isEmpty()) {
+            Q_EMIT drillToSourceRequested(id);
         }
-        Q_EMIT signalSelected(id);
     });
     body->addWidget(table_, 1);
 
@@ -573,15 +571,29 @@ QMenu* ParsedSignalsView::buildAddToDashboardMenu(const QString& signalId) {
     return menu;
 }
 
+QString ParsedSignalsView::signalIdAtRow(int tableRow) const {
+    if (tableRow < 0 || tableRow >= static_cast<int>(tableRowToData_.size())) {
+        return {};
+    }
+    const int di = tableRowToData_[static_cast<std::size_t>(tableRow)];
+    if (di < 0) {
+        return {};  // group-header row
+    }
+    return rows_[static_cast<std::size_t>(di)].id;
+}
+
 QMenu* ParsedSignalsView::buildRowMenu(const QString& signalId, bool onDashboard) {
     // M34 P2: the row action flips — Remove if the signal is already on the
     // dashboard, otherwise the "Add to dashboard ▸ <type>" submenu.
-    if (!onDashboard) {
-        return buildAddToDashboardMenu(signalId);
+    auto* menu = onDashboard ? new QMenu(this) : buildAddToDashboardMenu(signalId);
+    if (onDashboard) {
+        connect(menu->addAction(tr("Remove from dashboard")), &QAction::triggered, this,
+                [this, signalId]() { Q_EMIT removeFromDashboardRequested(signalId); });
     }
-    auto* menu = new QMenu(this);
-    connect(menu->addAction(tr("Remove from dashboard")), &QAction::triggered, this,
-            [this, signalId]() { Q_EMIT removeFromDashboardRequested(signalId); });
+    // M34 P5: cross-tier drill-through — jump to the raw packets of this source.
+    menu->addSeparator();
+    connect(menu->addAction(tr("Show source packets in Raw")), &QAction::triggered, this,
+            [this, signalId]() { Q_EMIT drillToSourceRequested(signalId); });
     return menu;
 }
 

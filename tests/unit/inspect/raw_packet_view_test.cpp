@@ -221,3 +221,25 @@ TEST_CASE("M34 P3: without a dissector, the tree shows a raw-bytes placeholder",
     REQUIRE(tree->topLevelItemCount() == 1);  // single placeholder row
     CHECK(tree->topLevelItem(0)->text(0).contains(QStringLiteral("No decoder schema")));
 }
+
+TEST_CASE("M34 P5: setFilterText populates the visible bar and applies the filter",
+          "[inspect][m34][rawview][interaction]") {
+    app();
+    insp::RawFrameTap tap;
+    tap.onFrame(makeFrame(QStringLiteral("udp:127.0.0.1:9000"), QByteArray("\x01\x02", 2), 1));
+    tap.onFrame(makeFrame(QStringLiteral("udp:127.0.0.1:9001"), QByteArray("\x03", 1), 2));
+    insp::RawPacketView view(tap);
+    view.refresh();
+    REQUIRE(view.totalRowCount() == 2);
+
+    // A cross-tier drill-through sets the bar text (unlike setFilter); the user
+    // sees and can edit the filter that narrowed the list.
+    view.setFilterText(QStringLiteral("source == \"udp:127.0.0.1:9000\""));
+    CHECK(view.filterEdit()->text() == QStringLiteral("source == \"udp:127.0.0.1:9000\""));
+    CHECK(view.filterValid());
+    CHECK(view.visibleRowCount() == 1);
+
+    // Re-applying the same text is a no-op-safe path (guarded re-entry).
+    view.setFilterText(QStringLiteral("source == \"udp:127.0.0.1:9000\""));
+    CHECK(view.visibleRowCount() == 1);
+}

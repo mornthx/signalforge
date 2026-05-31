@@ -331,3 +331,35 @@ The frame's right-inspector slot (built empty in S3) now shows the details of th
 (select a Parsed signal → highlight its packets in Raw, drill-through); a **dashboard-panel inspector**
 (select a panel → its config); the **top-bar connection chip** (replace/augment the bottom status strip);
 mode-gating the inspector to Inspect only.
+
+## P5 S2 — cross-tier drill-through (Parsed signal → source packets in Raw)  ✅
+The owner-reserved differentiator: from a decoded signal, jump to the raw packets that produced it. Built on
+the **`workbench::SelectionModel`** (the Phase-0 backbone, until now unused).
+
+- **Selection backbone adopted.** `MainWindow` now owns a `SelectionModel`. A Parsed row selection routes
+  through it (`signalSelected → select(Signal,id)` / `clear()`), and the inspector observes
+  `selectionChanged` (`onSelectionChanged` → `onSignalSelectedForInspector`) rather than the view's signal
+  directly. So the model has a real consumer (the inspector) and Raw/Dashboard highlight can subscribe later.
+  (Raw dissection-field → inspector stays a direct Raw-internal detail feed; a field isn't a cross-tier
+  selection kind.)
+- **Drill-through gesture.** `ParsedSignalsView` emits a new `drillToSourceRequested(signalId)` from **(a)** a
+  row **double-click** (the Wireshark "follow" idiom) and **(b)** a **"Show source packets in Raw"** row-menu
+  item (present in both Add/Remove states — it's about the wire, not dashboard membership). A small
+  `signalIdAtRow()` helper resolves a table row → signal id, skipping group-header / out-of-range rows (reused
+  by selection + double-click).
+- **Handler.** `MainWindow::onDrillToSourcePackets` computes the source (`"<source>/<field>"` → prefix before
+  the first `/`, which equals a captured frame's `source`), switches to **Inspect → Raw**, and applies a
+  `source == "<src>"` display filter via the new **`RawPacketView::setFilterText`** (sets the *visible* bar,
+  unlike `setFilter`, so the filter is transparent + user-editable + reversible). The source-axis match is
+  exact because a signal id's source prefix is the same driver-stamped id the Raw `source` column carries.
+- Tests: Parsed `drillToSourceRequested` fires from the row menu (both states) + row-id resolution is correct;
+  Raw `setFilterText` populates the bar, narrows the list, and is re-entry-safe. (The synthetic mouse
+  double-click is **not** asserted — it isn't reliably delivered under the headless test platform and `show()`
+  trips the xcb teardown crash; the menu path + row-resolution cover the same emission deterministically.)
+
+### Still owed (final P5 slices)
+- **Reciprocal highlight**: have Raw/Dashboard *observe* `selectionChanged` to highlight the current signal
+  (selection is now centralised; only the observers are missing).
+- **Dashboard-panel inspector** (select a panel → its config in the right inspector).
+- **Top-bar connection chip** (replace/augment the bottom status strip).
+- **Mode-gate** the inspector to Inspect only.

@@ -57,6 +57,11 @@ public:
     /// rows visible.
     void setFilter(const QString& text);
 
+    /// Set the filter-bar text (and apply it). Unlike `setFilter`, this updates
+    /// the visible bar so a programmatic filter (e.g. a cross-tier drill-through)
+    /// is transparent and editable by the user.
+    void setFilterText(const QString& text);
+
     /// Pull new frames from the tap, append rows, and re-apply the filter.
     void refresh();
 

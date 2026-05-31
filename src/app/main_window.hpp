@@ -43,6 +43,8 @@ namespace signalforge::workbench {
 class WorkbenchFrame;
 class SegmentedControl;
 class InspectorPanel;
+class SelectionModel;
+struct Selection;
 }  // namespace signalforge::workbench
 
 class QTreeWidgetItem;
@@ -316,6 +318,12 @@ private:
     /// clears it) or the selected Raw dissection-tree field.
     void onSignalSelectedForInspector(const QString& signalId);
     void onDissectionFieldSelected(QTreeWidgetItem* item);
+    /// P5: react to the app-wide selection model (feeds the inspector; the
+    /// backbone for cross-tier highlight).
+    void onSelectionChanged(const signalforge::workbench::Selection& selection);
+    /// P5: cross-tier drill-through — switch to the Raw tier filtered to the
+    /// source of `signalId` (the packets that produced it).
+    void onDrillToSourcePackets(const QString& signalId);
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;
@@ -347,7 +355,8 @@ private:
     // M34 redesign: activity-rail frame replaces the tab/stack workspace.
     signalforge::workbench::SignalIdentity signalIdentity_;  ///< P2: shared per-signal colour index (SSOT)
     signalforge::workbench::WorkbenchFrame* workbench_ = nullptr;
-    signalforge::workbench::InspectorPanel* inspector_ = nullptr;  ///< P5: right-hand selection details
+    signalforge::workbench::InspectorPanel* inspector_ = nullptr;       ///< P5: right-hand selection details
+    signalforge::workbench::SelectionModel* selectionModel_ = nullptr;  ///< P5: app-wide current selection (backbone)
     signalforge::workbench::SegmentedControl* inspectSegments_ = nullptr;
     QStackedWidget* inspectStack_ = nullptr;    ///< Raw / Parsed / Dashboard views (Inspect mode)
     QStackedWidget* connectStack_ = nullptr;    ///< onboarding ↔ connection manager (Connect mode)

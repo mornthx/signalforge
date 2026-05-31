@@ -226,6 +226,16 @@ void RawPacketView::setFilter(const QString& text) {
     applyFilter();
 }
 
+void RawPacketView::setFilterText(const QString& text) {
+    // Setting the text fires QLineEdit::textChanged → setFilter (connected in the
+    // ctor); guard against re-applying an identical filter.
+    if (filterEdit_->text() == text) {
+        setFilter(text);
+        return;
+    }
+    filterEdit_->setText(text);
+}
+
 bool RawPacketView::rowMatches(const CapturedFrame& frame) const {
     // Dissected field values are resolved lazily: a filter that only references
     // packet metadata (no/source/…) never pays for dissection. Filled on the

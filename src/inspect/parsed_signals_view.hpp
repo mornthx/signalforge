@@ -88,6 +88,12 @@ Q_SIGNALS:
     /// cleared). The app routes it to the workbench selection model / inspector.
     void signalSelected(const QString& signalId);
 
+    /// Emitted when the user asks to drill through from a signal to the raw
+    /// packets that produced it (double-click a row, or the row menu's "Show
+    /// source packets"). The app switches to the Raw tier filtered to the
+    /// signal's source — the cross-tier differentiator.
+    void drillToSourceRequested(const QString& signalId);
+
 public:
     /// Build the "Add to dashboard ▸ <type>" menu for `signalId` (owned by the
     /// caller). Each action emits `addToDashboardRequested`. Used live (on
@@ -143,6 +149,10 @@ private:
     void applyFilter();
     void showRowMenu(const QPoint& pos);
     void showHeaderMenu(const QPoint& pos);
+
+    /// Resolve a table row to its signal id, or an empty string for a
+    /// group-header / out-of-range row.
+    [[nodiscard]] QString signalIdAtRow(int tableRow) const;
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     QLineEdit* filterEdit_ = nullptr;
