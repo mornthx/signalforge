@@ -392,6 +392,10 @@ void MainWindow::onAbout() {
 void MainWindow::buildChartUi() {
     // ---- Tier 3 dashboard surface --------------------------------------
     dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_);
+    // M34 P4: unify panel colours onto the shared SignalIdentity — a signal's
+    // plot trace / bar / gauge fill now match its Parsed swatch (same lambda).
+    dashboard_->setSignalColorProvider(
+        [this](const QString& id) { return signalPaletteColor(signalIdentity_.colorIndex(id)); });
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, this,
             &MainWindow::updateEmptyStateVisibility);
 

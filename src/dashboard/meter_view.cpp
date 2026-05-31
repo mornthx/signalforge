@@ -10,10 +10,6 @@
 
 namespace signalforge::dashboard {
 
-namespace {
-const QColor kFill(0x4f, 0xc3, 0xf7);  // matches PlotView's first palette colour
-}
-
 MeterView::MeterView(Style style, QWidget* parent) : QWidget(parent), style_(style) {
     setObjectName(style == Style::Bar ? QStringLiteral("barMeter") : QStringLiteral("gaugeMeter"));
     setMinimumSize(120, style == Style::Bar ? 64 : 110);
@@ -37,6 +33,13 @@ void MeterView::setRange(double lo, double hi) {
 void MeterView::setUnit(const QString& unit) {
     unit_ = unit;
     update();
+}
+
+void MeterView::setColor(const QColor& color) {
+    if (color.isValid() && color != fill_) {
+        fill_ = color;
+        update();
+    }
 }
 
 double MeterView::fraction() const {
@@ -63,7 +66,7 @@ void MeterView::paintEvent(QPaintEvent* /*event*/) {
         if (hasData_) {
             QRectF fill = barRect;
             fill.setWidth(barRect.width() * fraction());
-            p.setBrush(kFill);
+            p.setBrush(fill_);
             p.drawRoundedRect(fill, 4, 4);
         }
         p.setPen(text);
@@ -86,7 +89,7 @@ void MeterView::paintEvent(QPaintEvent* /*event*/) {
     p.setPen(arcPen);
     p.drawArc(arcRect, 0 * 16, 180 * 16);
     if (hasData_) {
-        QPen valPen(kFill, 8);
+        QPen valPen(fill_, 8);
         valPen.setCapStyle(Qt::FlatCap);
         p.setPen(valPen);
         p.drawArc(arcRect, 180 * 16, -static_cast<int>(180.0 * fraction()) * 16);

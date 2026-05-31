@@ -276,3 +276,33 @@ list + hex only).
 - **P5** right-inspector / bottom-drawer selection wiring (frame slots exist but mount empty) + top-bar
   connection chip. The Raw dissection tree is a natural P5 inspector feeder (select a field → inspector).
 - **P2 remainder**: last-change column, group-by-driver.
+
+---
+
+# Phase 4 (P4) — Dashboard colour unification (§7.4)
+
+## P4 S1 — unify panel colours onto SignalIdentity  ✅
+A signal was a *different* colour in each tier: Parsed used the shared `SignalIdentity` palette, PlotView used
+a local round-robin `kPalette` (reset per plot, unstable), MeterView used one hardcoded fill. P4-S1 routes
+**all** panel colours through the same identity provider, so a signal's plot trace / bar / gauge fill matches
+its Parsed swatch.
+
+- New `SignalColorProvider` alias (`panel_types.hpp`): `std::function<QColor(const QString&)>`. `Panel` gains
+  a virtual `setSignalColorProvider` (no-op; Numeric/State/Table show no colour). **PlotPanel** forwards it to
+  `PlotView::setColorProvider` (resolves new series + re-colours existing ones on re-set — theme-change path);
+  **MeterPanel** forwards the bound signal's colour to `MeterView::setColor` (applied on set + each refresh).
+- `Dashboard::setSignalColorProvider` stores + forwards to every current/future panel. **MainWindow injects
+  the same lambda it gives ParsedSignalsView** (`signalPaletteColor(signalIdentity_.colorIndex(id))`), so the
+  SSOT is shared — no new dashboard→workbench/theme dependency (colour is injected, like the Parsed view).
+- Fallbacks preserved: no provider → PlotView's round-robin, MeterView's default accent.
+- Tests: PlotView resolves + re-colours via provider; Dashboard forwards to a plot panel (new + on re-set).
+  **Zero visual-baseline impact** (the identity palette matches the old plot colours; 11/11 visual unchanged).
+  728+/... ctest Debug + Release; clang-format clean.
+
+**Deliberately NOT done (avoided over-abstraction):** a standalone panel "widget registry" / factory class —
+the existing `makePanel()` switch + `PanelConfig` + `PanelConfigDialog` (type/signals/range/unit/decimals) +
+free-form drag/resize already cover add/configure/remove, so a registry would be abstraction before a second
+consumer. Revisit only when a plugin/serialization need appears.
+
+### Still owed
+- **P5** right-inspector/bottom-drawer selection wiring + top-bar connection chip.

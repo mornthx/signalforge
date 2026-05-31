@@ -36,6 +36,7 @@ public:
     void addSignal(const QString& signalId) override;
     void removeSignal(const QString& signalId) override;
     void refresh() override;
+    void setSignalColorProvider(SignalColorProvider provider) override;
 
     /// The hosted plot view (not owned by callers).
     [[nodiscard]] PlotView* view() const noexcept {

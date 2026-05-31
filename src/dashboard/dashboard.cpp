@@ -87,6 +87,15 @@ void Dashboard::setRefreshRateHz(int hz) {
     }
 }
 
+void Dashboard::setSignalColorProvider(SignalColorProvider provider) {
+    signalColorProvider_ = std::move(provider);
+    for (const QString& id : panelOrder_) {
+        if (Panel* p = panels_.value(id, nullptr)) {
+            p->setSignalColorProvider(signalColorProvider_);
+        }
+    }
+}
+
 QString Dashboard::nextPanelId() {
     QString id;
     do {
@@ -132,6 +141,9 @@ QString Dashboard::addPanel(PanelConfig config) {
     const QString id = config.id;
 
     Panel* created = makePanel(config);
+    if (signalColorProvider_) {
+        created->setSignalColorProvider(signalColorProvider_);
+    }
     connect(created, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
     connect(created, &Panel::dragProposed, this, &Dashboard::resolvePanelDrag);
     connect(created, &Panel::geometryChanged, this, [this](const QString&) { Q_EMIT panelsChanged(); });

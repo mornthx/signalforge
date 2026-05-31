@@ -9,6 +9,7 @@
 #include "decode/decoder_interface.hpp"
 
 #include <QApplication>
+#include <QColor>
 #include <QImage>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
@@ -67,6 +68,29 @@ TEST_CASE("M23 S1: PlotView manages signals with distinct colors", "[dashboard][
     view.removeSignal(QStringLiteral("rig/a"));
     CHECK(view.signalIds() == QStringList{QStringLiteral("rig/b")});
     CHECK_FALSE(view.hasSignal(QStringLiteral("rig/a")));
+}
+
+TEST_CASE("M34 P4: PlotView resolves trace colours through the identity provider", "[dashboard][m34][plotview]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double, QStringLiteral("V")),
+                             makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double, QStringLiteral("V"))});
+    ch::TimeAxisManager axis;
+    dash::PlotView view(reg, axis);
+
+    // A provider mapping ids to fixed identity colours.
+    view.setColorProvider(
+        [](const QString& id) { return id == QStringLiteral("rig/a") ? QColor(Qt::red) : QColor(Qt::green); });
+    view.addSignal(QStringLiteral("rig/a"));
+    view.addSignal(QStringLiteral("rig/b"));
+    CHECK(view.colorFor(QStringLiteral("rig/a")) == QColor(Qt::red));
+    CHECK(view.colorFor(QStringLiteral("rig/b")) == QColor(Qt::green));
+
+    // Setting a new provider re-colours existing series (e.g. on theme change).
+    view.setColorProvider([](const QString&) { return QColor(Qt::blue); });
+    CHECK(view.colorFor(QStringLiteral("rig/a")) == QColor(Qt::blue));
+    CHECK(view.colorFor(QStringLiteral("rig/b")) == QColor(Qt::blue));
 }
 
 TEST_CASE("M23 S1: PlotView Y range reflects data and explicit override", "[dashboard][m23][plotview]") {

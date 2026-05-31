@@ -1,6 +1,7 @@
 // src/dashboard/meter_view.hpp
 #pragma once
 
+#include <QColor>
 #include <QString>
 #include <QWidget>
 
@@ -24,6 +25,9 @@ public:
     void setRange(double lo, double hi);
     /// Unit suffix shown next to the value.
     void setUnit(const QString& unit);
+    /// Fill / arc colour (the bound signal's identity colour). Defaults to the
+    /// shared accent if never set.
+    void setColor(const QColor& color);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -37,6 +41,7 @@ private:
     double lo_ = 0.0;
     double hi_ = 1.0;
     QString unit_;
+    QColor fill_{0x4f, 0xc3, 0xf7};  ///< default matches PlotView's first palette colour
 };
 
 }  // namespace signalforge::dashboard

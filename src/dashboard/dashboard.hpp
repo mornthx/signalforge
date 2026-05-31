@@ -117,6 +117,11 @@ public:
         return refreshRateHz_;
     }
 
+    /// Inject the shared signal→identity-colour provider, forwarded to every
+    /// current and future panel so a signal renders in the same colour here as
+    /// in the Parsed swatch (P4). Backed by the app's `SignalIdentity` + theme.
+    void setSignalColorProvider(SignalColorProvider provider);
+
     /// Shared time axis driving every plot panel (toolbar Live/preset).
     [[nodiscard]] signalforge::chart::TimeAxisManager& timeAxis();
 
@@ -150,6 +155,7 @@ private:
     QStringList panelOrder_;                    ///< auto-place flow order.
     QHash<QString, PanelConfig> signalIntent_;  ///< signalId -> last widget form (persists across removal).
     int nextPanelSuffix_ = 1;
+    SignalColorProvider signalColorProvider_;  ///< P4: identity colours forwarded to panels.
 };
 
 }  // namespace signalforge::dashboard

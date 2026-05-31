@@ -8,11 +8,14 @@
 #include "dashboard/panel.hpp"
 #include "dashboard/panel_config_dialog.hpp"
 #include "dashboard/panel_types.hpp"
+#include "dashboard/plot_panel.hpp"
+#include "dashboard/plot_view.hpp"
 #include "decode/decoder_interface.hpp"
 
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
@@ -126,6 +129,28 @@ TEST_CASE("S4: addPlotPanel creates a wide plot", "[dashboard][s4][plot]") {
 
     board.removePanel(plotId);
     CHECK(board.panelCount() == 0);
+}
+
+TEST_CASE("M34 P4: Dashboard forwards the identity colour provider to panels", "[dashboard][m34]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double),
+                                                    makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    board.setSignalColorProvider(
+        [](const QString& id) { return id == QStringLiteral("rig/a") ? QColor(Qt::red) : QColor(Qt::green); });
+
+    // A plot panel created *after* the provider is set picks up identity colours.
+    const QString plotId = board.addPlotPanel({QStringLiteral("rig/a"), QStringLiteral("rig/b")});
+    auto* plot = dynamic_cast<dash::PlotPanel*>(board.panel(plotId));
+    REQUIRE(plot != nullptr);
+    REQUIRE(plot->view() != nullptr);
+    CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::red));
+    CHECK(plot->view()->colorFor(QStringLiteral("rig/b")) == QColor(Qt::green));
+
+    // Re-setting the provider re-colours the existing panel (theme change path).
+    board.setSignalColorProvider([](const QString&) { return QColor(Qt::blue); });
+    CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::blue));
 }
 
 TEST_CASE("M22: addTablePanel creates a wide table hosting N signals", "[dashboard][m22][table]") {

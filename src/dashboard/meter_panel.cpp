@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace signalforge::dashboard {
 
@@ -77,6 +78,16 @@ void MeterPanel::refresh() {
     if (meter_ != nullptr) {
         meter_->setRange(lo_, hi_);
         meter_->setValue(value_, hasData_);
+        if (colorProvider_) {
+            meter_->setColor(colorProvider_(signalId));
+        }
+    }
+}
+
+void MeterPanel::setSignalColorProvider(SignalColorProvider provider) {
+    colorProvider_ = std::move(provider);
+    if (colorProvider_ && meter_ != nullptr) {
+        meter_->setColor(colorProvider_(boundSignalId()));
     }
 }
 

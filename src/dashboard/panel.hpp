@@ -86,6 +86,12 @@ public:
     virtual void addSignal(const QString& signalId) {}
     virtual void removeSignal(const QString& signalId) {}
 
+    /// Inject the shared signal→identity-colour provider so the panel's trace /
+    /// bar / value renders in the signal's identity colour (parity with the
+    /// Parsed swatch). Base is a no-op (Numeric / State / Table show no colour);
+    /// Plot and Meter panels override it.
+    virtual void setSignalColorProvider(SignalColorProvider provider) {}
+
     /// The bottom-right resize grip — for interaction tests that simulate a
     /// drag-resize. (Move is simulated by sending mouse events to the panel.)
     [[nodiscard]] QWidget* resizeGrip() const {

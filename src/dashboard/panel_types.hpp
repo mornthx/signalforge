@@ -1,12 +1,20 @@
 // src/dashboard/panel_types.hpp
 #pragma once
 
+#include <QColor>
 #include <QRect>
 #include <QString>
 #include <QStringList>
+#include <functional>
 #include <optional>
 
 namespace signalforge::dashboard {
+
+/// Resolves a signal id to its identity colour. Injected by the app (backed by
+/// the shared `workbench::SignalIdentity` + active theme) so a signal renders
+/// the **same** colour across the Parsed swatch and every dashboard panel.
+/// The dashboard never depends on the theme directly.
+using SignalColorProvider = std::function<QColor(const QString& signalId)>;
 
 /// Kind of widget a panel renders. P0 ships Plot / Numeric / State;
 /// Table, Bar, Gauge land in later phases (see

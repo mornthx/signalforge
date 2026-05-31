@@ -68,9 +68,23 @@ void PlotView::addSignal(const QString& signalId) {
     }
     Series s;
     s.id = signalId;
-    s.color = kPalette[(nextColorIndex_++ % kPaletteSize + kPaletteSize) % kPaletteSize];
+    if (colorProvider_) {
+        s.color = colorProvider_(signalId);
+    } else {
+        s.color = kPalette[(nextColorIndex_++ % kPaletteSize + kPaletteSize) % kPaletteSize];
+    }
     series_.push_back(std::move(s));
     refresh();
+}
+
+void PlotView::setColorProvider(SignalColorProvider provider) {
+    colorProvider_ = std::move(provider);
+    if (colorProvider_) {
+        for (Series& s : series_) {
+            s.color = colorProvider_(s.id);
+        }
+        update();
+    }
 }
 
 void PlotView::removeSignal(const QString& signalId) {

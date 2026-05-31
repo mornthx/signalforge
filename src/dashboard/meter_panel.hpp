@@ -25,6 +25,7 @@ public:
     ~MeterPanel() override;
 
     void refresh() override;
+    void setSignalColorProvider(SignalColorProvider provider) override;
 
     // --- test / diagnostic accessors ---
     [[nodiscard]] double displayValue() const noexcept {
@@ -45,6 +46,7 @@ private:
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     MeterView* meter_ = nullptr;
+    SignalColorProvider colorProvider_;  ///< identity colour for the bound signal
     std::optional<double> obsMin_;
     std::optional<double> obsMax_;
     double value_ = 0.0;

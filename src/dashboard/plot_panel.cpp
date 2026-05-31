@@ -4,6 +4,8 @@
 
 #include "dashboard/plot_view.hpp"
 
+#include <utility>
+
 namespace signalforge::dashboard {
 
 PlotPanel::PlotPanel(PanelConfig config, signalforge::buffer::SignalBufferRegistry& registry,
@@ -46,6 +48,12 @@ void PlotPanel::removeSignal(const QString& signalId) {
 void PlotPanel::refresh() {
     if (view_ != nullptr) {
         view_->refresh();
+    }
+}
+
+void PlotPanel::setSignalColorProvider(SignalColorProvider provider) {
+    if (view_ != nullptr) {
+        view_->setColorProvider(std::move(provider));
     }
 }
 

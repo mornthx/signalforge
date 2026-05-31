@@ -2,6 +2,7 @@
 #pragma once
 
 #include "buffer/signal_buffer.hpp"
+#include "dashboard/panel_types.hpp"
 
 #include <QColor>
 #include <QString>
@@ -42,6 +43,11 @@ public:
     void removeSignal(const QString& signalId);
     [[nodiscard]] QStringList signalIds() const;
     [[nodiscard]] bool hasSignal(const QString& signalId) const;
+
+    /// Inject the shared signal→identity-colour provider. Re-colours every
+    /// existing series; new series resolve their colour through it. With no
+    /// provider, falls back to a built-in round-robin palette.
+    void setColorProvider(SignalColorProvider provider);
 
     /// Normalize each signal to its own observed range (compare shapes of
     /// different-scale signals). Off by default (shared real-value Y axis).
@@ -94,6 +100,7 @@ private:
     std::chrono::steady_clock::time_point queryEnd_{};
     std::chrono::steady_clock::time_point lastPaintedEnd_{};  ///< skip repaint when newest data is unchanged
     int nextColorIndex_ = 0;
+    SignalColorProvider colorProvider_;  ///< identity colours; null → round-robin fallback
 };
 
 }  // namespace signalforge::dashboard
