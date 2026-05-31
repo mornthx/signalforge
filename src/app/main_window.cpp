@@ -545,6 +545,15 @@ void MainWindow::buildChartUi() {
                 } else if (id == QLatin1String("dashboard")) {
                     inspectStack_->setCurrentWidget(chartContainer_);
                 }
+                // A selection belongs to its tier — don't let one tier's
+                // inspector bleed into the next. Clear it on a manual segment
+                // switch (the inspector reappears on the next selection).
+                if (selectionModel_ != nullptr) {
+                    selectionModel_->clear();
+                }
+                if (workbench_ != nullptr) {
+                    workbench_->setInspectorVisible(false);
+                }
             });
 
     auto* inspectPage = new QWidget;
@@ -584,6 +593,15 @@ void MainWindow::buildChartUi() {
     inspector_ = new signalforge::workbench::InspectorPanel;
     workbench_->setInspector(inspector_);
     workbench_->setInspectorVisible(false);
+    // The inspector's × button dismisses the sidebar and drops the selection.
+    connect(inspector_, &signalforge::workbench::InspectorPanel::closeRequested, this, [this]() {
+        if (selectionModel_ != nullptr) {
+            selectionModel_->clear();
+        }
+        if (workbench_ != nullptr) {
+            workbench_->setInspectorVisible(false);
+        }
+    });
     selectionModel_ = new signalforge::workbench::SelectionModel(this);
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::signalSelected, this, [this](const QString& id) {
         if (id.isEmpty()) {
@@ -1501,20 +1519,19 @@ void MainWindow::onSignalSelectedForInspector(const QString& signalId) {
     // surface, not just a readout).
     QVector<signalforge::workbench::InspectorPanel::Action> actions;
     actions.append({tr("Set colour…"), [this, signalId]() { onRecolorRequested(signalId); }});
-    const bool onDashboard = dashboard_ != nullptr && dashboard_->showsSignal(signalId);
-    if (onDashboard) {
+    // Add buttons are always available (a signal can carry several card types);
+    // Remove appears only once the signal is on the dashboard.
+    actions.append(
+        {tr("+ Plot"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("plot")); }});
+    actions.append({tr("+ Bar"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("bar")); }});
+    actions.append(
+        {tr("+ Gauge"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("gauge")); }});
+    if (dashboard_ != nullptr && dashboard_->showsSignal(signalId)) {
         actions.append({tr("Remove"), [this, signalId]() {
                             if (dashboard_ != nullptr) {
                                 dashboard_->removeSignalEverywhere(signalId);
                             }
                         }});
-    } else {
-        actions.append(
-            {tr("+ Plot"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("plot")); }});
-        actions.append(
-            {tr("+ Bar"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("bar")); }});
-        actions.append(
-            {tr("+ Gauge"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("gauge")); }});
     }
     inspector_->setActions(actions);
 
@@ -1772,7 +1789,15 @@ void MainWindow::onPromoteSignalToDashboard(const QString& signalId, const QStri
     } else {
         dashboard_->addSignal(signalId);
     }
-    ensureDashboardVisible();
+    // Stay on the current tier — adding a card no longer yanks the user to the
+    // Dashboard, so several card types can be added for one signal in a row.
+    // (Auto-jump-on-add is a deferred config option; see
+    // docs/v0.4/configurable-options.md.) `panelsChanged` refreshes the Parsed
+    // markers; re-show the inspector so its actions reflect the new membership.
+    if (selectionModel_ != nullptr &&
+        selectionModel_->isSelected(signalforge::workbench::SelectionKind::Signal, signalId)) {
+        onSignalSelectedForInspector(signalId);
+    }
 }
 
 void MainWindow::onLiveToggleChanged(bool live) {

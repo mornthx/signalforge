@@ -57,6 +57,11 @@ public:
     [[nodiscard]] QAbstractButton* actionButton(const QString& label) const;
     [[nodiscard]] bool showingPlaceholder() const;
 
+Q_SIGNALS:
+    /// Emitted when the user clicks the inspector's close (×) button. The app
+    /// hides the inspector slot (the sidebar is dismissible).
+    void closeRequested();
+
 private:
     void clearRows();
     void clearActions();

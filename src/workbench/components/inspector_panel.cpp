@@ -41,6 +41,15 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     titleCol->addWidget(titleLabel_);
     titleCol->addWidget(subtitleLabel_);
     headerRow->addLayout(titleCol, 1);
+    // Close (×) button — dismisses the inspector sidebar.
+    auto* closeBtn = new QPushButton(QStringLiteral("✕"), header_);
+    closeBtn->setObjectName(QStringLiteral("inspectorClose"));
+    closeBtn->setFlat(true);
+    closeBtn->setFixedSize(20, 20);
+    closeBtn->setToolTip(tr("Hide the inspector"));
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    connect(closeBtn, &QPushButton::clicked, this, &InspectorPanel::closeRequested);
+    headerRow->addWidget(closeBtn, 0, Qt::AlignTop);
     root->addWidget(header_);
 
     // Detail rows.

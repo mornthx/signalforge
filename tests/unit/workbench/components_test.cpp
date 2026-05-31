@@ -155,3 +155,15 @@ TEST_CASE("M34 P5: inspector action buttons invoke their callbacks", "[workbench
     inspector.showPlaceholder(QStringLiteral("Nothing selected"));
     CHECK(inspector.actionCount() == 0);
 }
+
+TEST_CASE("M34 P5: inspector close button emits closeRequested", "[workbench][m34][interaction]") {
+    app();
+    wb::InspectorPanel inspector;
+    inspector.showDetails(QStringLiteral("temperature"), QStringLiteral("udp:rig"),
+                          {{QStringLiteral("Value"), QStringLiteral("23.45")}});
+    auto* closeBtn = inspector.findChild<QAbstractButton*>(QStringLiteral("inspectorClose"));
+    REQUIRE(closeBtn != nullptr);
+    QSignalSpy spy(&inspector, &wb::InspectorPanel::closeRequested);
+    closeBtn->click();
+    CHECK(spy.count() == 1);
+}

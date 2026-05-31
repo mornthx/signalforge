@@ -619,9 +619,10 @@ QString ParsedSignalsView::signalIdAtRow(int tableRow) const {
 }
 
 QMenu* ParsedSignalsView::buildRowMenu(const QString& signalId, bool onDashboard) {
-    // M34 P2: the row action flips — Remove if the signal is already on the
-    // dashboard, otherwise the "Add to dashboard ▸ <type>" submenu.
-    auto* menu = onDashboard ? new QMenu(this) : buildAddToDashboardMenu(signalId);
+    // The "Add to dashboard ▸ <type>" submenu is always available — a signal can
+    // carry several card types at once (e.g. a plot *and* a gauge). When it is
+    // already on the dashboard, a "Remove from dashboard" action is added too.
+    auto* menu = buildAddToDashboardMenu(signalId);
     if (onDashboard) {
         connect(menu->addAction(tr("Remove from dashboard")), &QAction::triggered, this,
                 [this, signalId]() { Q_EMIT removeFromDashboardRequested(signalId); });

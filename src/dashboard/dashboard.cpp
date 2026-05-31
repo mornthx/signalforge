@@ -408,6 +408,14 @@ void Dashboard::resizeEvent(QResizeEvent* event) {
     relayout();  // reflow auto-placed (never-dragged) panels to the new width
 }
 
+void Dashboard::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    // Panels added while the Dashboard page was hidden (e.g. promoted from the
+    // Parsed tier) were laid out against a stale/zero width; re-flow now that we
+    // have the real one, so they don't pile up overlapping at the top-left.
+    relayout();
+}
+
 void Dashboard::relayout() {
     // Free-form: panels the user has dragged/resized keep their geometry;
     // everything else flows left-to-right (cards) with Plot/Table on their own

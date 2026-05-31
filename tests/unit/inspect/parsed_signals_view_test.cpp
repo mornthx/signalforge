@@ -356,7 +356,7 @@ TEST_CASE("M34 P2: parsed view shows quality, swatch, and the on-dashboard marke
     CHECK(view.visibleRowCount() == 2);
 }
 
-TEST_CASE("M34 P2: the row menu flips between Add and Remove", "[inspect][m34][interaction]") {
+TEST_CASE("M34 P5: the row menu always offers Add; Remove appears when on dashboard", "[inspect][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"),
@@ -364,7 +364,7 @@ TEST_CASE("M34 P2: the row menu flips between Add and Remove", "[inspect][m34][i
     insp::ParsedSignalsView view(reg);
     view.refresh();
 
-    // Not on dashboard → the "Add to dashboard ▸" submenu (no Remove action).
+    // Not on dashboard → the "Add to dashboard ▸" submenu, no Remove action.
     {
         QMenu* menu = view.buildRowMenu(QStringLiteral("rig/pressure"), /*onDashboard=*/false);
         bool hasRemove = false;
@@ -378,16 +378,19 @@ TEST_CASE("M34 P2: the row menu flips between Add and Remove", "[inspect][m34][i
         delete menu;
     }
 
-    // On dashboard → a single "Remove from dashboard" action that emits.
+    // On dashboard → BOTH the Add submenu (more card types) AND a Remove action.
     {
         QSignalSpy spy(&view, &insp::ParsedSignalsView::removeFromDashboardRequested);
         QMenu* menu = view.buildRowMenu(QStringLiteral("rig/pressure"), /*onDashboard=*/true);
         QAction* remove = nullptr;
+        bool hasAdd = false;
         for (QAction* a : menu->findChildren<QAction*>()) {
             if (a->text() == QStringLiteral("Remove from dashboard")) {
                 remove = a;
             }
+            hasAdd = hasAdd || a->text() == QStringLiteral("Gauge");
         }
+        CHECK(hasAdd);  // can still add more card types while already shown
         REQUIRE(remove != nullptr);
         remove->trigger();
         delete menu;
