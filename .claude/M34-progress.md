@@ -400,11 +400,28 @@ didn't disturb any baseline), clang-format clean.
 Tests: row menu always-Add + Remove-when-on-dashboard; InspectorPanel close button. 751/751 ctest Debug +
 Release, 11/11 visual, clang-format clean.
 
+## P5 S5 — dedicated dashboard pass (#3 layout + #4a panel inspector)  ✅ (`5bb37a3`, `7eb9514`)
+**#3 — scrollable surface (`5bb37a3`).** The dashboard now lives in a vertical `QScrollArea`; `relayout`'s
+`updateContentHeight()` sets `minimumHeight` to the lowest card's bottom so cards below the fold are reachable
+(re-entrancy-guarded vs `setMinimumHeight`→resizeEvent). The drag clamp is relaxed with a tall headroom so a
+card can be dragged past the fold (the surface then grows). Combined with the earlier `showEvent`→relayout,
+cards no longer overlap at the top-left and overflow scrolls. (Kept the grid auto-flow — tidy + sequential —
+rather than a strict bottom-left stack; the overlap was the real complaint.)
+
+**#4a — dashboard-panel inspector (`7eb9514`).** Clicking a card selects it (`Panel::selected` →
+`Dashboard::panelSelected` → SelectionModel `Widget` kind) and the right inspector shows its editable
+properties: **range min/max** (Apply → `applyPanelConfig`, re-creates) and **live card width/height**
+(→ `setUserGeometry`, no re-create), plus **Remove**. New generic `InspectorPanel::setContent(QWidget*)` hosts
+the form (cleared by `showDetails`/`showPlaceholder`), keeping the component selection-agnostic. This also gives
+the **Dashboard tier its own inspector content** (no more stale-Parsed-signal bleed). Rewrote the M29
+"push refused when no viewport room" test → "pushed past the fold" (the intended relaxation).
+
+Tests: surface grows past a short viewport; panel click → `panelSelected`; InspectorPanel content set/clear.
+754/754 ctest Debug + Release, 11/11 visual (captured dashboards fit → no scrollbar → no reflow), clang-format clean.
+
 ### Still owed (final P5 slices)
-- **#3 remainder — dashboard layout**: bottom-left **cascade placement** for new cards + **off-viewport/scroll**
-  (relax the in-viewport clamp). Needs a scroll-area surface + likely a visual-baseline regen.
-- **#4a — dashboard-panel inspector**: click a panel → its config in the right inspector (range / display /
-  size), **inline-editable** (retires the M32 modal). Folds in **signal rename + range** deferred from P5-S3.
-  Needs panel-selection infra (`Panel::selected` + `SelectionKind::Widget`).
+- **Dashboard polish**: a visual **selected-state highlight** on the clicked card; **strict bottom-left cascade**
+  if the grid-flow placement isn't enough; full **inline display-style editing** (decimals/unit) in the panel
+  inspector (the right-click config dialog still covers those); **signal rename** (deferred from P5-S3).
 - **Reciprocal highlight**: Raw/Dashboard *observe* `selectionChanged` to highlight the current signal.
 - **Top-bar connection chip**; **mode-gate** the inspector to Inspect only.
