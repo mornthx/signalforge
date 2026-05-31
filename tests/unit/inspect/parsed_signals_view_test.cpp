@@ -468,6 +468,28 @@ TEST_CASE("M34 P5: clicking a header sorts the Parsed table", "[inspect][m34][in
     CHECK(t->item(2, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/c"));
 }
 
+TEST_CASE("M34 P5: value sort groups by type so bools don't mix with numbers", "[inspect][m34][interaction]") {
+    app();
+    constexpr int kColValue = 4;
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/num0"), dec::SignalType::Double, QString()),
+                             makeMeta(QStringLiteral("rig/flag"), dec::SignalType::Bool, QString()),
+                             makeMeta(QStringLiteral("rig/num5"), dec::SignalType::Double, QString())});
+    pushUntilVisible(reg, QStringLiteral("rig/num0"), 0.0);
+    pushUntilVisible(reg, QStringLiteral("rig/flag"), false);  // bool false → must NOT tie with 0.0
+    pushUntilVisible(reg, QStringLiteral("rig/num5"), 5.0);
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+    auto* t = view.table();
+    REQUIRE(t->rowCount() == 3);
+
+    view.sortByColumn(kColValue);  // numbers (0, 5) grouped before the bool
+    CHECK(t->item(0, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/num0"));
+    CHECK(t->item(1, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/num5"));
+    CHECK(t->item(2, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/flag"));  // bool last, not at 0
+}
+
 TEST_CASE("M34 P5: a display-name override renames the signal in the table", "[inspect][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;

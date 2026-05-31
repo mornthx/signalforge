@@ -316,18 +316,6 @@ void ParsedSignalsView::sortByColumn(int column) {
 bool ParsedSignalsView::sortLess(std::size_t a, std::size_t b) const {
     const RowData& ra = rows_[a];
     const RowData& rb = rows_[b];
-    const auto numeric = [](const signalforge::query::FieldValue& v, bool& isNum) -> double {
-        if (std::holds_alternative<double>(v)) {
-            isNum = true;
-            return std::get<double>(v);
-        }
-        if (std::holds_alternative<bool>(v)) {
-            isNum = true;
-            return std::get<bool>(v) ? 1.0 : 0.0;
-        }
-        isNum = false;
-        return 0.0;
-    };
     switch (sortColumn_) {
     case kSource:
         return ra.source.localeAwareCompare(rb.source) < 0;
@@ -342,16 +330,19 @@ bool ParsedSignalsView::sortLess(std::size_t a, std::size_t b) const {
     case kChanged:
         return ra.sinceChangeSec < rb.sinceChangeSec;
     case kValue: {
-        bool na = false;
-        bool nb = false;
-        const double da = numeric(ra.value, na);
-        const double db = numeric(rb.value, nb);
-        if (na && nb) {
-            return da < db;
+        // Group by value type first so bools don't interleave with numbers
+        // (`FieldValue` is variant<double, bool, QString> → index() = number(0)
+        // < bool(1) < string(2)), then compare within the same type.
+        if (ra.value.index() != rb.value.index()) {
+            return ra.value.index() < rb.value.index();
         }
-        const QString sa = std::holds_alternative<QString>(ra.value) ? std::get<QString>(ra.value) : QString();
-        const QString sb = std::holds_alternative<QString>(rb.value) ? std::get<QString>(rb.value) : QString();
-        return sa.localeAwareCompare(sb) < 0;
+        if (std::holds_alternative<double>(ra.value)) {
+            return std::get<double>(ra.value) < std::get<double>(rb.value);
+        }
+        if (std::holds_alternative<bool>(ra.value)) {
+            return !std::get<bool>(ra.value) && std::get<bool>(rb.value);  // false < true
+        }
+        return std::get<QString>(ra.value).localeAwareCompare(std::get<QString>(rb.value)) < 0;
     }
     case kName:
     default:
