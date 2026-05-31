@@ -209,9 +209,19 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
             Q_EMIT drillToSourceRequested(id);
         }
     });
-    // Clicking a driver group-header row collapses / expands that group
-    // (cellClicked's column arg is dropped — the slot takes only the row).
-    connect(table_, &QTableWidget::cellClicked, this, &ParsedSignalsView::toggleGroupCollapse);
+    // A click on a header row collapses/expands its group; a click on a data
+    // row re-affirms its selection. The latter matters because
+    // `itemSelectionChanged` does NOT fire when the already-selected row is
+    // clicked again — without this, re-clicking a still-highlighted signal
+    // (e.g. after the inspector was closed) would not re-open the inspector.
+    connect(table_, &QTableWidget::cellClicked, this, [this](int row, int) {
+        const QString id = signalIdAtRow(row);
+        if (id.isEmpty()) {
+            toggleGroupCollapse(row);
+        } else {
+            Q_EMIT signalSelected(id);
+        }
+    });
     body->addWidget(table_, 1);
 
     layout->addLayout(body, 1);
@@ -605,6 +615,10 @@ void ParsedSignalsView::toggleGroupCollapse(int tableRow) {
         collapsedDrivers_.insert(src);
     }
     applyFilter();  // re-apply row visibility + header glyph
+}
+
+QString ParsedSignalsView::selectedSignalId() const {
+    return signalIdAtRow(table_->currentRow());
 }
 
 QString ParsedSignalsView::signalIdAtRow(int tableRow) const {

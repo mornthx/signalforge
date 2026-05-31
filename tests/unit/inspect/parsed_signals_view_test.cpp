@@ -437,6 +437,23 @@ TEST_CASE("M34 P5: drill-through to source packets — row menu + row resolution
     CHECK(view.table()->item(row, kColName)->data(Qt::UserRole).toString() == QStringLiteral("rigB/flow"));
 }
 
+TEST_CASE("M34 P5: selectedSignalId reflects the current row", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rigA"),
+                            {makeMeta(QStringLiteral("rigA/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    reg.onSignalsRegistered(QStringLiteral("rigB"),
+                            {makeMeta(QStringLiteral("rigB/flow"), dec::SignalType::Double, QStringLiteral("L"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+
+    CHECK(view.selectedSignalId().isEmpty());  // nothing selected yet
+    const int row = rowOf(view.table(), QStringLiteral("rigB/flow"));
+    REQUIRE(row >= 0);
+    view.table()->setCurrentCell(row, kColName);
+    CHECK(view.selectedSignalId() == QStringLiteral("rigB/flow"));  // restorable on tier re-entry
+}
+
 TEST_CASE("M34 P5: the row menu offers Set colour, and Reset only when overridden", "[inspect][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;

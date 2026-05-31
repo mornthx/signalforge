@@ -560,14 +560,21 @@ void MainWindow::buildChartUi() {
                 } else if (id == QLatin1String("dashboard")) {
                     inspectStack_->setCurrentWidget(chartContainer_);
                 }
-                // A selection belongs to its tier — don't let one tier's
-                // inspector bleed into the next. Clear it on a manual segment
-                // switch (the inspector reappears on the next selection).
-                if (selectionModel_ != nullptr) {
-                    selectionModel_->clear();
-                }
+                // Per-tier inspector: a selection belongs to its tier. Hide on
+                // leave (so no tier's inspector — incl. the directly-fed Raw
+                // field view — bleeds into the next), then on re-entering Parsed
+                // restore the inspector for the row still highlighted there.
                 if (workbench_ != nullptr) {
                     workbench_->setInspectorVisible(false);
+                }
+                if (selectionModel_ != nullptr) {
+                    selectionModel_->clear();
+                    if (id == QLatin1String("parsed") && parsedView_ != nullptr) {
+                        const QString sel = parsedView_->selectedSignalId();
+                        if (!sel.isEmpty()) {
+                            selectionModel_->select(signalforge::workbench::SelectionKind::Signal, sel);
+                        }
+                    }
                 }
             });
 

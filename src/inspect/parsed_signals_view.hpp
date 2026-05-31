@@ -135,6 +135,10 @@ public:
     [[nodiscard]] QTableWidget* table() const {
         return table_;
     }
+    /// The signal id of the currently selected row, or empty when none / a
+    /// group-header row is current. Used to restore the inspector when the
+    /// Parsed tier is re-entered.
+    [[nodiscard]] QString selectedSignalId() const;
 
 private:
     /// Cached per-row field values, fed to the filter engine.
