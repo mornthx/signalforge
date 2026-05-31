@@ -24,6 +24,12 @@ PlotPanel::PlotPanel(PanelConfig config, signalforge::buffer::SignalBufferRegist
     for (const QString& id : preconfigured) {
         addSignal(id);
     }
+
+    // Apply the configured Y-range (nullopt → auto-scale). Editing a plot's
+    // range goes through applyPanelConfig, which re-creates the panel, so the
+    // range is (re)applied here on construction. (Not in refresh(): setYRange
+    // itself refreshes the view, which would double-refresh every tick.)
+    view_->setYRange(config_.rangeMin, config_.rangeMax);
 }
 
 PlotPanel::~PlotPanel() = default;

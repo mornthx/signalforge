@@ -170,6 +170,30 @@ TEST_CASE("M34 P5: clicking a panel emits panelSelected", "[dashboard][m34][inte
     CHECK(spy.takeFirst().at(0).toString() == id);
 }
 
+TEST_CASE("M34 P5: a plot panel applies its configured Y-range", "[dashboard][m34]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    const QString plotId = board.addPlotPanel({QStringLiteral("rig/a")});
+
+    // Editing the range goes through applyPanelConfig (re-creates the panel);
+    // the plot must pin its Y axis to the configured range.
+    dash::PanelConfig cfg;
+    cfg.type = dash::PanelType::Plot;
+    cfg.signalIds = {QStringLiteral("rig/a")};
+    cfg.rangeMin = 5.0;
+    cfg.rangeMax = 42.0;
+    board.applyPanelConfig(plotId, cfg);
+
+    auto* plot = dynamic_cast<dash::PlotPanel*>(board.panel(plotId));
+    REQUIRE(plot != nullptr);
+    REQUIRE(plot->view() != nullptr);
+    const auto [lo, hi] = plot->view()->computedYRange();
+    CHECK(lo == 5.0);
+    CHECK(hi == 42.0);
+}
+
 TEST_CASE("M34 P5: the dashboard surface grows to fit panels below the fold", "[dashboard][m34]") {
     app();
     buf::SignalBufferRegistry reg;

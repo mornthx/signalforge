@@ -5,6 +5,7 @@
 
 #include "workbench/components/activity_rail.hpp"
 #include "workbench/components/empty_state.hpp"
+#include "workbench/components/flow_layout.hpp"
 #include "workbench/components/inspector_panel.hpp"
 #include "workbench/components/section_header.hpp"
 #include "workbench/components/segmented_control.hpp"
@@ -154,6 +155,23 @@ TEST_CASE("M34 P5: inspector action buttons invoke their callbacks", "[workbench
     // The placeholder clears actions too.
     inspector.showPlaceholder(QStringLiteral("Nothing selected"));
     CHECK(inspector.actionCount() == 0);
+}
+
+TEST_CASE("M34 P5: FlowLayout wraps items to use vertical space", "[workbench][m34]") {
+    app();
+    auto* host = new QWidget;
+    auto* flow = new wb::FlowLayout(host, /*margin=*/0, /*hSpacing=*/6, /*vSpacing=*/6);
+    for (int i = 0; i < 5; ++i) {
+        auto* b = new QPushButton(QStringLiteral("Button %1").arg(i));
+        b->setFixedSize(100, 24);
+        flow->addWidget(b);
+    }
+    CHECK(flow->count() == 5);
+    // A wide width fits one row; a narrow one forces wraps → a taller layout.
+    const int wide = flow->heightForWidth(1000);
+    const int narrow = flow->heightForWidth(120);
+    CHECK(narrow > wide);
+    delete host;
 }
 
 TEST_CASE("M34 P5: inspector hosts and clears a custom content body", "[workbench][m34][interaction]") {

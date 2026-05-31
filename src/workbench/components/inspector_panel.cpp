@@ -2,6 +2,8 @@
 
 #include "workbench/components/inspector_panel.hpp"
 
+#include "workbench/components/flow_layout.hpp"
+
 #include <QAbstractButton>
 #include <QFormLayout>
 #include <QFrame>
@@ -71,11 +73,11 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     contentHost_->setVisible(false);
     root->addWidget(contentHost_);
 
-    // Action buttons (set colour, add to dashboard, …); host hidden when empty.
+    // Action buttons (set colour, add to dashboard, …) in a wrapping flow so
+    // they use vertical space instead of being crammed onto one line; host
+    // hidden when empty.
     actionsHost_ = new QWidget(this);
-    actionsLayout_ = new QHBoxLayout(actionsHost_);
-    actionsLayout_->setContentsMargins(0, 6, 0, 0);
-    actionsLayout_->setSpacing(6);
+    actionsLayout_ = new FlowLayout(actionsHost_, /*margin=*/0, /*hSpacing=*/6, /*vSpacing=*/6);
     actionsHost_->setVisible(false);
     root->addWidget(actionsHost_);
 
@@ -148,10 +150,7 @@ void InspectorPanel::setActions(const QVector<Action>& actions) {
         });
         actionsLayout_->addWidget(button);
     }
-    if (!actions.isEmpty()) {
-        actionsLayout_->addStretch(1);
-        actionsHost_->setVisible(true);
-    }
+    actionsHost_->setVisible(!actions.isEmpty());
 }
 
 int InspectorPanel::actionCount() const {

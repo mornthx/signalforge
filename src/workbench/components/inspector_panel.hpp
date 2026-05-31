@@ -16,6 +16,10 @@ class QLabel;
 class QVBoxLayout;
 
 namespace signalforge::workbench {
+class FlowLayout;
+}
+
+namespace signalforge::workbench {
 
 /// The right-hand inspector body: the details of the current selection — a
 /// signal's stats, a dissected packet field, a dashboard panel's config, etc.
@@ -84,7 +88,7 @@ private:
     QVBoxLayout* contentLayout_ = nullptr;
     QWidget* content_ = nullptr;
     QWidget* actionsHost_ = nullptr;
-    QHBoxLayout* actionsLayout_ = nullptr;
+    FlowLayout* actionsLayout_ = nullptr;
     QLabel* placeholder_ = nullptr;
     int rowCount_ = 0;
     bool showingPlaceholder_ = false;

@@ -15,6 +15,8 @@ add_library(signalforge_workbench STATIC
     components/section_header.hpp
     components/empty_state.cpp
     components/empty_state.hpp
+    components/flow_layout.cpp
+    components/flow_layout.hpp
     components/inspector_panel.cpp
     components/inspector_panel.hpp
 )
