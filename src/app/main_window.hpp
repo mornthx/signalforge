@@ -324,6 +324,16 @@ private:
     /// P5: cross-tier drill-through — switch to the Raw tier filtered to the
     /// source of `signalId` (the packets that produced it).
     void onDrillToSourcePackets(const QString& signalId);
+    /// P5: resolve a signal's colour — the user's per-signal override if set,
+    /// else the driver's palette colour. The one provider shared by Parsed,
+    /// Dashboard, and the inspector.
+    [[nodiscard]] QColor resolveSignalColor(const QString& signalId);
+    /// P5: re-push the colour provider to every view after an override changes.
+    void refreshSignalColors();
+    /// P5: per-signal colour override — pick (`onRecolorRequested`) / clear
+    /// (`onResetColorRequested`), then refresh all tiers.
+    void onRecolorRequested(const QString& signalId);
+    void onResetColorRequested(const QString& signalId);
 
     // Plumbing.
     std::unique_ptr<signalforge::pipeline::PipelineManager> pipelineManager_;

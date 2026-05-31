@@ -6,6 +6,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -74,6 +75,10 @@ public:
     /// dashboard" marker + the row action's Add/Remove flip).
     void setDashboardMembershipProvider(std::function<bool(const QString& signalId)> provider);
 
+    /// Report whether a signal has a user colour override (drives the row menu's
+    /// "Reset colour" entry).
+    void setColorOverriddenProvider(std::function<bool(const QString& signalId)> provider);
+
 Q_SIGNALS:
     /// Emitted when the user right-clicks a signal row and picks "Add to
     /// dashboard ▸ <type>". `typeToken` is a `panelTypeName` token
@@ -93,6 +98,14 @@ Q_SIGNALS:
     /// source packets"). The app switches to the Raw tier filtered to the
     /// signal's source — the cross-tier differentiator.
     void drillToSourceRequested(const QString& signalId);
+
+    /// Emitted when the user picks "Set colour…" on a signal row. The app opens
+    /// a colour picker and records the per-signal override in the identity SSOT.
+    void recolorRequested(const QString& signalId);
+
+    /// Emitted when the user picks "Reset colour" on a signal that has an
+    /// override — the app clears it back to the driver default.
+    void resetColorRequested(const QString& signalId);
 
 public:
     /// Build the "Add to dashboard ▸ <type>" menu for `signalId` (owned by the
@@ -150,6 +163,14 @@ private:
     void showRowMenu(const QPoint& pos);
     void showHeaderMenu(const QPoint& pos);
 
+private Q_SLOTS:
+    /// Toggle the collapsed state of the driver group whose header is at
+    /// `tableRow` (no-op for a non-header row), then re-apply visibility. A slot
+    /// so it binds to `cellClicked` directly and is reachable in interaction
+    /// tests via `QMetaObject::invokeMethod`.
+    void toggleGroupCollapse(int tableRow);
+
+private:
     /// Resolve a table row to its signal id, or an empty string for a
     /// group-header / out-of-range row.
     [[nodiscard]] QString signalIdAtRow(int tableRow) const;
@@ -166,6 +187,7 @@ private:
     std::vector<int> tableRowToData_;  ///< table row → index into rows_ (-1 for a group-header row)
     bool groupByDriver_ = false;       ///< cluster rows under per-driver header rows
     bool layoutDirty_ = false;         ///< force a rebuild even if the id set is unchanged (grouping toggled)
+    QSet<QString> collapsedDrivers_;   ///< driver sources whose group is collapsed (rows hidden) when grouping
 
     /// Per-signal value-change tracking for the "Changed" column: id → (last
     /// formatted value, when it last changed). Survives row rebuilds.
@@ -177,6 +199,7 @@ private:
     std::function<QColor(const QString&)> signalColorProvider_;
     std::function<QColor(signalforge::workbench::Quality)> qualityColorProvider_;
     std::function<bool(const QString&)> dashboardMembershipProvider_;
+    std::function<bool(const QString&)> colorOverriddenProvider_;
 };
 
 }  // namespace signalforge::inspect

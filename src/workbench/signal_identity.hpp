@@ -1,9 +1,11 @@
 // src/workbench/signal_identity.hpp
 #pragma once
 
+#include <QColor>
 #include <QHash>
 #include <QString>
 #include <chrono>
+#include <optional>
 
 namespace signalforge::workbench {
 
@@ -26,28 +28,52 @@ enum class Quality {
 [[nodiscard]] Quality qualityFromAge(std::chrono::nanoseconds age, std::chrono::nanoseconds staleAfter,
                                      std::chrono::nanoseconds badAfter, bool decodeError = false);
 
-/// Stable per-signal visual identity: assigns each signal a **palette color
-/// index** (0 .. kPaletteSize-1) on first sighting, in first-seen order,
-/// wrapping. The actual color is resolved from the theme tokens
-/// (`color.signal.<index>`) by the view, so this service is theme-independent
-/// and is the single source of truth for "what color is this signal" across
-/// Raw / Parsed / Dashboard.
+/// Stable visual identity, the single source of truth for "what color is this
+/// signal" across Raw / Parsed / Dashboard. Two layers:
+///
+///   1. **Per-driver palette index** (0 .. kPaletteSize-1), assigned to each
+///      *driver* (the `<driver>/<field>` prefix) on first sighting, in
+///      first-seen order, wrapping. So every signal from one driver shares one
+///      colour by default — the bring-up operator groups a device's signals at
+///      a glance. The index resolves to a theme token (`color.signal.<index>`)
+///      in the view, so this layer is theme-independent.
+///   2. **Per-signal override** — an explicit colour the user picks (right-click
+///      ▸ Set colour…) for an individual signal, taking precedence over its
+///      driver default. Theme-independent by design (the user chose it).
+///
+/// The view/app resolves a signal's colour as: override if present, else the
+/// driver's palette colour.
 class SignalIdentity {
 public:
     static constexpr int kPaletteSize = 8;  ///< matches color.signal.0..7
 
-    /// Palette index for `signalId`, assigning a new one if unseen. Stable for
-    /// the lifetime of this object.
+    /// The driver key for a signal id: the prefix before the first '/', or the
+    /// whole id when it has no field part. Signals sharing a key share a colour.
+    [[nodiscard]] static QString driverKeyOf(const QString& signalId);
+
+    /// Palette index for `signalId`'s **driver**, assigning a new one to that
+    /// driver if unseen. Stable for the lifetime of this object.
     [[nodiscard]] int colorIndex(const QString& signalId);
 
-    /// Whether `signalId` already has an assigned index (no assignment).
+    /// The user's explicit colour override for `signalId`, if any.
+    [[nodiscard]] std::optional<QColor> overrideColor(const QString& signalId) const;
+
+    /// Set / clear a per-signal colour override.
+    void setOverrideColor(const QString& signalId, const QColor& color);
+    void clearOverrideColor(const QString& signalId);
+
+    /// Whether `signalId` has a per-signal override.
+    [[nodiscard]] bool hasOverride(const QString& signalId) const;
+
+    /// Whether `signalId`'s driver already has an assigned index (no assignment).
     [[nodiscard]] bool isKnown(const QString& signalId) const;
 
-    /// Number of signals assigned so far.
+    /// Number of distinct drivers assigned so far.
     [[nodiscard]] int count() const;
 
 private:
-    QHash<QString, int> indices_;
+    QHash<QString, int> driverIndices_;  ///< driver key → palette index
+    QHash<QString, QColor> overrides_;   ///< signal id → explicit colour
     int next_ = 0;
 };
 

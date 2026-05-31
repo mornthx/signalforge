@@ -131,3 +131,27 @@ TEST_CASE("M34 P5: inspector shows details and a placeholder", "[workbench][m34]
     CHECK(inspector.showingPlaceholder());
     CHECK(inspector.rowCount() == 0);
 }
+
+TEST_CASE("M34 P5: inspector action buttons invoke their callbacks", "[workbench][m34][interaction]") {
+    app();
+    wb::InspectorPanel inspector;
+    inspector.showDetails(QStringLiteral("temperature"), QStringLiteral("udp:rig"),
+                          {{QStringLiteral("Value"), QStringLiteral("23.45")}});
+    CHECK(inspector.actionCount() == 0);
+
+    int setColour = 0;
+    int addPlot = 0;
+    inspector.setActions(
+        {{QStringLiteral("Set colour…"), [&]() { ++setColour; }}, {QStringLiteral("+ Plot"), [&]() { ++addPlot; }}});
+    CHECK(inspector.actionCount() == 2);
+
+    QAbstractButton* btn = inspector.actionButton(QStringLiteral("+ Plot"));
+    REQUIRE(btn != nullptr);
+    btn->click();
+    CHECK(addPlot == 1);
+    CHECK(setColour == 0);
+
+    // The placeholder clears actions too.
+    inspector.showPlaceholder(QStringLiteral("Nothing selected"));
+    CHECK(inspector.actionCount() == 0);
+}

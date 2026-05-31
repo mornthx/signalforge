@@ -2,10 +2,12 @@
 
 #include "workbench/components/inspector_panel.hpp"
 
+#include <QAbstractButton>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 namespace signalforge::workbench {
@@ -51,6 +53,14 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     rowsLayout_->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     root->addWidget(rowsHost_);
 
+    // Action buttons (set colour, add to dashboard, …); host hidden when empty.
+    actionsHost_ = new QWidget(this);
+    actionsLayout_ = new QHBoxLayout(actionsHost_);
+    actionsLayout_->setContentsMargins(0, 6, 0, 0);
+    actionsLayout_->setSpacing(6);
+    actionsHost_->setVisible(false);
+    root->addWidget(actionsHost_);
+
     root->addStretch(1);
 
     // Placeholder shown when nothing is selected.
@@ -72,6 +82,53 @@ void InspectorPanel::clearRows() {
         rowsLayout_->removeRow(0);  // deletes the label + field widgets
     }
     rowCount_ = 0;
+}
+
+void InspectorPanel::clearActions() {
+    // Delete synchronously (not deleteLater) so accessors reflect the cleared
+    // state immediately. Deleting a button removes it from the layout; any
+    // leftover spacer items are then drained.
+    const QList<QAbstractButton*> buttons = actionsHost_->findChildren<QAbstractButton*>();
+    for (QAbstractButton* b : buttons) {
+        delete b;
+    }
+    while (QLayoutItem* item = actionsLayout_->takeAt(0)) {
+        delete item;
+    }
+    actionsHost_->setVisible(false);
+}
+
+void InspectorPanel::setActions(const QVector<Action>& actions) {
+    clearActions();
+    for (const Action& a : actions) {
+        auto* button = new QPushButton(a.first, actionsHost_);
+        button->setProperty("class", QLatin1String("inspectorAction"));
+        const std::function<void()> cb = a.second;
+        connect(button, &QPushButton::clicked, this, [cb]() {
+            if (cb) {
+                cb();
+            }
+        });
+        actionsLayout_->addWidget(button);
+    }
+    if (!actions.isEmpty()) {
+        actionsLayout_->addStretch(1);
+        actionsHost_->setVisible(true);
+    }
+}
+
+int InspectorPanel::actionCount() const {
+    return static_cast<int>(actionsHost_->findChildren<QAbstractButton*>().size());
+}
+
+QAbstractButton* InspectorPanel::actionButton(const QString& label) const {
+    const QList<QAbstractButton*> buttons = actionsHost_->findChildren<QAbstractButton*>();
+    for (QAbstractButton* b : buttons) {
+        if (b->text() == label) {
+            return b;
+        }
+    }
+    return nullptr;
 }
 
 void InspectorPanel::showDetails(const QString& title, const QString& subtitle, const QVector<Row>& rows,
@@ -104,6 +161,7 @@ void InspectorPanel::showDetails(const QString& title, const QString& subtitle, 
 
 void InspectorPanel::showPlaceholder(const QString& message) {
     clearRows();
+    clearActions();
     titleLabel_->clear();
     subtitleLabel_->clear();
     swatch_->setVisible(false);

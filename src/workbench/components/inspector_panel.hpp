@@ -5,10 +5,13 @@
 #include <QString>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 #include <utility>
 
+class QAbstractButton;
 class QFormLayout;
 class QFrame;
+class QHBoxLayout;
 class QLabel;
 
 namespace signalforge::workbench {
@@ -23,7 +26,8 @@ class InspectorPanel : public QWidget {
     Q_OBJECT
 
 public:
-    using Row = std::pair<QString, QString>;  ///< (label, value)
+    using Row = std::pair<QString, QString>;                   ///< (label, value)
+    using Action = std::pair<QString, std::function<void()>>;  ///< (button label, on-click)
 
     explicit InspectorPanel(QWidget* parent = nullptr);
     ~InspectorPanel() override;
@@ -40,13 +44,22 @@ public:
     /// Clear the details and show a centered placeholder (nothing selected).
     void showPlaceholder(const QString& message);
 
+    /// Set the action buttons shown below the details (an empty list clears the
+    /// area). Each button invokes its callback when clicked. Cleared by
+    /// `showPlaceholder`. Lets the app attach selection-specific actions (set
+    /// colour, add to dashboard, …) without coupling this component to signals.
+    void setActions(const QVector<Action>& actions);
+
     // --- test accessors ---
     [[nodiscard]] QString titleText() const;
     [[nodiscard]] int rowCount() const;
+    [[nodiscard]] int actionCount() const;
+    [[nodiscard]] QAbstractButton* actionButton(const QString& label) const;
     [[nodiscard]] bool showingPlaceholder() const;
 
 private:
     void clearRows();
+    void clearActions();
 
     QFrame* swatch_ = nullptr;
     QLabel* titleLabel_ = nullptr;
@@ -54,6 +67,8 @@ private:
     QWidget* header_ = nullptr;
     QWidget* rowsHost_ = nullptr;
     QFormLayout* rowsLayout_ = nullptr;
+    QWidget* actionsHost_ = nullptr;
+    QHBoxLayout* actionsLayout_ = nullptr;
     QLabel* placeholder_ = nullptr;
     int rowCount_ = 0;
     bool showingPlaceholder_ = false;

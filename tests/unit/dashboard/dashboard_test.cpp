@@ -153,6 +153,31 @@ TEST_CASE("M34 P4: Dashboard forwards the identity colour provider to panels", "
     CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::blue));
 }
 
+TEST_CASE("M34 P5: reconfiguring a panel keeps its identity colours", "[dashboard][m34]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double),
+                                                    makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    board.setSignalColorProvider(
+        [](const QString& id) { return id == QStringLiteral("rig/a") ? QColor(Qt::red) : QColor(Qt::green); });
+    const QString plotId = board.addPlotPanel({QStringLiteral("rig/a"), QStringLiteral("rig/b")});
+
+    // Editing a panel re-creates it (applyPanelConfig → recreatePanel). The
+    // colour provider must be re-applied at creation — without that, the edit
+    // reverted the panel to the view's default palette (the live-check bug).
+    dash::PanelConfig edited;
+    edited.type = dash::PanelType::Plot;
+    edited.signalIds = {QStringLiteral("rig/a"), QStringLiteral("rig/b")};
+    board.applyPanelConfig(plotId, edited);
+
+    auto* plot = dynamic_cast<dash::PlotPanel*>(board.panel(plotId));
+    REQUIRE(plot != nullptr);
+    REQUIRE(plot->view() != nullptr);
+    CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::red));
+    CHECK(plot->view()->colorFor(QStringLiteral("rig/b")) == QColor(Qt::green));
+}
+
 TEST_CASE("M22: addTablePanel creates a wide table hosting N signals", "[dashboard][m22][table]") {
     app();
     buf::SignalBufferRegistry reg;

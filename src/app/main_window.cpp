@@ -36,6 +36,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDir>
 #include <QDockWidget>
@@ -401,8 +402,7 @@ void MainWindow::buildChartUi() {
     dashboard_ = new signalforge::dashboard::Dashboard(*signalBufferRegistry_);
     // M34 P4: unify panel colours onto the shared SignalIdentity — a signal's
     // plot trace / bar / gauge fill now match its Parsed swatch (same lambda).
-    dashboard_->setSignalColorProvider(
-        [this](const QString& id) { return signalPaletteColor(signalIdentity_.colorIndex(id)); });
+    dashboard_->setSignalColorProvider([this](const QString& id) { return resolveSignalColor(id); });
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, this,
             &MainWindow::updateEmptyStateVisibility);
 
@@ -505,17 +505,22 @@ void MainWindow::buildChartUi() {
             &MainWindow::onPromoteSignalToDashboard);
     // M34 P2: identity + dashboard providers (the view is in `inspect` and must
     // not depend on the theme or the dashboard — the app injects these).
-    parsedView_->setSignalColorProvider(
-        [this](const QString& id) { return signalPaletteColor(signalIdentity_.colorIndex(id)); });
+    parsedView_->setSignalColorProvider([this](const QString& id) { return resolveSignalColor(id); });
     parsedView_->setQualityColorProvider([](signalforge::workbench::Quality q) { return qualityColor(q); });
     parsedView_->setDashboardMembershipProvider(
         [this](const QString& id) { return dashboard_ != nullptr && dashboard_->showsSignal(id); });
+    parsedView_->setColorOverriddenProvider([this](const QString& id) { return signalIdentity_.hasOverride(id); });
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::removeFromDashboardRequested, this,
             [this](const QString& id) {
                 if (dashboard_ != nullptr) {
                     dashboard_->removeSignalEverywhere(id);
                 }
             });
+    // M34 P5: per-signal colour override — pick / reset, then re-colour all tiers.
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::recolorRequested, this,
+            &MainWindow::onRecolorRequested);
+    connect(parsedView_, &signalforge::inspect::ParsedSignalsView::resetColorRequested, this,
+            &MainWindow::onResetColorRequested);
     // Keep the "on dashboard" markers in sync the moment panels change.
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelsChanged, parsedView_,
             &signalforge::inspect::ParsedSignalsView::refresh);
@@ -1437,46 +1442,82 @@ void MainWindow::onSignalSelectedForInspector(const QString& signalId) {
     const QString source = slash > 0 ? signalId.left(slash) : signalId;
     QString title = slash >= 0 ? signalId.mid(slash + 1) : signalId;
 
-    QVector<signalforge::workbench::InspectorPanel::Row> rows;
-    rows.append({tr("Id"), signalId});
-    rows.append({tr("Source"), source});
+    // The detail rows deliberately avoid duplicating the Parsed table columns
+    // (source / type / unit / value / age are already there). The inspector adds
+    // what the table can't show at a glance — the full id, a live value
+    // headline, the description — plus an actions row below.
+    QString typeName;
+    QString unit;
+    QString description;
+    QString valueText = QStringLiteral("—");
     if (auto* buf = signalBufferRegistry_->bufferFor(signalId); buf != nullptr) {
         const auto& meta = buf->metadata();
         if (!meta.name.isEmpty()) {
             title = meta.name;
         }
-        const char* typeName = "?";
         switch (meta.type) {
         case signalforge::decoder::SignalType::Bool:
-            typeName = "bool";
+            typeName = QStringLiteral("bool");
             break;
         case signalforge::decoder::SignalType::Int64:
-            typeName = "int";
+            typeName = QStringLiteral("int");
             break;
         case signalforge::decoder::SignalType::Double:
-            typeName = "double";
+            typeName = QStringLiteral("double");
             break;
         case signalforge::decoder::SignalType::String:
-            typeName = "string";
+            typeName = QStringLiteral("string");
             break;
         }
-        rows.append({tr("Type"), QString::fromLatin1(typeName)});
-        if (!meta.unit.isEmpty()) {
-            rows.append({tr("Unit"), meta.unit});
+        unit = meta.unit;
+        if (meta.description.has_value()) {
+            description = *meta.description;
         }
         if (const auto latest = buf->queryLatestOne(); latest.has_value()) {
-            rows.append({tr("Value"), signalforge::dashboard::formatValue(latest->value, 3)});
-            const double ageS = std::chrono::duration<double>(latest->age).count();
-            rows.append({tr("Age"), ageS < 1.0 ? tr("%1 ms").arg(static_cast<int>(ageS * 1000.0))
-                                               : tr("%1 s").arg(ageS, 0, 'f', 1)});
-        } else {
-            rows.append({tr("Value"), QStringLiteral("—")});
-        }
-        if (meta.description.has_value() && !meta.description->isEmpty()) {
-            rows.append({tr("Description"), *meta.description});
+            valueText = signalforge::dashboard::formatValue(latest->value, 3);
+            if (!unit.isEmpty()) {
+                valueText += QLatin1Char(' ') + unit;
+            }
         }
     }
-    inspector_->showDetails(title, source, rows, signalPaletteColor(signalIdentity_.colorIndex(signalId)));
+    // Subtitle packs the identity (source · type · unit) so it needn't be rows.
+    QString subtitle = source;
+    if (!typeName.isEmpty()) {
+        subtitle += QStringLiteral(" · ") + typeName;
+    }
+    if (!unit.isEmpty()) {
+        subtitle += QStringLiteral(" · ") + unit;
+    }
+
+    QVector<signalforge::workbench::InspectorPanel::Row> rows;
+    rows.append({tr("Value"), valueText});
+    rows.append({tr("Id"), signalId});
+    if (!description.isEmpty()) {
+        rows.append({tr("Description"), description});
+    }
+    inspector_->showDetails(title, subtitle, rows, resolveSignalColor(signalId));
+
+    // Actions: recolour + dashboard membership (the inspector is now a control
+    // surface, not just a readout).
+    QVector<signalforge::workbench::InspectorPanel::Action> actions;
+    actions.append({tr("Set colour…"), [this, signalId]() { onRecolorRequested(signalId); }});
+    const bool onDashboard = dashboard_ != nullptr && dashboard_->showsSignal(signalId);
+    if (onDashboard) {
+        actions.append({tr("Remove"), [this, signalId]() {
+                            if (dashboard_ != nullptr) {
+                                dashboard_->removeSignalEverywhere(signalId);
+                            }
+                        }});
+    } else {
+        actions.append(
+            {tr("+ Plot"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("plot")); }});
+        actions.append(
+            {tr("+ Bar"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("bar")); }});
+        actions.append(
+            {tr("+ Gauge"), [this, signalId]() { onPromoteSignalToDashboard(signalId, QStringLiteral("gauge")); }});
+    }
+    inspector_->setActions(actions);
+
     if (workbench_ != nullptr) {
         workbench_->setInspectorVisible(true);
     }
@@ -1498,6 +1539,7 @@ void MainWindow::onDissectionFieldSelected(QTreeWidgetItem* item) {
         rows.append({tr("Bytes"), item->text(3)});
     }
     inspector_->showDetails(item->text(0), tr("Packet field"), rows);
+    inspector_->setActions({});  // a packet field carries no signal actions
     if (workbench_ != nullptr) {
         workbench_->setInspectorVisible(true);
     }
@@ -1518,12 +1560,14 @@ void MainWindow::onDrillToSourcePackets(const QString& signalId) {
     if (signalId.isEmpty()) {
         return;
     }
-    // A signal id is "<source>/<field>"; everything before the first '/' is the
-    // driver-stamped source, which equals a captured frame's `source` column —
-    // so a `source ==` filter on the Raw tier shows exactly the packets that
-    // produced this signal.
-    const int slash = signalId.indexOf(QLatin1Char('/'));
-    const QString source = slash > 0 ? signalId.left(slash) : signalId;
+    // A signal id is "<type>:<connId>/<field>". A captured frame's `source` is
+    // the *sender-stamped* "<type>:<addr>:<port>" — a different string, so they
+    // share only the transport **type** (the prefix before the first ':'). Drill
+    // through on that: `proto == "<type>"` shows the packets on this signal's
+    // transport (exactly its source packets for the common single-connection
+    // case; broader only when several connections share one transport).
+    const int colon = signalId.indexOf(QLatin1Char(':'));
+    const QString type = colon > 0 ? signalId.left(colon) : signalId;
 
     if (workbench_ != nullptr) {
         workbench_->setCurrentMode(QStringLiteral("inspect"));
@@ -1535,7 +1579,55 @@ void MainWindow::onDrillToSourcePackets(const QString& signalId) {
         inspectStack_->setCurrentWidget(rawPacketView_);
     }
     if (rawPacketView_ != nullptr) {
-        rawPacketView_->setFilterText(QStringLiteral("source == \"%1\"").arg(source));
+        rawPacketView_->setFilterText(QStringLiteral("proto == \"%1\"").arg(type));
+    }
+}
+
+QColor MainWindow::resolveSignalColor(const QString& signalId) {
+    if (const auto override = signalIdentity_.overrideColor(signalId); override.has_value()) {
+        return *override;
+    }
+    return signalPaletteColor(signalIdentity_.colorIndex(signalId));
+}
+
+void MainWindow::refreshSignalColors() {
+    // Re-push the (unchanged) provider so every view re-resolves colours: the
+    // Parsed swatches, and every dashboard panel (PlotView re-colours its series,
+    // MeterView its fill). The provider closures read the identity SSOT live.
+    if (parsedView_ != nullptr) {
+        parsedView_->refresh();
+    }
+    if (dashboard_ != nullptr) {
+        dashboard_->setSignalColorProvider([this](const QString& id) { return resolveSignalColor(id); });
+    }
+}
+
+void MainWindow::onRecolorRequested(const QString& signalId) {
+    if (signalId.isEmpty()) {
+        return;
+    }
+    const QColor current = resolveSignalColor(signalId);
+    const QColor picked = QColorDialog::getColor(current, this, tr("Signal colour — %1").arg(signalId));
+    if (!picked.isValid()) {
+        return;  // user cancelled
+    }
+    signalIdentity_.setOverrideColor(signalId, picked);
+    refreshSignalColors();
+    if (selectionModel_ != nullptr &&
+        selectionModel_->isSelected(signalforge::workbench::SelectionKind::Signal, signalId)) {
+        onSignalSelectedForInspector(signalId);  // re-tint the inspector accent
+    }
+}
+
+void MainWindow::onResetColorRequested(const QString& signalId) {
+    if (signalId.isEmpty() || !signalIdentity_.hasOverride(signalId)) {
+        return;
+    }
+    signalIdentity_.clearOverrideColor(signalId);
+    refreshSignalColors();
+    if (selectionModel_ != nullptr &&
+        selectionModel_->isSelected(signalforge::workbench::SelectionKind::Signal, signalId)) {
+        onSignalSelectedForInspector(signalId);
     }
 }
 

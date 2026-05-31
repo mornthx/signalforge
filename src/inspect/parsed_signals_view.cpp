@@ -209,6 +209,9 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
             Q_EMIT drillToSourceRequested(id);
         }
     });
+    // Clicking a driver group-header row collapses / expands that group
+    // (cellClicked's column arg is dropped — the slot takes only the row).
+    connect(table_, &QTableWidget::cellClicked, this, &ParsedSignalsView::toggleGroupCollapse);
     body->addWidget(table_, 1);
 
     layout->addLayout(body, 1);
@@ -265,6 +268,10 @@ void ParsedSignalsView::setQualityColorProvider(std::function<QColor(signalforge
 
 void ParsedSignalsView::setDashboardMembershipProvider(std::function<bool(const QString&)> provider) {
     dashboardMembershipProvider_ = std::move(provider);
+}
+
+void ParsedSignalsView::setColorOverriddenProvider(std::function<bool(const QString&)> provider) {
+    colorOverriddenProvider_ = std::move(provider);
 }
 
 void ParsedSignalsView::rebuild(const QStringList& ids) {
@@ -519,25 +526,34 @@ void ParsedSignalsView::applyFilter() {
             }
             return std::nullopt;
         };
-        const bool show = filter_.matches(lookup);
+        const bool matches = filter_.matches(lookup);
+        // Collapse hides a group's data rows but keeps them counted as matching
+        // (so the header still shows and the count reflects the filter only).
+        const bool collapsed = groupByDriver_ && collapsedDrivers_.contains(data.source);
         if (data.tableRow >= 0) {
-            table_->setRowHidden(data.tableRow, !show);
+            table_->setRowHidden(data.tableRow, !matches || collapsed);
         }
-        if (show) {
+        if (matches) {
             ++visible;
             visibleSources.insert(data.source);
         }
     }
 
-    // A driver group-header is shown only if its group has a visible row.
+    // A driver group-header is shown only if its group has a matching row; its
+    // text carries a ▾ (expanded) / ▸ (collapsed) affordance.
     if (groupByDriver_) {
-        for (int tr = 0; tr < static_cast<int>(tableRowToData_.size()); ++tr) {
-            if (tableRowToData_[tr] != -1) {
+        for (int hr = 0; hr < static_cast<int>(tableRowToData_.size()); ++hr) {
+            if (tableRowToData_[hr] != -1) {
                 continue;  // data row, already handled
             }
-            auto* head = table_->item(tr, kName);
+            auto* head = table_->item(hr, kName);
             const QString src = head != nullptr ? head->data(Qt::UserRole).toString() : QString();
-            table_->setRowHidden(tr, !visibleSources.contains(src));
+            table_->setRowHidden(hr, !visibleSources.contains(src));
+            if (head != nullptr) {
+                const QString label = src.isEmpty() ? tr("(unsourced)") : src;
+                const QString glyph = collapsedDrivers_.contains(src) ? QStringLiteral("▸ ") : QStringLiteral("▾ ");
+                head->setText(glyph + label);
+            }
         }
     }
 
@@ -571,6 +587,26 @@ QMenu* ParsedSignalsView::buildAddToDashboardMenu(const QString& signalId) {
     return menu;
 }
 
+void ParsedSignalsView::toggleGroupCollapse(int tableRow) {
+    if (!groupByDriver_ || tableRow < 0 || tableRow >= static_cast<int>(tableRowToData_.size())) {
+        return;
+    }
+    if (tableRowToData_[static_cast<std::size_t>(tableRow)] != -1) {
+        return;  // a data row, not a group header
+    }
+    auto* head = table_->item(tableRow, kName);
+    if (head == nullptr) {
+        return;
+    }
+    const QString src = head->data(Qt::UserRole).toString();
+    if (collapsedDrivers_.contains(src)) {
+        collapsedDrivers_.remove(src);
+    } else {
+        collapsedDrivers_.insert(src);
+    }
+    applyFilter();  // re-apply row visibility + header glyph
+}
+
 QString ParsedSignalsView::signalIdAtRow(int tableRow) const {
     if (tableRow < 0 || tableRow >= static_cast<int>(tableRowToData_.size())) {
         return {};
@@ -594,6 +630,15 @@ QMenu* ParsedSignalsView::buildRowMenu(const QString& signalId, bool onDashboard
     menu->addSeparator();
     connect(menu->addAction(tr("Show source packets in Raw")), &QAction::triggered, this,
             [this, signalId]() { Q_EMIT drillToSourceRequested(signalId); });
+
+    // M34 P5: per-signal colour override (driver default otherwise).
+    menu->addSeparator();
+    connect(menu->addAction(tr("Set colour…")), &QAction::triggered, this,
+            [this, signalId]() { Q_EMIT recolorRequested(signalId); });
+    if (colorOverriddenProvider_ && colorOverriddenProvider_(signalId)) {
+        connect(menu->addAction(tr("Reset colour")), &QAction::triggered, this,
+                [this, signalId]() { Q_EMIT resetColorRequested(signalId); });
+    }
     return menu;
 }
 

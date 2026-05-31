@@ -433,3 +433,98 @@ TEST_CASE("M34 P5: drill-through to source packets — row menu + row resolution
     REQUIRE(row >= 0);
     CHECK(view.table()->item(row, kColName)->data(Qt::UserRole).toString() == QStringLiteral("rigB/flow"));
 }
+
+TEST_CASE("M34 P5: the row menu offers Set colour, and Reset only when overridden", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+
+    // No override → "Set colour…" present, "Reset colour" absent.
+    bool overridden = false;
+    view.setColorOverriddenProvider([&](const QString&) { return overridden; });
+    {
+        QSignalSpy spy(&view, &insp::ParsedSignalsView::recolorRequested);
+        QMenu* menu = view.buildRowMenu(QStringLiteral("rig/temp"), /*onDashboard=*/false);
+        QAction* set = nullptr;
+        QAction* reset = nullptr;
+        for (QAction* a : menu->findChildren<QAction*>()) {
+            if (a->text() == QStringLiteral("Set colour…")) {
+                set = a;
+            }
+            if (a->text() == QStringLiteral("Reset colour")) {
+                reset = a;
+            }
+        }
+        REQUIRE(set != nullptr);
+        CHECK(reset == nullptr);
+        set->trigger();
+        delete menu;
+        REQUIRE(spy.count() == 1);
+        CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("rig/temp"));
+    }
+
+    // With an override → "Reset colour" appears and emits.
+    overridden = true;
+    {
+        QSignalSpy spy(&view, &insp::ParsedSignalsView::resetColorRequested);
+        QMenu* menu = view.buildRowMenu(QStringLiteral("rig/temp"), /*onDashboard=*/false);
+        QAction* reset = nullptr;
+        for (QAction* a : menu->findChildren<QAction*>()) {
+            if (a->text() == QStringLiteral("Reset colour")) {
+                reset = a;
+            }
+        }
+        REQUIRE(reset != nullptr);
+        reset->trigger();
+        delete menu;
+        REQUIRE(spy.count() == 1);
+        CHECK(spy.takeFirst().at(0).toString() == QStringLiteral("rig/temp"));
+    }
+}
+
+TEST_CASE("M34 P5: a driver group collapses and expands, hiding its signals", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rigA"),
+                            {makeMeta(QStringLiteral("rigA/temp"), dec::SignalType::Double, QStringLiteral("C")),
+                             makeMeta(QStringLiteral("rigA/flow"), dec::SignalType::Double, QStringLiteral("L"))});
+    reg.onSignalsRegistered(QStringLiteral("rigB"),
+                            {makeMeta(QStringLiteral("rigB/rpm"), dec::SignalType::Double, QStringLiteral("rpm"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+    view.setGroupByDriver(true);
+    auto* t = view.table();
+
+    // Find rigA's header row and one of its data rows.
+    int headerRow = -1;
+    for (int r = 0; r < t->rowCount(); ++r) {
+        auto* it = t->item(r, kColName);
+        if (it != nullptr && it->data(Qt::UserRole).toString() == QStringLiteral("rigA") &&
+            it->text().contains(QStringLiteral("rigA"))) {
+            headerRow = r;
+            break;
+        }
+    }
+    REQUIRE(headerRow >= 0);
+    CHECK(t->item(headerRow, kColName)->text().startsWith(QStringLiteral("▾")));  // expanded glyph
+    const int tempRow = rowOf(t, QStringLiteral("rigA/temp"));
+    const int rpmRow = rowOf(t, QStringLiteral("rigB/rpm"));
+    REQUIRE(tempRow >= 0);
+    REQUIRE(rpmRow >= 0);
+    CHECK_FALSE(t->isRowHidden(tempRow));
+
+    // Collapse rigA: its data rows hide, its header stays (with ▸), rigB intact.
+    QMetaObject::invokeMethod(&view, "toggleGroupCollapse", Q_ARG(int, headerRow));
+    CHECK(t->isRowHidden(tempRow));
+    CHECK_FALSE(t->isRowHidden(headerRow));
+    CHECK(t->item(headerRow, kColName)->text().startsWith(QStringLiteral("▸")));  // collapsed glyph
+    CHECK_FALSE(t->isRowHidden(rpmRow));                                          // sibling driver unaffected
+
+    // Expand again.
+    QMetaObject::invokeMethod(&view, "toggleGroupCollapse", Q_ARG(int, headerRow));
+    CHECK_FALSE(t->isRowHidden(tempRow));
+    CHECK(t->item(headerRow, kColName)->text().startsWith(QStringLiteral("▾")));
+}

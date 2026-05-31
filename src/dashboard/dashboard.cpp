@@ -118,20 +118,35 @@ bool Dashboard::showsSignal(const QString& signalId) const {
 }
 
 Panel* Dashboard::makePanel(const PanelConfig& config) {
+    Panel* panel = nullptr;
     switch (config.type) {
     case PanelType::Numeric:
-        return new NumericPanel(config, *registry_, this);
+        panel = new NumericPanel(config, *registry_, this);
+        break;
     case PanelType::State:
-        return new StatePanel(config, *registry_, this);
+        panel = new StatePanel(config, *registry_, this);
+        break;
     case PanelType::Table:
-        return new TablePanel(config, *registry_, this);
+        panel = new TablePanel(config, *registry_, this);
+        break;
     case PanelType::Plot:
-        return new PlotPanel(config, *registry_, *timeAxis_, this);
+        panel = new PlotPanel(config, *registry_, *timeAxis_, this);
+        break;
     case PanelType::Bar:
     case PanelType::Gauge:
-        return new MeterPanel(config, *registry_, this);
+        panel = new MeterPanel(config, *registry_, this);
+        break;
     }
-    return new NumericPanel(config, *registry_, this);
+    if (panel == nullptr) {
+        panel = new NumericPanel(config, *registry_, this);
+    }
+    // Apply the identity colour provider at the single creation point so every
+    // path (add, reconfigure, type-change) keeps a signal's colour — without
+    // this, editing a panel re-created it back to the view's default colour.
+    if (signalColorProvider_) {
+        panel->setSignalColorProvider(signalColorProvider_);
+    }
+    return panel;
 }
 
 QString Dashboard::addPanel(PanelConfig config) {
@@ -140,10 +155,7 @@ QString Dashboard::addPanel(PanelConfig config) {
     }
     const QString id = config.id;
 
-    Panel* created = makePanel(config);
-    if (signalColorProvider_) {
-        created->setSignalColorProvider(signalColorProvider_);
-    }
+    Panel* created = makePanel(config);  // colour provider applied inside makePanel
     connect(created, &Panel::configureRequested, this, &Dashboard::showPanelMenu);
     connect(created, &Panel::dragProposed, this, &Dashboard::resolvePanelDrag);
     connect(created, &Panel::geometryChanged, this, [this](const QString&) { Q_EMIT panelsChanged(); });
