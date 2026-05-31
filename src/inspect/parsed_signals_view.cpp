@@ -318,13 +318,13 @@ bool ParsedSignalsView::sortLess(std::size_t a, std::size_t b) const {
     const RowData& rb = rows_[b];
     switch (sortColumn_) {
     case kSource:
-        return ra.source.localeAwareCompare(rb.source) < 0;
+        return ra.source.compare(rb.source, Qt::CaseInsensitive) < 0;
     case kQuality:
         return ra.quality < rb.quality;
     case kUnit:
-        return ra.unit.localeAwareCompare(rb.unit) < 0;
+        return ra.unit.compare(rb.unit, Qt::CaseInsensitive) < 0;
     case kType:
-        return ra.type.localeAwareCompare(rb.type) < 0;
+        return ra.type.compare(rb.type, Qt::CaseInsensitive) < 0;
     case kRate:
         return ra.rateHz < rb.rateHz;
     case kChanged:
@@ -342,11 +342,11 @@ bool ParsedSignalsView::sortLess(std::size_t a, std::size_t b) const {
         if (std::holds_alternative<bool>(ra.value)) {
             return !std::get<bool>(ra.value) && std::get<bool>(rb.value);  // false < true
         }
-        return std::get<QString>(ra.value).localeAwareCompare(std::get<QString>(rb.value)) < 0;
+        return std::get<QString>(ra.value).compare(std::get<QString>(rb.value), Qt::CaseInsensitive) < 0;
     }
     case kName:
     default:
-        return ra.name.localeAwareCompare(rb.name) < 0;
+        return ra.name.compare(rb.name, Qt::CaseInsensitive) < 0;
     }
 }
 
@@ -411,7 +411,7 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
     const bool sorted = sortColumn_ >= 0;
     const auto inner = [this, sorted](std::size_t a, std::size_t b) {
         if (!sorted) {
-            return rows_[a].name.localeAwareCompare(rows_[b].name) < 0;
+            return rows_[a].name.compare(rows_[b].name, Qt::CaseInsensitive) < 0;
         }
         return (sortOrder_ == Qt::AscendingOrder) ? sortLess(a, b) : sortLess(b, a);
     };
