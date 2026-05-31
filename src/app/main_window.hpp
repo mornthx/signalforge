@@ -318,6 +318,9 @@ private:
     /// clears it) or the selected Raw dissection-tree field.
     void onSignalSelectedForInspector(const QString& signalId);
     void onDissectionFieldSelected(QTreeWidgetItem* item);
+    /// P5: populate the right inspector with a selected dashboard panel's
+    /// editable properties (range, size) + Remove.
+    void onPanelSelectedForInspector(const QString& panelId);
     /// P5: react to the app-wide selection model (feeds the inspector; the
     /// backbone for cross-tier highlight).
     void onSelectionChanged(const signalforge::workbench::Selection& selection);

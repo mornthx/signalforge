@@ -10,6 +10,8 @@
 #include "connection/connection_manager.hpp"
 #include "connection/connection_status_widget.hpp"
 #include "dashboard/dashboard.hpp"
+#include "dashboard/panel.hpp"
+#include "dashboard/panel_types.hpp"
 #include "dashboard/plot_view.hpp"
 #include "dashboard/value_format.hpp"
 #include "decode/decoder_registrar.hpp"
@@ -40,8 +42,10 @@
 #include <QComboBox>
 #include <QDir>
 #include <QDockWidget>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QGuiApplication>
@@ -56,6 +60,7 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QSlider>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -628,6 +633,12 @@ void MainWindow::buildChartUi() {
         connect(rawPacketView_->dissectionTree(), &QTreeWidget::currentItemChanged, this,
                 [this](QTreeWidgetItem* item, QTreeWidgetItem*) { onDissectionFieldSelected(item); });
     }
+    // P5: selecting a dashboard panel routes through the selection model too.
+    connect(dashboard_, &signalforge::dashboard::Dashboard::panelSelected, this, [this](const QString& panelId) {
+        if (selectionModel_ != nullptr) {
+            selectionModel_->select(signalforge::workbench::SelectionKind::Widget, panelId);
+        }
+    });
 
     fpsLabel_ = new QLabel(tr("Chart idle"));
     fpsLabel_->setObjectName(QStringLiteral("fpsLabel"));
@@ -1572,12 +1583,109 @@ void MainWindow::onDissectionFieldSelected(QTreeWidgetItem* item) {
     }
 }
 
+void MainWindow::onPanelSelectedForInspector(const QString& panelId) {
+    if (inspector_ == nullptr || dashboard_ == nullptr) {
+        return;
+    }
+    auto* panel = dashboard_->panel(panelId);
+    if (panel == nullptr) {
+        return;
+    }
+    namespace dash = signalforge::dashboard;
+    const dash::PanelConfig cfg = panel->config();
+    const QString signalList = cfg.signalIds.join(QStringLiteral(", "));
+    const QString title = !cfg.title.isEmpty() ? cfg.title : !cfg.signalIds.isEmpty() ? cfg.signalIds.first() : panelId;
+    inspector_->showDetails(title, tr("%1 card").arg(dash::panelTypeName(cfg.type)),
+                            {{tr("Signals"), signalList.isEmpty() ? QStringLiteral("—") : signalList}});
+
+    // Editable property form: range (where it applies) + card size.
+    auto* form = new QWidget;
+    auto* layout = new QFormLayout(form);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setHorizontalSpacing(8);
+    layout->setVerticalSpacing(4);
+
+    const bool rangeApplies = cfg.type == dash::PanelType::Numeric || cfg.type == dash::PanelType::Bar ||
+                              cfg.type == dash::PanelType::Gauge || cfg.type == dash::PanelType::Plot;
+    if (rangeApplies) {
+        auto* minSpin = new QDoubleSpinBox(form);
+        auto* maxSpin = new QDoubleSpinBox(form);
+        for (QDoubleSpinBox* s : {minSpin, maxSpin}) {
+            s->setRange(-1e9, 1e9);
+            s->setDecimals(3);
+        }
+        minSpin->setValue(cfg.rangeMin.value_or(0.0));
+        maxSpin->setValue(cfg.rangeMax.value_or(0.0));
+        layout->addRow(tr("Range min"), minSpin);
+        layout->addRow(tr("Range max"), maxSpin);
+        auto* applyRange = new QPushButton(tr("Apply range"), form);
+        connect(applyRange, &QPushButton::clicked, this, [this, panelId, minSpin, maxSpin]() {
+            auto* p = (dashboard_ != nullptr) ? dashboard_->panel(panelId) : nullptr;
+            if (p == nullptr) {
+                return;
+            }
+            signalforge::dashboard::PanelConfig c = p->config();
+            c.rangeMin = minSpin->value();
+            c.rangeMax = maxSpin->value();
+            dashboard_->applyPanelConfig(panelId, c);  // re-creates with the new range
+        });
+        layout->addRow(QString(), applyRange);
+    }
+
+    // Card size — applied live (no re-create) via setUserGeometry.
+    auto* wSpin = new QSpinBox(form);
+    auto* hSpin = new QSpinBox(form);
+    wSpin->setRange(120, 4000);
+    hSpin->setRange(80, 4000);
+    const QRect g = panel->geometry();
+    {
+        const QSignalBlocker bw(wSpin);
+        const QSignalBlocker bh(hSpin);
+        wSpin->setValue(g.width());
+        hSpin->setValue(g.height());
+    }
+    const auto applySize = [this, panelId, wSpin, hSpin]() {
+        auto* p = (dashboard_ != nullptr) ? dashboard_->panel(panelId) : nullptr;
+        if (p == nullptr) {
+            return;
+        }
+        const QRect cur = p->geometry();
+        p->setUserGeometry(QRect(cur.topLeft(), QSize(wSpin->value(), hSpin->value())));
+    };
+    connect(wSpin, &QSpinBox::valueChanged, this, [applySize](int) { applySize(); });
+    connect(hSpin, &QSpinBox::valueChanged, this, [applySize](int) { applySize(); });
+    layout->addRow(tr("Width"), wSpin);
+    layout->addRow(tr("Height"), hSpin);
+
+    inspector_->setContent(form);
+
+    QVector<signalforge::workbench::InspectorPanel::Action> actions;
+    actions.append({tr("Remove"), [this, panelId]() {
+                        if (dashboard_ != nullptr) {
+                            dashboard_->removePanel(panelId);
+                        }
+                        if (selectionModel_ != nullptr) {
+                            selectionModel_->clear();
+                        }
+                        if (workbench_ != nullptr) {
+                            workbench_->setInspectorVisible(false);
+                        }
+                    }});
+    inspector_->setActions(actions);
+
+    if (workbench_ != nullptr) {
+        workbench_->setInspectorVisible(true);
+    }
+}
+
 void MainWindow::onSelectionChanged(const signalforge::workbench::Selection& selection) {
     // The inspector observes the app-wide selection. A signal selection (or its
     // clearing) drives the signal-detail view; other kinds are handled by their
     // own feeders (e.g. Raw dissection fields) until they adopt the model too.
     if (selection.kind == signalforge::workbench::SelectionKind::Signal) {
         onSignalSelectedForInspector(selection.id);
+    } else if (selection.kind == signalforge::workbench::SelectionKind::Widget) {
+        onPanelSelectedForInspector(selection.id);
     } else if (selection.kind == signalforge::workbench::SelectionKind::None) {
         onSignalSelectedForInspector(QString());
     }

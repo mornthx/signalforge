@@ -129,6 +129,10 @@ Q_SIGNALS:
     /// Emitted whenever a panel is added or removed.
     void panelsChanged();
 
+    /// Emitted when the user selects a panel (clicks a card) — the app shows
+    /// its editable properties in the right inspector.
+    void panelSelected(const QString& panelId);
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;

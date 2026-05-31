@@ -153,6 +153,23 @@ TEST_CASE("M34 P4: Dashboard forwards the identity colour provider to panels", "
     CHECK(plot->view()->colorFor(QStringLiteral("rig/a")) == QColor(Qt::blue));
 }
 
+TEST_CASE("M34 P5: clicking a panel emits panelSelected", "[dashboard][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"), {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double)});
+    dash::Dashboard board(reg);
+    const QString id = board.addSignalAs(QStringLiteral("rig/a"), dash::PanelType::Gauge);
+    auto* p = board.panel(id);
+    REQUIRE(p != nullptr);
+
+    QSignalSpy spy(&board, &dash::Dashboard::panelSelected);
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(5, 5), QPointF(5, 5), Qt::LeftButton, Qt::LeftButton,
+                      Qt::NoModifier);
+    QApplication::sendEvent(p, &press);
+    REQUIRE(spy.count() == 1);
+    CHECK(spy.takeFirst().at(0).toString() == id);
+}
+
 TEST_CASE("M34 P5: the dashboard surface grows to fit panels below the fold", "[dashboard][m34]") {
     app();
     buf::SignalBufferRegistry reg;
@@ -478,7 +495,7 @@ TEST_CASE("M29: dragging a panel into a neighbor pushes it aside within bounds",
     CHECK(b->geometry().bottom() < 400);
 }
 
-TEST_CASE("M29: a push with no room inside the viewport is refused", "[dashboard][m29][interaction]") {
+TEST_CASE("M34 P5: a neighbor with no in-viewport room is pushed past the fold", "[dashboard][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;
     reg.onSignalsRegistered(QStringLiteral("rig"), {
@@ -487,7 +504,7 @@ TEST_CASE("M29: a push with no room inside the viewport is refused", "[dashboard
                                                        makeMeta(QStringLiteral("rig/c"), dec::SignalType::Double),
                                                    });
     dash::Dashboard board(reg);
-    board.resize(880, 170);  // exactly one card-row tall → B cannot be pushed vertically
+    board.resize(880, 170);  // one card-row tall — B has no in-viewport vertical room
     dash::Panel* a = board.panel(board.addSignal(QStringLiteral("rig/a")));
     dash::Panel* b = board.panel(board.addSignal(QStringLiteral("rig/b")));
     dash::Panel* c = board.panel(board.addSignal(QStringLiteral("rig/c")));
@@ -497,14 +514,19 @@ TEST_CASE("M29: a push with no room inside the viewport is refused", "[dashboard
     REQUIRE(gb0.x() > ga0.x());
     REQUIRE(gc0.x() > gb0.x());
 
-    // Drag A into B: B has nowhere to go (a third panel right, no vertical room)
-    // → the whole move is refused, nothing shifts.
+    // Drag A into B. The surface is now scrollable (relaxed viewport clamp), so
+    // B is pushed BELOW the fold instead of the move being refused — the move is
+    // accepted and the surface grows to keep B reachable.
     const QPoint g0 = a->mapToGlobal(QPoint(20, 10));
     sendMouse(a, QEvent::MouseButtonPress, g0);
     sendMouse(a, QEvent::MouseMove, g0 + QPoint(200, 0));
     sendMouse(a, QEvent::MouseButtonRelease, g0 + QPoint(200, 0));
 
-    CHECK(a->geometry() == ga0);
-    CHECK(b->geometry() == gb0);
-    CHECK(c->geometry() == gc0);
+    CHECK(a->geometry().x() == ga0.x() + 200);             // A followed the cursor (move accepted)
+    CHECK(b->geometry().y() > gb0.y());                    // B was pushed down…
+    CHECK(b->geometry().bottom() > 170);                   // …past the original one-row viewport
+    CHECK_FALSE(a->geometry().intersects(b->geometry()));  // no overlaps after the push
+    CHECK_FALSE(a->geometry().intersects(c->geometry()));
+    CHECK_FALSE(b->geometry().intersects(c->geometry()));
+    CHECK(board.minimumHeight() >= b->geometry().bottom());  // surface grew to fit B
 }

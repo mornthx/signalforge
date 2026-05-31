@@ -156,6 +156,26 @@ TEST_CASE("M34 P5: inspector action buttons invoke their callbacks", "[workbench
     CHECK(inspector.actionCount() == 0);
 }
 
+TEST_CASE("M34 P5: inspector hosts and clears a custom content body", "[workbench][m34][interaction]") {
+    app();
+    wb::InspectorPanel inspector;
+    CHECK_FALSE(inspector.hasContent());
+
+    auto* body = new QWidget;
+    body->setObjectName(QStringLiteral("panelForm"));
+    inspector.setContent(body);
+    CHECK(inspector.hasContent());
+
+    // showDetails / showPlaceholder both drop the custom body.
+    inspector.showDetails(QStringLiteral("x"), QString(), {{QStringLiteral("v"), QStringLiteral("1")}});
+    CHECK_FALSE(inspector.hasContent());
+
+    inspector.setContent(new QWidget);
+    CHECK(inspector.hasContent());
+    inspector.showPlaceholder(QStringLiteral("nothing"));
+    CHECK_FALSE(inspector.hasContent());
+}
+
 TEST_CASE("M34 P5: inspector close button emits closeRequested", "[workbench][m34][interaction]") {
     app();
     wb::InspectorPanel inspector;

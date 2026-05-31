@@ -146,6 +146,8 @@ Panel* Dashboard::makePanel(const PanelConfig& config) {
     if (signalColorProvider_) {
         panel->setSignalColorProvider(signalColorProvider_);
     }
+    // Forward selection from every panel (incl. re-created ones) to the app.
+    connect(panel, &Panel::selected, this, &Dashboard::panelSelected);
     return panel;
 }
 

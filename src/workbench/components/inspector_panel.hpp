@@ -13,6 +13,7 @@ class QFormLayout;
 class QFrame;
 class QHBoxLayout;
 class QLabel;
+class QVBoxLayout;
 
 namespace signalforge::workbench {
 
@@ -41,6 +42,12 @@ public:
     void showDetails(const QString& title, const QString& subtitle, const QVector<Row>& rows,
                      const QColor& accent = QColor());
 
+    /// Host a caller-built editable body (e.g. a dashboard panel's property
+    /// form) below the detail rows. Passing nullptr clears it. The panel takes
+    /// ownership; replaced/cleared on the next call, `showDetails`, or
+    /// `showPlaceholder`.
+    void setContent(QWidget* body);
+
     /// Clear the details and show a centered placeholder (nothing selected).
     void showPlaceholder(const QString& message);
 
@@ -55,6 +62,7 @@ public:
     [[nodiscard]] int rowCount() const;
     [[nodiscard]] int actionCount() const;
     [[nodiscard]] QAbstractButton* actionButton(const QString& label) const;
+    [[nodiscard]] bool hasContent() const;
     [[nodiscard]] bool showingPlaceholder() const;
 
 Q_SIGNALS:
@@ -72,6 +80,9 @@ private:
     QWidget* header_ = nullptr;
     QWidget* rowsHost_ = nullptr;
     QFormLayout* rowsLayout_ = nullptr;
+    QWidget* contentHost_ = nullptr;
+    QVBoxLayout* contentLayout_ = nullptr;
+    QWidget* content_ = nullptr;
     QWidget* actionsHost_ = nullptr;
     QHBoxLayout* actionsLayout_ = nullptr;
     QLabel* placeholder_ = nullptr;

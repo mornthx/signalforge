@@ -62,6 +62,15 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     rowsLayout_->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     root->addWidget(rowsHost_);
 
+    // Custom editable body (e.g. a dashboard panel's property form); empty until
+    // a caller injects one via setContent().
+    contentHost_ = new QWidget(this);
+    contentLayout_ = new QVBoxLayout(contentHost_);
+    contentLayout_->setContentsMargins(0, 0, 0, 0);
+    contentLayout_->setSpacing(6);
+    contentHost_->setVisible(false);
+    root->addWidget(contentHost_);
+
     // Action buttons (set colour, add to dashboard, …); host hidden when empty.
     actionsHost_ = new QWidget(this);
     actionsLayout_ = new QHBoxLayout(actionsHost_);
@@ -107,6 +116,25 @@ void InspectorPanel::clearActions() {
     actionsHost_->setVisible(false);
 }
 
+void InspectorPanel::setContent(QWidget* body) {
+    if (content_ != nullptr) {
+        contentLayout_->removeWidget(content_);
+        content_->deleteLater();
+        content_ = nullptr;
+    }
+    content_ = body;
+    if (content_ != nullptr) {
+        content_->setParent(contentHost_);
+        contentLayout_->addWidget(content_);
+        content_->show();
+    }
+    contentHost_->setVisible(content_ != nullptr);
+}
+
+bool InspectorPanel::hasContent() const {
+    return content_ != nullptr;
+}
+
 void InspectorPanel::setActions(const QVector<Action>& actions) {
     clearActions();
     for (const Action& a : actions) {
@@ -143,6 +171,7 @@ QAbstractButton* InspectorPanel::actionButton(const QString& label) const {
 void InspectorPanel::showDetails(const QString& title, const QString& subtitle, const QVector<Row>& rows,
                                  const QColor& accent) {
     clearRows();
+    setContent(nullptr);  // a fresh detail view drops any prior custom body
     titleLabel_->setText(title);
     subtitleLabel_->setText(subtitle);
     subtitleLabel_->setVisible(!subtitle.isEmpty());
@@ -171,6 +200,7 @@ void InspectorPanel::showDetails(const QString& title, const QString& subtitle, 
 void InspectorPanel::showPlaceholder(const QString& message) {
     clearRows();
     clearActions();
+    setContent(nullptr);
     titleLabel_->clear();
     subtitleLabel_->clear();
     swatch_->setVisible(false);

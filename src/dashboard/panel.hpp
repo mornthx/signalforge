@@ -108,6 +108,11 @@ public:
     void setUserGeometry(const QRect& geometry);
 
 Q_SIGNALS:
+    /// Emitted when the user presses the card (a click, or the start of a
+    /// drag) — the Dashboard forwards it so the right inspector can show this
+    /// panel's editable properties.
+    void selected(const QString& panelId);
+
     /// Emitted when the user right-clicks the card. The owning Dashboard
     /// responds by showing the per-panel configuration menu at the cursor.
     void configureRequested(const QString& panelId);

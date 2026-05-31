@@ -156,6 +156,7 @@ void Panel::endDrag() {
 
 void Panel::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
+        Q_EMIT selected(config_.id);  // a press selects the panel (then may drag)
         startDrag(DragMode::Move, event->globalPosition().toPoint());
         event->accept();
         return;
