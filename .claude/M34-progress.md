@@ -419,9 +419,26 @@ the **Dashboard tier its own inspector content** (no more stale-Parsed-signal bl
 Tests: surface grows past a short viewport; panel click → `panelSelected`; InspectorPanel content set/clear.
 754/754 ctest Debug + Release, 11/11 visual (captured dashboards fit → no scrollbar → no reflow), clang-format clean.
 
-### Still owed (final P5 slices)
-- **Dashboard polish**: a visual **selected-state highlight** on the clicked card; **strict bottom-left cascade**
-  if the grid-flow placement isn't enough; full **inline display-style editing** (decimals/unit) in the panel
-  inspector (the right-click config dialog still covers those); **signal rename** (deferred from P5-S3).
-- **Reciprocal highlight**: Raw/Dashboard *observe* `selectionChanged` to highlight the current signal.
-- **Top-bar connection chip**; **mode-gate** the inspector to Inspect only.
+## P5 S6 — final polish  ✅ (`cd3a77f`, `ddb2aa6`, `10c3ad0`)
+- **Inspector actions wrap** (new reusable `workbench::FlowLayout`) + **plot card range** now applies
+  (`PlotPanel` pushes `config.rangeMin/Max` to the view) (`cd3a77f`).
+- **Per-tier inspector restore + re-click reopen** (`ddb2aa6`): leaving a tier hides the inspector; re-entering
+  Parsed restores it for the still-highlighted row (`selectedSignalId()`); a click on an already-selected row
+  re-affirms (cellClicked → signalSelected) so a closed inspector reopens.
+- **`10c3ad0`:** **mode-gate** the inspector (only in Inspect); **card selected-highlight + reciprocal
+  highlight** (`Panel::setHighlighted` paint accent; `Dashboard::setSelectedPanel/setHighlightedSignal/
+  clearHighlights` driven by the SelectionModel — signal-selected accents its panels, panel-selected accents
+  it); **inline unit + decimals** in the panel inspector (one Apply → `applyPanelConfig`); **signal rename**
+  (per-signal display-name override SSOT in MainWindow; `ParsedSignalsView::setDisplayNameProvider` +
+  `invalidateLayout`; inspector "Rename…" + title); **top-bar connection chip** (a live `ConnectionStatusWidget`
+  in the workbench top bar, click → Connect). Regenerated the `00-empty-launch` visual baseline (top-bar chip).
+
+**P5 (right-inspector + selection) is COMPLETE.** Pushed to `origin/milestone/M34` through `ddb2aa6`
+(incl. `cd3a77f` + `ddb2aa6`); only the final polish commit `10c3ad0` + this docs commit (2 commits) are local.
+
+### Optional future ideas (not owed)
+- Distinguish "selected panel" vs "panel shows selected signal" with two highlight styles (one accent today).
+- Strict bottom-left cascade placement (grid auto-flow is fine today).
+- Propagate signal rename to dashboard panel titles (today rename shows in Parsed + inspector; panels keep their
+  own `config.title`).
+- Raw tier observing `selectionChanged` (drill-through already covers Parsed→Raw).
