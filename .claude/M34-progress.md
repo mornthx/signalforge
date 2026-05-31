@@ -383,10 +383,28 @@ Tests: SignalIdentity per-driver + override; Parsed Set/Reset-colour menu + coll
 actions; Dashboard reconfigure keeps identity colours. **750/750 ctest Debug + Release, 11/11 visual** (colours
 didn't disturb any baseline), clang-format clean.
 
+## P5 S4 — live-check round 2 (multi-card, no-jump, dismissible inspector)  ✅ (`68c2a9f`)
+1. **Could not add a 2nd card type** for a signal already on the dashboard (menu/inspector flipped to
+   Remove-only). The Add submenu + inspector +Plot/+Bar/+Gauge are now **always** offered; Remove appears *in
+   addition* once on the dashboard. (`addSignalAs` already makes a fresh panel per call.)
+2. **Right-click jumped to Dashboard, inspector stayed** — inconsistent. Unified: **adding a card no longer
+   auto-switches tiers** (add several in a row). Jump-on-add recorded as a deferred config option in
+   **`docs/v0.4/configurable-options.md`** (default off, not built — a registry of behaviour defaults).
+4b. **Inspector bled across tiers + couldn't close.** Added a **× close button** (`InspectorPanel::
+   closeRequested` → hide sidebar + clear selection); a **manual segment switch clears the selection + hides the
+   inspector** so a Parsed selection no longer leaks into Dashboard.
+3 (partial). **`Dashboard::showEvent` → relayout** so panels promoted while the Dashboard page was hidden don't
+   overlap at the top-left on first show. (Bottom-left cascade + off-viewport/scroll deferred — they'd churn
+   visual baselines, so a dedicated layout pass with regen.)
+
+Tests: row menu always-Add + Remove-when-on-dashboard; InspectorPanel close button. 751/751 ctest Debug +
+Release, 11/11 visual, clang-format clean.
+
 ### Still owed (final P5 slices)
-- **Reciprocal highlight**: have Raw/Dashboard *observe* `selectionChanged` to highlight the current signal
-  (selection is now centralised; only the observers are missing).
-- **Dashboard-panel inspector** (select a panel → its config in the right inspector); **inspector rename +
-  range editing** fold in here.
-- **Top-bar connection chip** (replace/augment the bottom status strip).
-- **Mode-gate** the inspector to Inspect only.
+- **#3 remainder — dashboard layout**: bottom-left **cascade placement** for new cards + **off-viewport/scroll**
+  (relax the in-viewport clamp). Needs a scroll-area surface + likely a visual-baseline regen.
+- **#4a — dashboard-panel inspector**: click a panel → its config in the right inspector (range / display /
+  size), **inline-editable** (retires the M32 modal). Folds in **signal rename + range** deferred from P5-S3.
+  Needs panel-selection infra (`Panel::selected` + `SelectionKind::Widget`).
+- **Reciprocal highlight**: Raw/Dashboard *observe* `selectionChanged` to highlight the current signal.
+- **Top-bar connection chip**; **mode-gate** the inspector to Inspect only.
