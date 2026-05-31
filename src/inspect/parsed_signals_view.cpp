@@ -19,12 +19,14 @@
 #include <QPainter>
 #include <QPen>
 #include <QPolygonF>
+#include <QSet>
 #include <QShowEvent>
 #include <QStyle>
 #include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTimer>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <chrono>
@@ -49,7 +51,10 @@ constexpr int kSparkSamples = 48;                  ///< recent samples drawn in 
 constexpr int kSparkPolyRole = Qt::UserRole + 1;   ///< QPolygonF (normalized 0..1) on the trend cell.
 constexpr int kSparkColorRole = Qt::UserRole + 2;  ///< QColor for the trend line.
 
-enum Column { kName = 0, kTrend, kQuality, kSource, kValue, kUnit, kRate, kType, kAge, kDash, kColumnCount };
+enum Column { kName = 0, kTrend, kQuality, kSource, kValue, kUnit, kRate, kType, kAge, kChanged, kDash, kColumnCount };
+
+/// Marks a table row as a driver group-header (vs a signal row) for hit-testing.
+constexpr int kGroupHeaderRole = Qt::UserRole + 3;
 
 /// Paints a normalized polyline (stored on the item via `kSparkPolyRole`) into
 /// the Trend cell — a mini-sparkline of the signal's recent values.
@@ -144,6 +149,13 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     title->setProperty("class", QLatin1String("heading"));
     headerLayout->addWidget(title);
     headerLayout->addStretch(1);
+    groupToggle_ = new QToolButton(header);
+    groupToggle_->setObjectName(QStringLiteral("parsedGroupToggle"));
+    groupToggle_->setText(tr("Group by driver"));
+    groupToggle_->setCheckable(true);
+    groupToggle_->setToolTip(tr("Cluster signals under a per-driver header row"));
+    connect(groupToggle_, &QToolButton::toggled, this, &ParsedSignalsView::setGroupByDriver);
+    headerLayout->addWidget(groupToggle_);
     countLabel_ = new QLabel(header);
     countLabel_->setProperty("class", QLatin1String("caption"));
     headerLayout->addWidget(countLabel_);
@@ -162,7 +174,7 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     table_ = new QTableWidget(this);
     table_->setColumnCount(kColumnCount);
     table_->setHorizontalHeaderLabels({tr("Name"), tr("Trend"), tr("Quality"), tr("Source"), tr("Value"), tr("Unit"),
-                                       tr("Rate"), tr("Type"), tr("Age"), tr("Dashboard")});
+                                       tr("Rate"), tr("Type"), tr("Age"), tr("Changed"), tr("Dashboard")});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -239,9 +251,8 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
     cachedIds_ = ids;
     rows_.clear();
     rows_.reserve(static_cast<std::size_t>(ids.size()));
-    table_->setRowCount(ids.size());
 
-    int row = 0;
+    // One RowData per signal (kept in id order; display position is `tableRow`).
     for (const QString& id : ids) {
         auto* buf = registry_->bufferFor(id);
         RowData data;
@@ -256,39 +267,100 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
         } else {
             data.name = fieldOf(id);
         }
+        rows_.push_back(std::move(data));
+    }
 
-        table_->setItem(row, kName, new QTableWidgetItem(data.name));
-        table_->item(row, kName)->setData(Qt::UserRole, id);
+    // Display order: clustered by source (then name) when grouping, else the
+    // incoming sorted-id order.
+    std::vector<std::size_t> order(rows_.size());
+    for (std::size_t i = 0; i < rows_.size(); ++i) {
+        order[i] = i;
+    }
+    if (groupByDriver_) {
+        std::stable_sort(order.begin(), order.end(), [this](std::size_t a, std::size_t b) {
+            if (rows_[a].source != rows_[b].source) {
+                return rows_[a].source < rows_[b].source;
+            }
+            return rows_[a].name.localeAwareCompare(rows_[b].name) < 0;
+        });
+    }
+
+    table_->clearSpans();
+    table_->clearContents();
+    table_->setRowCount(0);
+    tableRowToData_.clear();
+
+    QString currentGroup;
+    bool haveGroup = false;
+    int tableRow = 0;
+    for (const std::size_t di : order) {
+        RowData& data = rows_[di];
+        if (groupByDriver_ && (!haveGroup || data.source != currentGroup)) {
+            currentGroup = data.source;
+            haveGroup = true;
+            table_->insertRow(tableRow);
+            auto* head = new QTableWidgetItem(currentGroup.isEmpty() ? tr("(unsourced)") : currentGroup);
+            head->setData(kGroupHeaderRole, true);
+            head->setData(Qt::UserRole, currentGroup);
+            QFont f = head->font();
+            f.setBold(true);
+            head->setFont(f);
+            head->setFlags(Qt::ItemIsEnabled);  // header is a label, not selectable
+            table_->setItem(tableRow, kName, head);
+            table_->setSpan(tableRow, 0, 1, kColumnCount);
+            tableRowToData_.push_back(-1);
+            ++tableRow;
+        }
+
+        table_->insertRow(tableRow);
+        auto* nameItem = new QTableWidgetItem(data.name);
+        nameItem->setData(Qt::UserRole, data.id);
         if (signalColorProvider_) {
             // A QColor in DecorationRole renders as the signal-identity swatch.
-            table_->item(row, kName)->setData(Qt::DecorationRole, signalColorProvider_(id));
+            nameItem->setData(Qt::DecorationRole, signalColorProvider_(data.id));
         }
-        table_->setItem(row, kTrend, new QTableWidgetItem(QString()));  // painted by SparklineDelegate
-        table_->setItem(row, kQuality, new QTableWidgetItem(QStringLiteral("—")));
-        table_->setItem(row, kSource, new QTableWidgetItem(data.source));
-        table_->setItem(row, kValue, new QTableWidgetItem(QStringLiteral("—")));
-        table_->setItem(row, kUnit, new QTableWidgetItem(data.unit));
-        table_->setItem(row, kRate, new QTableWidgetItem(QStringLiteral("—")));
-        table_->setItem(row, kType, new QTableWidgetItem(data.type));
-        table_->setItem(row, kAge, new QTableWidgetItem(QStringLiteral("—")));
-        table_->setItem(row, kDash, new QTableWidgetItem(QString()));
-
-        rows_.push_back(std::move(data));
-        ++row;
+        table_->setItem(tableRow, kName, nameItem);
+        table_->setItem(tableRow, kTrend, new QTableWidgetItem(QString()));  // painted by SparklineDelegate
+        table_->setItem(tableRow, kQuality, new QTableWidgetItem(QStringLiteral("—")));
+        table_->setItem(tableRow, kSource, new QTableWidgetItem(data.source));
+        table_->setItem(tableRow, kValue, new QTableWidgetItem(QStringLiteral("—")));
+        table_->setItem(tableRow, kUnit, new QTableWidgetItem(data.unit));
+        table_->setItem(tableRow, kRate, new QTableWidgetItem(QStringLiteral("—")));
+        table_->setItem(tableRow, kType, new QTableWidgetItem(data.type));
+        table_->setItem(tableRow, kAge, new QTableWidgetItem(QStringLiteral("—")));
+        table_->setItem(tableRow, kChanged, new QTableWidgetItem(QStringLiteral("—")));
+        table_->setItem(tableRow, kDash, new QTableWidgetItem(QString()));
+        data.tableRow = tableRow;
+        tableRowToData_.push_back(static_cast<int>(di));
+        ++tableRow;
     }
+}
+
+void ParsedSignalsView::setGroupByDriver(bool on) {
+    if (groupByDriver_ == on) {
+        return;
+    }
+    groupByDriver_ = on;
+    if (groupToggle_ != nullptr && groupToggle_->isChecked() != on) {
+        groupToggle_->setChecked(on);
+    }
+    layoutDirty_ = true;  // the id set is unchanged, but the layout must rebuild
+    refresh();
 }
 
 void ParsedSignalsView::refresh() {
     QStringList ids = registry_->signalIds();
     ids.sort();
-    if (ids != cachedIds_) {
+    if (ids != cachedIds_ || layoutDirty_) {
         rebuild(ids);
+        layoutDirty_ = false;
     }
 
+    const auto now = std::chrono::steady_clock::now();
     for (std::size_t r = 0; r < rows_.size(); ++r) {
         auto* buf = registry_->bufferFor(rows_[r].id);
-        const int row = static_cast<int>(r);
-        if (buf == nullptr) {
+        const int row = rows_[r].tableRow;
+        if (buf == nullptr || row < 0) {
             continue;
         }
         // Refresh the identity swatch each tick so a runtime theme switch is
@@ -301,13 +373,28 @@ void ParsedSignalsView::refresh() {
         auto quality = signalforge::workbench::Quality::Bad;  // no data → degraded
         if (latest.has_value()) {
             rows_[r].value = toFieldValue(latest->value);
-            table_->item(row, kValue)->setText(signalforge::dashboard::formatValue(latest->value, 3));
+            const QString formatted = signalforge::dashboard::formatValue(latest->value, 3);
+            table_->item(row, kValue)->setText(formatted);
             table_->item(row, kAge)->setText(formatAge(latest->age));
             quality = signalforge::workbench::qualityFromAge(latest->age, kStaleAfter, kBadAfter);
+
+            // "Changed": time since the formatted value last differed. A stuck
+            // signal's age stays small (it's still arriving) while Changed grows.
+            auto& rec = changeTracker_[rows_[r].id];
+            if (rec.first != formatted) {
+                rec.first = formatted;
+                rec.second = now;
+            }
+            const auto sinceChange = now - rec.second;
+            rows_[r].sinceChangeSec = std::chrono::duration<double>(sinceChange).count();
+            table_->item(row, kChanged)
+                ->setText(formatAge(std::chrono::duration_cast<std::chrono::nanoseconds>(sinceChange)));
         } else {
             rows_[r].value = QStringLiteral("—");
             table_->item(row, kValue)->setText(QStringLiteral("—"));
             table_->item(row, kAge)->setText(QStringLiteral("—"));
+            rows_[r].sinceChangeSec = 0.0;
+            table_->item(row, kChanged)->setText(QStringLiteral("—"));
         }
 
         const QString qLabel = signalforge::workbench::qualityName(quality);
@@ -367,6 +454,7 @@ void ParsedSignalsView::refresh() {
 
 void ParsedSignalsView::applyFilter() {
     int visible = 0;
+    QSet<QString> visibleSources;
     for (std::size_t r = 0; r < rows_.size(); ++r) {
         const RowData& data = rows_[r];
         const auto lookup = [&data](const QString& f) -> std::optional<signalforge::query::FieldValue> {
@@ -395,6 +483,9 @@ void ParsedSignalsView::applyFilter() {
             if (lf == QLatin1String("rate")) {
                 return signalforge::query::FieldValue(data.rateHz);
             }
+            if (lf == QLatin1String("changed")) {
+                return signalforge::query::FieldValue(data.sinceChangeSec);
+            }
             if (lf == QLatin1String("dashboard") || lf == QLatin1String("on_dashboard")) {
                 return signalforge::query::FieldValue(data.onDashboard);
             }
@@ -409,11 +500,27 @@ void ParsedSignalsView::applyFilter() {
             return std::nullopt;
         };
         const bool show = filter_.matches(lookup);
-        table_->setRowHidden(static_cast<int>(r), !show);
+        if (data.tableRow >= 0) {
+            table_->setRowHidden(data.tableRow, !show);
+        }
         if (show) {
             ++visible;
+            visibleSources.insert(data.source);
         }
     }
+
+    // A driver group-header is shown only if its group has a visible row.
+    if (groupByDriver_) {
+        for (int tr = 0; tr < static_cast<int>(tableRowToData_.size()); ++tr) {
+            if (tableRowToData_[tr] != -1) {
+                continue;  // data row, already handled
+            }
+            auto* head = table_->item(tr, kName);
+            const QString src = head != nullptr ? head->data(Qt::UserRole).toString() : QString();
+            table_->setRowHidden(tr, !visibleSources.contains(src));
+        }
+    }
+
     const int total = static_cast<int>(rows_.size());
     if (total == 0) {
         countLabel_->setText(tr("no signals"));
@@ -458,10 +565,14 @@ QMenu* ParsedSignalsView::buildRowMenu(const QString& signalId, bool onDashboard
 
 void ParsedSignalsView::showRowMenu(const QPoint& pos) {
     const int row = table_->rowAt(pos.y());
-    if (row < 0 || row >= static_cast<int>(rows_.size())) {
+    if (row < 0 || row >= static_cast<int>(tableRowToData_.size())) {
         return;
     }
-    const RowData& rd = rows_[static_cast<std::size_t>(row)];
+    const int di = tableRowToData_[static_cast<std::size_t>(row)];
+    if (di < 0) {
+        return;  // group-header row — no per-signal menu
+    }
+    const RowData& rd = rows_[static_cast<std::size_t>(di)];
     QMenu* menu = buildRowMenu(rd.id, rd.onDashboard);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->popup(table_->viewport()->mapToGlobal(pos));
@@ -472,9 +583,10 @@ int ParsedSignalsView::totalRowCount() const {
 }
 
 int ParsedSignalsView::visibleRowCount() const {
+    // Count visible signal rows only (group-header rows are chrome).
     int visible = 0;
-    for (int r = 0; r < table_->rowCount(); ++r) {
-        if (!table_->isRowHidden(r)) {
+    for (const RowData& rd : rows_) {
+        if (rd.tableRow >= 0 && !table_->isRowHidden(rd.tableRow)) {
             ++visible;
         }
     }

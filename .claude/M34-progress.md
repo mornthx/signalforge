@@ -118,8 +118,22 @@ polygon built). 724/724 ctest Debug + Release.
   deterministic/frozen data (or not capture Parsed for those states) — flagged in the mask `review_at`.
 
 ### Still owed in P2
-- **last-change** column; **group-by-driver**.
 - Selecting a row driving the **right inspector** (signal stats) → inspector wiring, **P5**.
+
+## P2 S3 — last-change column + group-by-driver  ✅
+Closes out the P2 remainder.
+- **Changed column** (after Age): time since the signal's *formatted value last differed* — a stuck signal's
+  Age stays small (still arriving) while Changed grows, surfacing frozen feeds. Tracked per-id in a
+  `changeTracker_` that survives row rebuilds. Filterable as `changed` (seconds), e.g. `changed > 5`.
+- **Group by driver** toggle (header): clusters rows by `source` under a bold, full-width, non-selectable
+  **driver header row**. Needed a table-row↔data-index remap (`RowData.tableRow` + `tableRowToData_`) since
+  header rows break the old 1:1 invariant; `refresh`/`applyFilter`/`showRowMenu`/`visibleRowCount` all route
+  through it, and an empty group's header hides when a filter removes all its rows.
+- Also unified earlier: a signal's **own name is a filter field** (`temperature > 10`, parity with Raw —
+  live-check fix `fa79d6d`), and the stale `source == udp:rig` placeholder replaced.
+- New layout: Name · Trend · Quality · Source · Value · Unit · Rate · Type · Age · **Changed** · Dashboard.
+- Tests: grouping (header rows inserted, signal count unchanged, empty-group header hides, toggle off) +
+  Changed column populated/filterable. Parsed-showing visual baselines regenerated for the new column.
 
 ## P2 live-rendering fixes (owner-observed, A + B)  ✅
 Live UDP observation surfaced two rendering bugs:

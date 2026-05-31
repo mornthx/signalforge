@@ -52,13 +52,14 @@ void pushUntilVisible(buf::SignalBufferRegistry& reg, const QString& id, const d
     }
 }
 
-// Column indices mirror ParsedSignalsView's internal layout (M34 P2):
-// Name · Trend · Quality · Source · Value · Unit · Rate · Type · Age · Dashboard.
+// Column indices mirror ParsedSignalsView's internal layout (M34 P2/P3):
+// Name · Trend · Quality · Source · Value · Unit · Rate · Type · Age · Changed · Dashboard.
 constexpr int kColName = 0;
 constexpr int kColTrend = 1;
 constexpr int kColQuality = 2;
 constexpr int kColRate = 6;
-constexpr int kColDash = 9;
+constexpr int kColChanged = 9;
+constexpr int kColDash = 10;
 constexpr int kSparkPolyRole = Qt::UserRole + 1;
 
 int rowOf(QTableWidget* table, const QString& id) {
@@ -144,6 +145,68 @@ TEST_CASE("M30 S2: an invalid filter is flagged and leaves all rows visible", "[
     view.filterEdit()->setText(QStringLiteral("value =="));  // missing value → parse error
     CHECK_FALSE(view.filterValid());
     CHECK(view.visibleRowCount() == 2);  // invalid filter does not hide anything
+}
+
+TEST_CASE("M34 P3: group-by-driver inserts header rows; signals cluster by source", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rigA"),
+                            {makeMeta(QStringLiteral("rigA/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    reg.onSignalsRegistered(QStringLiteral("rigB"),
+                            {makeMeta(QStringLiteral("rigB/flow"), dec::SignalType::Double, QStringLiteral("L"))});
+
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+    auto* t = view.table();
+
+    // Flat: two data rows, no header rows.
+    REQUIRE(view.totalRowCount() == 2);
+    CHECK(t->rowCount() == 2);
+
+    // Grouped: two driver headers + two data rows = four table rows; the data
+    // count (totalRowCount) is unchanged.
+    view.setGroupByDriver(true);
+    CHECK(view.totalRowCount() == 2);
+    CHECK(t->rowCount() == 4);
+    CHECK(view.visibleRowCount() == 2);  // headers excluded from the signal count
+
+    // A filter that selects only rigA's signal also hides rigB's now-empty header.
+    view.filterEdit()->setText(QStringLiteral("source == rigA"));
+    CHECK(view.visibleRowCount() == 1);
+    int visibleTableRows = 0;
+    for (int r = 0; r < t->rowCount(); ++r) {
+        if (!t->isRowHidden(r)) {
+            ++visibleTableRows;
+        }
+    }
+    CHECK(visibleTableRows == 2);  // rigA header + rigA/temp row only
+
+    // Toggling back off returns to a flat two-row table.
+    view.filterEdit()->setText(QString());
+    view.setGroupByDriver(false);
+    CHECK(t->rowCount() == 2);
+}
+
+TEST_CASE("M34 P3: the Changed column reports time since the value last moved", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    pushUntilVisible(reg, QStringLiteral("rig/temp"), 25.0);
+
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+    auto* t = view.table();
+    const int row = rowOf(t, QStringLiteral("rig/temp"));
+    REQUIRE(row >= 0);
+
+    // A value with data shows a Changed duration (not the no-data dash).
+    CHECK(t->item(row, kColChanged)->text() != QStringLiteral("—"));
+
+    // `changed` is a filterable field (seconds since the value last moved).
+    view.filterEdit()->setText(QStringLiteral("changed >= 0"));
+    CHECK(view.filterValid());
+    CHECK(view.visibleRowCount() == 1);
 }
 
 TEST_CASE("M34 P3: a signal name acts as a filter field (parity with Raw)", "[inspect][m34][interaction]") {
