@@ -563,18 +563,23 @@ void MainWindow::buildChartUi() {
                 } else if (id == QLatin1String("dashboard")) {
                     inspectStack_->setCurrentWidget(chartContainer_);
                 }
-                // Per-tier inspector: a selection belongs to its tier. Hide on
-                // leave (so no tier's inspector — incl. the directly-fed Raw
-                // field view — bleeds into the next), then on re-entering Parsed
-                // restore the inspector for the row still highlighted there.
+                // Per-tier inspector, but the cross-tier highlight PERSISTS. Hide
+                // the inspector on leave (no bleed — incl. the directly-fed Raw
+                // field view) WITHOUT clearing the selection model, so the
+                // dashboard highlight survives the switch (the whole point of a
+                // cross-tier highlight). On re-entering Parsed, restore the
+                // inspector for the still-highlighted row and re-sync the
+                // highlight to it.
                 if (workbench_ != nullptr) {
                     workbench_->setInspectorVisible(false);
                 }
-                if (selectionModel_ != nullptr) {
-                    selectionModel_->clear();
-                    if (id == QLatin1String("parsed") && parsedView_ != nullptr) {
-                        const QString sel = parsedView_->selectedSignalId();
-                        if (!sel.isEmpty()) {
+                if (id == QLatin1String("parsed") && parsedView_ != nullptr) {
+                    const QString sel = parsedView_->selectedSignalId();
+                    onSignalSelectedForInspector(sel);  // restore inspector (or hide if none)
+                    if (selectionModel_ != nullptr) {
+                        if (sel.isEmpty()) {
+                            selectionModel_->clear();
+                        } else {
                             selectionModel_->select(signalforge::workbench::SelectionKind::Signal, sel);
                         }
                     }
@@ -652,10 +657,11 @@ void MainWindow::buildChartUi() {
     });
     selectionModel_ = new signalforge::workbench::SelectionModel(this);
     connect(parsedView_, &signalforge::inspect::ParsedSignalsView::signalSelected, this, [this](const QString& id) {
+        onSignalSelectedForInspector(id);  // inspector directly (re-click reopens; no model dedup)
         if (id.isEmpty()) {
             selectionModel_->clear();
         } else {
-            selectionModel_->select(signalforge::workbench::SelectionKind::Signal, id);
+            selectionModel_->select(signalforge::workbench::SelectionKind::Signal, id);  // drives the highlight
         }
     });
     connect(selectionModel_, &signalforge::workbench::SelectionModel::selectionChanged, this,
@@ -666,10 +672,11 @@ void MainWindow::buildChartUi() {
         connect(rawPacketView_->dissectionTree(), &QTreeWidget::currentItemChanged, this,
                 [this](QTreeWidgetItem* item, QTreeWidgetItem*) { onDissectionFieldSelected(item); });
     }
-    // P5: selecting a dashboard panel routes through the selection model too.
+    // P5: selecting a dashboard panel shows its inspector and accents the card.
     connect(dashboard_, &signalforge::dashboard::Dashboard::panelSelected, this, [this](const QString& panelId) {
+        onPanelSelectedForInspector(panelId);  // inspector directly
         if (selectionModel_ != nullptr) {
-            selectionModel_->select(signalforge::workbench::SelectionKind::Widget, panelId);
+            selectionModel_->select(signalforge::workbench::SelectionKind::Widget, panelId);  // drives the highlight
         }
     });
 
@@ -1726,28 +1733,21 @@ void MainWindow::onPanelSelectedForInspector(const QString& panelId) {
 }
 
 void MainWindow::onSelectionChanged(const signalforge::workbench::Selection& selection) {
-    // The inspector observes the app-wide selection. A signal selection (or its
-    // clearing) drives the signal-detail view; other kinds are handled by their
-    // own feeders (e.g. Raw dissection fields) until they adopt the model too.
+    // The model drives ONLY the reciprocal cross-tier highlight — which must
+    // PERSIST across tier switches (select a signal in Parsed, switch to the
+    // Dashboard, and its panels stay accented). The inspector is driven by the
+    // per-tier handlers directly (not from here), so it can be hidden on a tier
+    // switch without wiping the highlight.
     using signalforge::workbench::SelectionKind;
-    if (selection.kind == SelectionKind::Signal) {
-        onSignalSelectedForInspector(selection.id);
-    } else if (selection.kind == SelectionKind::Widget) {
-        onPanelSelectedForInspector(selection.id);
-    } else if (selection.kind == SelectionKind::None) {
-        onSignalSelectedForInspector(QString());
+    if (dashboard_ == nullptr) {
+        return;
     }
-    // Reciprocal cross-tier highlight: accent the dashboard panels for the
-    // current selection (the selected panel, or the panels showing the selected
-    // signal). Cleared for any other / no selection.
-    if (dashboard_ != nullptr) {
-        if (selection.kind == SelectionKind::Signal) {
-            dashboard_->setHighlightedSignal(selection.id);
-        } else if (selection.kind == SelectionKind::Widget) {
-            dashboard_->setSelectedPanel(selection.id);
-        } else {
-            dashboard_->clearHighlights();
-        }
+    if (selection.kind == SelectionKind::Signal) {
+        dashboard_->setHighlightedSignal(selection.id);
+    } else if (selection.kind == SelectionKind::Widget) {
+        dashboard_->setSelectedPanel(selection.id);
+    } else {
+        dashboard_->clearHighlights();
     }
 }
 

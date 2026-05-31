@@ -64,6 +64,11 @@ public:
     /// per-driver header row. Off by default (flat list).
     void setGroupByDriver(bool on);
 
+    /// Sort the table by `column`. Re-selecting the active sort column flips the
+    /// direction; a new column sorts ascending. When grouping is on, the sort
+    /// applies within each driver group. Click a header to invoke this live.
+    void sortByColumn(int column);
+
     // --- identity / dashboard providers (M34 P2) -----------------------------
     // The app layer injects these (the view is in `inspect` and must not depend
     // on the theme or the dashboard). All are optional; absent providers degrade
@@ -188,6 +193,9 @@ private:
     /// group-header / out-of-range row.
     [[nodiscard]] QString signalIdAtRow(int tableRow) const;
 
+    /// Less-than for the active sort column (ascending); used to order rows.
+    [[nodiscard]] bool sortLess(std::size_t a, std::size_t b) const;
+
     signalforge::buffer::SignalBufferRegistry* registry_;
     QLineEdit* filterEdit_ = nullptr;
     QLabel* countLabel_ = nullptr;
@@ -200,7 +208,9 @@ private:
     std::vector<int> tableRowToData_;  ///< table row → index into rows_ (-1 for a group-header row)
     bool groupByDriver_ = false;       ///< cluster rows under per-driver header rows
     bool layoutDirty_ = false;         ///< force a rebuild even if the id set is unchanged (grouping toggled)
-    QSet<QString> collapsedDrivers_;   ///< driver sources whose group is collapsed (rows hidden) when grouping
+    int sortColumn_ = -1;              ///< active sort column (-1 = none → registry/id order)
+    Qt::SortOrder sortOrder_ = Qt::AscendingOrder;
+    QSet<QString> collapsedDrivers_;  ///< driver sources whose group is collapsed (rows hidden) when grouping
 
     /// Per-signal value-change tracking for the "Changed" column: id → (last
     /// formatted value, when it last changed). Survives row rebuilds.

@@ -34,6 +34,7 @@
 #include <limits>
 #include <optional>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace signalforge::inspect {
@@ -186,6 +187,10 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     hh->setStretchLastSection(true);
     hh->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(hh, &QHeaderView::customContextMenuRequested, this, &ParsedSignalsView::showHeaderMenu);
+    // Left-click a header to sort by that column (Qt's own sorting stays off so
+    // it never reorders rows behind our rebuild / group-header mapping).
+    hh->setSortIndicatorShown(true);
+    connect(hh, &QHeaderView::sectionClicked, this, &ParsedSignalsView::sortByColumn);
     table_->setColumnWidth(kName, 190);
     table_->setColumnWidth(kTrend, 64);
     table_->setColumnWidth(kQuality, 80);
@@ -292,7 +297,85 @@ void ParsedSignalsView::invalidateLayout() {
     layoutDirty_ = true;
 }
 
+void ParsedSignalsView::sortByColumn(int column) {
+    // The Trend sparkline and the Dashboard marker aren't meaningfully sortable.
+    if (column == kTrend || column == kDash) {
+        return;
+    }
+    if (column == sortColumn_) {
+        sortOrder_ = (sortOrder_ == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+    } else {
+        sortColumn_ = column;
+        sortOrder_ = Qt::AscendingOrder;
+    }
+    table_->horizontalHeader()->setSortIndicator(sortColumn_, sortOrder_);
+    layoutDirty_ = true;  // re-order rows on the next refresh
+    refresh();
+}
+
+bool ParsedSignalsView::sortLess(std::size_t a, std::size_t b) const {
+    const RowData& ra = rows_[a];
+    const RowData& rb = rows_[b];
+    const auto numeric = [](const signalforge::query::FieldValue& v, bool& isNum) -> double {
+        if (std::holds_alternative<double>(v)) {
+            isNum = true;
+            return std::get<double>(v);
+        }
+        if (std::holds_alternative<bool>(v)) {
+            isNum = true;
+            return std::get<bool>(v) ? 1.0 : 0.0;
+        }
+        isNum = false;
+        return 0.0;
+    };
+    switch (sortColumn_) {
+    case kSource:
+        return ra.source.localeAwareCompare(rb.source) < 0;
+    case kQuality:
+        return ra.quality < rb.quality;
+    case kUnit:
+        return ra.unit.localeAwareCompare(rb.unit) < 0;
+    case kType:
+        return ra.type.localeAwareCompare(rb.type) < 0;
+    case kRate:
+        return ra.rateHz < rb.rateHz;
+    case kChanged:
+        return ra.sinceChangeSec < rb.sinceChangeSec;
+    case kValue: {
+        bool na = false;
+        bool nb = false;
+        const double da = numeric(ra.value, na);
+        const double db = numeric(rb.value, nb);
+        if (na && nb) {
+            return da < db;
+        }
+        const QString sa = std::holds_alternative<QString>(ra.value) ? std::get<QString>(ra.value) : QString();
+        const QString sb = std::holds_alternative<QString>(rb.value) ? std::get<QString>(rb.value) : QString();
+        return sa.localeAwareCompare(sb) < 0;
+    }
+    case kName:
+    default:
+        return ra.name.localeAwareCompare(rb.name) < 0;
+    }
+}
+
 void ParsedSignalsView::rebuild(const QStringList& ids) {
+    // Carry the last-known live fields (value / rate / changed / quality) over
+    // the rebuild, keyed by id, so a sort uses current data — refresh() updates
+    // these only *after* rebuild lays the rows out, so without this a rebuild
+    // triggered by a sort would order rows on reset placeholders.
+    struct Live {
+        signalforge::query::FieldValue value;
+        double rateHz = 0.0;
+        double sinceChangeSec = 0.0;
+        QString quality;
+    };
+    QHash<QString, Live> carried;
+    carried.reserve(static_cast<int>(rows_.size()));
+    for (const RowData& r : rows_) {
+        carried.insert(r.id, Live{r.value, r.rateHz, r.sinceChangeSec, r.quality});
+    }
+
     cachedIds_ = ids;
     rows_.clear();
     rows_.reserve(static_cast<std::size_t>(ids.size()));
@@ -304,6 +387,12 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
         data.id = id;
         data.source = sourceOf(id);
         data.value = QStringLiteral("—");
+        if (const auto it = carried.constFind(id); it != carried.constEnd()) {
+            data.value = it->value;
+            data.rateHz = it->rateHz;
+            data.sinceChangeSec = it->sinceChangeSec;
+            data.quality = it->quality;
+        }
         if (buf != nullptr) {
             const auto& meta = buf->metadata();
             data.name = meta.name.isEmpty() ? fieldOf(id) : meta.name;
@@ -321,19 +410,29 @@ void ParsedSignalsView::rebuild(const QStringList& ids) {
         rows_.push_back(std::move(data));
     }
 
-    // Display order: clustered by source (then name) when grouping, else the
-    // incoming sorted-id order.
+    // Display order: clustered by source when grouping; within a group (or the
+    // flat list) by the active sort column — direction from sortOrder_ — else
+    // name (grouped) / the incoming id order (flat, unsorted).
     std::vector<std::size_t> order(rows_.size());
     for (std::size_t i = 0; i < rows_.size(); ++i) {
         order[i] = i;
     }
+    const bool sorted = sortColumn_ >= 0;
+    const auto inner = [this, sorted](std::size_t a, std::size_t b) {
+        if (!sorted) {
+            return rows_[a].name.localeAwareCompare(rows_[b].name) < 0;
+        }
+        return (sortOrder_ == Qt::AscendingOrder) ? sortLess(a, b) : sortLess(b, a);
+    };
     if (groupByDriver_) {
-        std::stable_sort(order.begin(), order.end(), [this](std::size_t a, std::size_t b) {
+        std::stable_sort(order.begin(), order.end(), [this, &inner](std::size_t a, std::size_t b) {
             if (rows_[a].source != rows_[b].source) {
                 return rows_[a].source < rows_[b].source;
             }
-            return rows_[a].name.localeAwareCompare(rows_[b].name) < 0;
+            return inner(a, b);
         });
+    } else if (sorted) {
+        std::stable_sort(order.begin(), order.end(), inner);
     }
 
     table_->clearSpans();

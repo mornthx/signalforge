@@ -437,6 +437,37 @@ TEST_CASE("M34 P5: drill-through to source packets — row menu + row resolution
     CHECK(view.table()->item(row, kColName)->data(Qt::UserRole).toString() == QStringLiteral("rigB/flow"));
 }
 
+TEST_CASE("M34 P5: clicking a header sorts the Parsed table", "[inspect][m34][interaction]") {
+    app();
+    constexpr int kColValue = 4;
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/a"), dec::SignalType::Double, QStringLiteral("C")),
+                             makeMeta(QStringLiteral("rig/b"), dec::SignalType::Double, QStringLiteral("C")),
+                             makeMeta(QStringLiteral("rig/c"), dec::SignalType::Double, QStringLiteral("C"))});
+    pushUntilVisible(reg, QStringLiteral("rig/a"), 10.0);
+    pushUntilVisible(reg, QStringLiteral("rig/b"), 30.0);
+    pushUntilVisible(reg, QStringLiteral("rig/c"), 20.0);
+    insp::ParsedSignalsView view(reg);
+    view.refresh();  // populate live values
+    auto* t = view.table();
+    REQUIRE(t->rowCount() == 3);
+
+    view.sortByColumn(kColValue);  // ascending: a(10), c(20), b(30)
+    CHECK(t->item(0, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/a"));
+    CHECK(t->item(1, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/c"));
+    CHECK(t->item(2, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/b"));
+
+    view.sortByColumn(kColValue);  // re-click flips to descending: b, c, a
+    CHECK(t->item(0, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/b"));
+    CHECK(t->item(2, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/a"));
+
+    // Sort by Name ascending: a, b, c.
+    view.sortByColumn(0);
+    CHECK(t->item(0, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/a"));
+    CHECK(t->item(2, 0)->data(Qt::UserRole).toString() == QStringLiteral("rig/c"));
+}
+
 TEST_CASE("M34 P5: a display-name override renames the signal in the table", "[inspect][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;
