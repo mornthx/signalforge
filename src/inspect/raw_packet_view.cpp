@@ -31,14 +31,14 @@ namespace {
 
 constexpr int kRefreshIntervalMs = 100;  ///< 10 Hz poll.
 
-enum Column { kNo = 0, kTime, kSource, kProto, kLen, kInfo, kColumnCount };
+enum Column { kNo = 0, kTime, kSource, kProto, kLen, kData, kColumnCount };
 enum TreeColumn { kField = 0, kValue, kType, kBytes, kTreeColumnCount };
 
 // Roles carrying a tree node's byte range, read back to highlight the hex pane.
 constexpr int kByteOffsetRole = Qt::UserRole + 1;
 constexpr int kByteLengthRole = Qt::UserRole + 2;
 
-/// Compact hex of the first `maxBytes` bytes for the Info column.
+/// Compact hex of the first `maxBytes` bytes for the Data column.
 QString hexPreview(const QByteArray& payload, int maxBytes = 16) {
     const QByteArray head = payload.left(maxBytes);
     QString out = QString::fromLatin1(head.toHex(' '));
@@ -138,7 +138,7 @@ RawPacketView::RawPacketView(RawFrameTap& tap, QWidget* parent) : QWidget(parent
 
     table_ = new QTableWidget(split);
     table_->setColumnCount(kColumnCount);
-    table_->setHorizontalHeaderLabels({tr("No."), tr("Time"), tr("Source"), tr("Proto"), tr("Len"), tr("Info")});
+    table_->setHorizontalHeaderLabels({tr("No."), tr("Time"), tr("Source"), tr("Proto"), tr("Len"), tr("Data")});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -296,7 +296,7 @@ void RawPacketView::appendRow(const CapturedFrame& frame) {
     table_->setItem(row, kSource, new QTableWidgetItem(frame.source));
     table_->setItem(row, kProto, new QTableWidgetItem(frame.protocol));
     table_->setItem(row, kLen, new QTableWidgetItem(QString::number(frame.payload.size())));
-    table_->setItem(row, kInfo, new QTableWidgetItem(hexPreview(frame.payload)));
+    table_->setItem(row, kData, new QTableWidgetItem(hexPreview(frame.payload)));
     rows_.push_back(frame);
 
     // Cap displayed history (oldest first out).

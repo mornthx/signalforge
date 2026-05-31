@@ -135,6 +135,17 @@ Closes out the P2 remainder.
 - Tests: grouping (header rows inserted, signal count unchanged, empty-group header hides, toggle off) +
   Changed column populated/filterable. Parsed-showing visual baselines regenerated for the new column.
 
+### P2-S3 follow-up — live-check UX refinements  ✅
+Owner-requested after a live UDP session:
+- **Parsed column show/hide:** right-click the table header → a checkable menu per column (Name pinned).
+  `buildColumnMenu()` (testable) + `showHeaderMenu`.
+- **Parsed columns resizable:** header sections switched from Stretch/ResizeToContents to **Interactive**
+  with explicit initial widths + `stretchLastSection` — column borders now drag like the Raw view's.
+- **Raw "Info" → "Data":** the packet-list last column renamed (enum `kInfo`→`kData`, header label).
+- Test: header menu toggles a column's visibility, Name stays pinned. 18 Parsed-showing visual baselines
+  regenerated for the new column widths (deterministic no-data capture — the live stream had to be paused;
+  it contaminated a first regen with transient values, reaffirming the systemic note above). 11/11 visual.
+
 ## P2 live-rendering fixes (owner-observed, A + B)  ✅
 Live UDP observation surfaced two rendering bugs:
 

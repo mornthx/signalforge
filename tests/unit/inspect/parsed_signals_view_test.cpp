@@ -187,6 +187,39 @@ TEST_CASE("M34 P3: group-by-driver inserts header rows; signals cluster by sourc
     CHECK(t->rowCount() == 2);
 }
 
+TEST_CASE("M34 P3: header menu toggles column visibility; Name stays pinned", "[inspect][m34][interaction]") {
+    app();
+    buf::SignalBufferRegistry reg;
+    reg.onSignalsRegistered(QStringLiteral("rig"),
+                            {makeMeta(QStringLiteral("rig/temp"), dec::SignalType::Double, QStringLiteral("C"))});
+    insp::ParsedSignalsView view(reg);
+    view.refresh();
+    auto* t = view.table();
+
+    REQUIRE_FALSE(t->isColumnHidden(kColRate));
+    QMenu* menu = view.buildColumnMenu();
+    QAction* rate = nullptr;
+    QAction* name = nullptr;
+    for (QAction* a : menu->actions()) {
+        if (a->text() == QStringLiteral("Rate")) {
+            rate = a;
+        }
+        if (a->text() == QStringLiteral("Name")) {
+            name = a;
+        }
+    }
+    REQUIRE(rate != nullptr);
+    rate->toggle();  // checked → unchecked hides the column
+    CHECK(t->isColumnHidden(kColRate));
+    rate->toggle();  // back on
+    CHECK_FALSE(t->isColumnHidden(kColRate));
+
+    // The identity column is pinned (its toggle is disabled).
+    REQUIRE(name != nullptr);
+    CHECK_FALSE(name->isEnabled());
+    delete menu;
+}
+
 TEST_CASE("M34 P3: the Changed column reports time since the value last moved", "[inspect][m34][interaction]") {
     app();
     buf::SignalBufferRegistry reg;

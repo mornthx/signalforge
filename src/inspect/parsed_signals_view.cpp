@@ -179,13 +179,23 @@ ParsedSignalsView::ParsedSignalsView(signalforge::buffer::SignalBufferRegistry& 
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setAlternatingRowColors(true);
-    table_->horizontalHeader()->setStretchLastSection(false);
-    table_->horizontalHeader()->setSectionResizeMode(kName, QHeaderView::Stretch);
-    table_->horizontalHeader()->setSectionResizeMode(kQuality, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(kSource, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(kRate, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(kDash, QHeaderView::ResizeToContents);
-    table_->setColumnWidth(kTrend, 64);  // fixed mini-sparkline column
+    // Interactive sections so column borders are user-draggable (parity with the
+    // Raw view), with sensible initial widths; the last column fills the rest.
+    auto* hh = table_->horizontalHeader();
+    hh->setSectionResizeMode(QHeaderView::Interactive);
+    hh->setStretchLastSection(true);
+    hh->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(hh, &QHeaderView::customContextMenuRequested, this, &ParsedSignalsView::showHeaderMenu);
+    table_->setColumnWidth(kName, 190);
+    table_->setColumnWidth(kTrend, 64);
+    table_->setColumnWidth(kQuality, 80);
+    table_->setColumnWidth(kSource, 150);
+    table_->setColumnWidth(kValue, 90);
+    table_->setColumnWidth(kUnit, 56);
+    table_->setColumnWidth(kRate, 70);
+    table_->setColumnWidth(kType, 70);
+    table_->setColumnWidth(kAge, 70);
+    table_->setColumnWidth(kChanged, 84);
     table_->setItemDelegateForColumn(kTrend, new SparklineDelegate(table_));
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QTableWidget::customContextMenuRequested, this, &ParsedSignalsView::showRowMenu);
@@ -576,6 +586,29 @@ void ParsedSignalsView::showRowMenu(const QPoint& pos) {
     QMenu* menu = buildRowMenu(rd.id, rd.onDashboard);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->popup(table_->viewport()->mapToGlobal(pos));
+}
+
+QMenu* ParsedSignalsView::buildColumnMenu() {
+    auto* menu = new QMenu(this);
+    for (int c = 0; c < kColumnCount; ++c) {
+        auto* headerItem = table_->horizontalHeaderItem(c);
+        const QString label = (headerItem != nullptr) ? headerItem->text() : QString::number(c);
+        QAction* action = menu->addAction(label);
+        action->setCheckable(true);
+        action->setChecked(!table_->isColumnHidden(c));
+        if (c == kName) {
+            action->setEnabled(false);  // the identity column stays pinned
+            continue;
+        }
+        connect(action, &QAction::toggled, this, [this, c](bool on) { table_->setColumnHidden(c, !on); });
+    }
+    return menu;
+}
+
+void ParsedSignalsView::showHeaderMenu(const QPoint& pos) {
+    QMenu* menu = buildColumnMenu();
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(table_->horizontalHeader()->mapToGlobal(pos));
 }
 
 int ParsedSignalsView::totalRowCount() const {

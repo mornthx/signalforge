@@ -95,6 +95,11 @@ public:
     /// (emitting `removeFromDashboardRequested`) when true. Owned by the caller.
     [[nodiscard]] class QMenu* buildRowMenu(const QString& signalId, bool onDashboard);
 
+    /// Build the header context menu: one checkable action per column toggling
+    /// its visibility (Name stays pinned). Owned by the caller; used live (on
+    /// header right-click) and by interaction tests.
+    [[nodiscard]] class QMenu* buildColumnMenu();
+
     // --- test accessors ---
     [[nodiscard]] int totalRowCount() const;
     [[nodiscard]] int visibleRowCount() const;
@@ -133,6 +138,7 @@ private:
     void rebuild(const QStringList& ids);
     void applyFilter();
     void showRowMenu(const QPoint& pos);
+    void showHeaderMenu(const QPoint& pos);
 
     signalforge::buffer::SignalBufferRegistry* registry_;
     QLineEdit* filterEdit_ = nullptr;
