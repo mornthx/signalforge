@@ -44,6 +44,13 @@ public:
     /// The "Stats" overlay toggle button (for wiring / tests).
     [[nodiscard]] QToolButton* statsToggleButton() const noexcept;
 
+    /// The "Screenshot" button (for wiring / tests).
+    [[nodiscard]] QToolButton* screenshotButton() const noexcept;
+
+    /// Save the currently displayed frame to `path` as PNG. Returns false if
+    /// there is no frame or the save fails. The non-dialog test seam.
+    [[nodiscard]] bool saveScreenshot(const QString& path) const;
+
     /// Whether the high-packet-loss rmem hint is currently shown.
     [[nodiscard]] bool isHintVisible() const;
 
@@ -62,6 +69,7 @@ public slots:
 
 private slots:
     void onStallTimeout();
+    void onScreenshotClicked();
 
 private:
     void setStatus(const QString& text);
@@ -71,6 +79,7 @@ private:
     QLabel* statusLabel_ = nullptr;
     QLabel* hintLabel_ = nullptr;
     QToolButton* statsToggle_ = nullptr;
+    QToolButton* screenshotButton_ = nullptr;
     QTimer* stallTimer_ = nullptr;
     bool running_ = false;
     int stallTimeoutMs_ = 3000;

@@ -1,10 +1,16 @@
 // src/video/video_page.cpp
 #include "video/video_page.hpp"
 
+#include "observability/logging.hpp"
 #include "video/video_view.hpp"
 
+#include <QChar>
+#include <QDateTime>
+#include <QFileDialog>
 #include <QHBoxLayout>
+#include <QImage>
 #include <QLabel>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -35,6 +41,12 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     hintLabel_->setStyleSheet(QStringLiteral("color:#e6a23c;"));  // amber warning
     hintLabel_->setVisible(false);
     controlBarLayout_->addWidget(hintLabel_);
+
+    screenshotButton_ = new QToolButton(controlBar);
+    screenshotButton_->setText(tr("Screenshot"));
+    screenshotButton_->setEnabled(false);  // enabled once a frame is displayed
+    controlBarLayout_->addWidget(screenshotButton_);
+    connect(screenshotButton_, &QToolButton::clicked, this, &VideoPage::onScreenshotClicked);
 
     statsToggle_ = new QToolButton(controlBar);
     statsToggle_->setText(tr("Stats"));
@@ -70,6 +82,23 @@ QToolButton* VideoPage::statsToggleButton() const noexcept {
     return statsToggle_;
 }
 
+QToolButton* VideoPage::screenshotButton() const noexcept {
+    return screenshotButton_;
+}
+
+bool VideoPage::saveScreenshot(const QString& path) const {
+    const QImage frame = view_->currentFrame();
+    if (frame.isNull() || path.isEmpty()) {
+        return false;
+    }
+    if (!frame.save(path, "PNG")) {
+        SF_LOG_WARN("video: screenshot save failed: {}", path.toStdString());
+        return false;
+    }
+    SF_LOG_INFO("video: screenshot saved: {}", path.toStdString());
+    return true;
+}
+
 bool VideoPage::isHintVisible() const {
     // isHidden() reflects the explicit show/hide state regardless of whether the
     // page's window is realized (isVisible() would be false in an unshown tree).
@@ -82,6 +111,7 @@ void VideoPage::setStallTimeoutMs(int ms) {
 
 void VideoPage::onFrameReady(const QImage& frame) {
     view_->setFrame(frame);
+    screenshotButton_->setEnabled(true);
     setStatus(tr("Streaming"));
     if (running_) {
         stallTimer_->start(stallTimeoutMs_);
@@ -93,6 +123,7 @@ void VideoPage::onRunningChanged(bool running) {
     stallTimer_->stop();
     view_->setOverlayText(QString());
     hintLabel_->setVisible(false);
+    screenshotButton_->setEnabled(false);
     lastDelivered_ = 0;
     lastDropped_ = 0;
     if (running) {
@@ -145,8 +176,24 @@ void VideoPage::onStallTimeout() {
         return;
     }
     view_->clearFrame();
+    screenshotButton_->setEnabled(false);
     view_->setPlaceholderText(tr("Video stream stalled — waiting for frames…"));
     setStatus(tr("Stalled"));
+}
+
+void VideoPage::onScreenshotClicked() {
+    if (!view_->hasFrame()) {
+        return;
+    }
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QString suggested =
+        (dir.isEmpty() ? QString() : dir + QLatin1Char('/')) + QStringLiteral("signalforge-video-%1.png").arg(stamp);
+    const QString path = QFileDialog::getSaveFileName(this, tr("Save screenshot"), suggested, tr("PNG image (*.png)"));
+    if (path.isEmpty()) {
+        return;  // user cancelled
+    }
+    (void)saveScreenshot(path);
 }
 
 void VideoPage::setStatus(const QString& text) {

@@ -7,6 +7,8 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QColor>
+#include <QDir>
+#include <QFile>
 #include <QHostAddress>
 #include <QImage>
 #include <QSignalSpy>
@@ -166,6 +168,29 @@ TEST_CASE("VideoPage: rmem hint appears under high packet loss", "[video][page][
     c.framesDropped = 20;
     page.onStats(c);
     CHECK_FALSE(page.isHintVisible());
+}
+
+TEST_CASE("VideoPage: screenshot button gating + PNG save round-trip", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    CHECK_FALSE(page.screenshotButton()->isEnabled());  // no frame yet
+
+    page.onRunningChanged(true);
+    CHECK_FALSE(page.screenshotButton()->isEnabled());  // bound, still no frame
+
+    page.onFrameReady(solidFrame(12, 10, 77));
+    CHECK(page.screenshotButton()->isEnabled());
+
+    const QString path = QDir::tempPath() + QStringLiteral("/sf_video_shot_test.png");
+    QFile::remove(path);
+    CHECK(page.saveScreenshot(path));
+    const QImage back(path);
+    CHECK(back.size() == QSize(12, 10));
+    QFile::remove(path);
+
+    page.onRunningChanged(false);
+    CHECK_FALSE(page.screenshotButton()->isEnabled());
+    CHECK_FALSE(page.saveScreenshot(path));  // no frame → false
 }
 
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {

@@ -65,5 +65,13 @@ real UDP. Extended `connection_persistence_test` to round-trip `videoPort`/`vide
 Tests: overlay text content, Stats-toggle visibility, and the rmem hint appearing/clearing across
 samples. **video_test: 17 cases / 64 assertions green; Debug+Release build clean.**
 
-## P3–P5 — pending
+## P3 — Screenshot (PNG) — ✅ DONE (local)
+- `VideoPage` gains a "Screenshot" control-bar button, enabled only while a frame is displayed
+  (disabled on disable/stall). Click opens a save dialog (default: Pictures dir, timestamped name) and
+  writes the current frame as PNG. `saveScreenshot(path)` is the non-dialog test seam.
+
+Tests: button gating across no-frame / frame / stopped, and a PNG save round-trip (decodes back to the
+frame size). **video_test: 18 cases / 71 assertions green; Debug+Release clean.**
+
+## P4–P5 — pending
 See `.claude/M35-plan.md`.
