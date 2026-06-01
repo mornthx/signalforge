@@ -402,6 +402,48 @@ TEST_CASE("VideoPage: loadColorPreset rejects a missing file", "[video][page][in
     CHECK_FALSE(page.loadColorPreset(QDir::tempPath() + QStringLiteral("/sf_no_such_preset.json")));
 }
 
+TEST_CASE("VideoPage: record source routes raw vs corrected pixels", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    signalforge::video::ColorParams p;
+    p.rGain = 2.0;  // red doubled
+    page.setColorParams(p);
+    page.onFrameReady(solidFrame(2, 2, 100));  // raw R=100; corrected R=200
+
+    // Corrected source (default).
+    page.setRecordSource(false);
+    CHECK_FALSE(page.recordRaw());
+    const QString cpath = QDir::tempPath() + QStringLiteral("/sf_rec_corrected.raw");
+    QFile::remove(cpath);
+    REQUIRE(page.startRecording(cpath, signalforge::video::VideoRecorder::Format::Raw));
+    page.onFrameReady(solidFrame(2, 2, 100));
+    page.stopRecording();
+    QFile cf(cpath);
+    REQUIRE(cf.open(QIODevice::ReadOnly));
+    const QByteArray cb = cf.readAll();
+    cf.close();
+    REQUIRE(cb.size() == 2 * 2 * 3);
+    CHECK(static_cast<unsigned char>(cb[0]) == 200);  // corrected red
+    CHECK(static_cast<unsigned char>(cb[1]) == 100);  // green unchanged
+    QFile::remove(cpath);
+
+    // Raw source.
+    page.setRecordSource(true);
+    CHECK(page.recordRaw());
+    const QString rpath = QDir::tempPath() + QStringLiteral("/sf_rec_raw.raw");
+    QFile::remove(rpath);
+    REQUIRE(page.startRecording(rpath, signalforge::video::VideoRecorder::Format::Raw));
+    page.onFrameReady(solidFrame(2, 2, 100));
+    page.stopRecording();
+    QFile rf(rpath);
+    REQUIRE(rf.open(QIODevice::ReadOnly));
+    const QByteArray rb = rf.readAll();
+    rf.close();
+    CHECK(static_cast<unsigned char>(rb[0]) == 100);  // raw red (uncorrected)
+    QFile::remove(rpath);
+}
+
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {
     app();
     signalforge::video::registerMetatypes();

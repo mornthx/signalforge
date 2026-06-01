@@ -81,6 +81,10 @@ public:
     /// Stop the in-progress recording (no-op if not recording).
     void stopRecording();
 
+    /// Select the recording source: corrected (default) or raw/uncorrected.
+    void setRecordSource(bool raw);
+    [[nodiscard]] bool recordRaw() const noexcept;
+
     /// The "Color" panel toggle button and the panel itself (for wiring / tests).
     [[nodiscard]] QToolButton* colorButton() const noexcept;
     [[nodiscard]] ColorPanel* colorPanel() const noexcept;
@@ -136,6 +140,7 @@ private:
     QLabel* hintLabel_ = nullptr;
     QLabel* elapsedLabel_ = nullptr;
     QComboBox* formatCombo_ = nullptr;
+    QComboBox* recordSourceCombo_ = nullptr;
     QToolButton* pauseButton_ = nullptr;
     QToolButton* recordButton_ = nullptr;
     QToolButton* statsToggle_ = nullptr;

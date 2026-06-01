@@ -70,6 +70,13 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     formatCombo_->addItem(tr("Raw RGB24"), static_cast<int>(VideoRecorder::Format::Raw));
     controlBarLayout_->addWidget(formatCombo_);
 
+    recordSourceCombo_ = new QComboBox(controlBar);
+    recordSourceCombo_->addItem(tr("Corrected"), false);         // default
+    recordSourceCombo_->addItem(tr("Raw (uncorrected)"), true);  // bypass colour correction
+    controlBarLayout_->addWidget(recordSourceCombo_);
+    connect(recordSourceCombo_, &QComboBox::currentIndexChanged, this,
+            [this] { recordRaw_ = recordSourceCombo_->currentData().toBool(); });
+
     recordButton_ = new QToolButton(controlBar);
     recordButton_->setText(tr("Record"));
     recordButton_->setEnabled(false);  // enabled once a frame is displayed
@@ -174,6 +181,14 @@ bool VideoPage::startRecording(const QString& path, VideoRecorder::Format format
 
 void VideoPage::stopRecording() {
     recorder_->stop();
+}
+
+void VideoPage::setRecordSource(bool raw) {
+    recordSourceCombo_->setCurrentIndex(raw ? 1 : 0);
+}
+
+bool VideoPage::recordRaw() const noexcept {
+    return recordRaw_;
 }
 
 QToolButton* VideoPage::colorButton() const noexcept {
@@ -419,6 +434,7 @@ void VideoPage::onRecordClicked() {
 void VideoPage::onRecordingStarted() {
     recordButton_->setText(tr("Stop"));
     formatCombo_->setEnabled(false);
+    recordSourceCombo_->setEnabled(false);
     recordClock_.start();
     elapsedLabel_->setVisible(true);
     updateElapsed();
@@ -428,6 +444,7 @@ void VideoPage::onRecordingStarted() {
 void VideoPage::onRecordingStopped(bool ok) {
     recordButton_->setText(tr("Record"));
     formatCombo_->setEnabled(true);
+    recordSourceCombo_->setEnabled(true);
     elapsedTimer_->stop();
     elapsedLabel_->setVisible(false);
     updateButtonStates();
