@@ -91,5 +91,7 @@ finalization. **video_test: 24 cases / 102 assertions green; Debug+Release clean
 ffmpeg note: invoked as an external **runtime tool** via QProcess — not a §4.1 link dependency; owner-
 authorized; raw fallback covers ffmpeg-absent hosts.
 
-## P5 — closure — in progress
-See `.claude/M35-plan.md`.
+## P5 — closure — ✅ LOCAL-READY
+Full suite **774/774 on Debug, Release green** (`ctest -LE visual`). `.claude/M35-done.md` written.
+Remote ops (push / PR / merge / tag) deferred to one authorization at the end of M36 (per session goal).
+M36 proceeds locally next.
