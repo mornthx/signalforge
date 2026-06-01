@@ -235,6 +235,44 @@ TEST_CASE("VideoPage: stream stop finalizes an active recording", "[video][page]
     QFile::remove(path);
 }
 
+TEST_CASE("VideoPage: pause freezes the display while frames keep flowing", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    page.onFrameReady(solidFrame(6, 4, 10));
+    CHECK(page.pauseButton()->isEnabled());
+    CHECK_FALSE(page.isPaused());
+
+    page.pauseButton()->click();  // pause
+    CHECK(page.isPaused());
+    CHECK(page.pauseButton()->text() == QStringLiteral("Resume"));
+
+    page.onFrameReady(solidFrame(6, 4, 200));  // ignored by the view while frozen
+    CHECK(page.view()->currentFrame().pixelColor(0, 0) == QColor(10, 10, 10));
+
+    page.pauseButton()->click();  // resume
+    CHECK_FALSE(page.isPaused());
+    CHECK(page.pauseButton()->text() == QStringLiteral("Pause"));
+    page.onFrameReady(solidFrame(6, 4, 99));
+    CHECK(page.view()->currentFrame().pixelColor(0, 0) == QColor(99, 99, 99));
+}
+
+TEST_CASE("VideoPage: recording continues while paused", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    page.onFrameReady(solidFrame(6, 4, 10));
+    const QString path = QDir::tempPath() + QStringLiteral("/sf_pause_rec.raw");
+    QFile::remove(path);
+    REQUIRE(page.startRecording(path, signalforge::video::VideoRecorder::Format::Raw));
+    page.pauseButton()->click();              // freeze display
+    page.onFrameReady(solidFrame(6, 4, 20));  // view frozen, but recorder still fed
+    page.onFrameReady(solidFrame(6, 4, 30));
+    page.stopRecording();
+    CHECK(QFileInfo(path).size() == 2LL * 6 * 4 * 3);  // two frames recorded despite pause
+    QFile::remove(path);
+}
+
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {
     app();
     signalforge::video::registerMetatypes();

@@ -18,8 +18,19 @@ VideoView::VideoView(QWidget* parent) : QWidget(parent) {
 }
 
 void VideoView::setFrame(const QImage& frame) {
+    if (frozen_) {
+        return;  // keep the frozen image
+    }
     frame_ = frame;
     update();
+}
+
+void VideoView::setFrozen(bool frozen) {
+    frozen_ = frozen;
+}
+
+bool VideoView::isFrozen() const noexcept {
+    return frozen_;
 }
 
 void VideoView::clearFrame() {

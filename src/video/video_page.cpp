@@ -48,6 +48,13 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     elapsedLabel_->setVisible(false);
     controlBarLayout_->addWidget(elapsedLabel_);
 
+    pauseButton_ = new QToolButton(controlBar);
+    pauseButton_->setText(tr("Pause"));
+    pauseButton_->setCheckable(true);
+    pauseButton_->setEnabled(false);  // enabled once a frame is displayed
+    controlBarLayout_->addWidget(pauseButton_);
+    connect(pauseButton_, &QToolButton::toggled, this, &VideoPage::onPauseToggled);
+
     formatCombo_ = new QComboBox(controlBar);
     if (VideoRecorder::ffmpegAvailable()) {
         formatCombo_->addItem(tr("MP4 (H.264)"), static_cast<int>(VideoRecorder::Format::Mp4));
@@ -115,6 +122,14 @@ QToolButton* VideoPage::screenshotButton() const noexcept {
     return screenshotButton_;
 }
 
+QToolButton* VideoPage::pauseButton() const noexcept {
+    return pauseButton_;
+}
+
+bool VideoPage::isPaused() const {
+    return view_->isFrozen();
+}
+
 QToolButton* VideoPage::recordButton() const noexcept {
     return recordButton_;
 }
@@ -138,6 +153,7 @@ void VideoPage::stopRecording() {
 void VideoPage::updateButtonStates() {
     const bool hasFrame = view_->hasFrame();
     screenshotButton_->setEnabled(hasFrame);
+    pauseButton_->setEnabled(hasFrame);
     recordButton_->setEnabled(hasFrame || recorder_->isRecording());
 }
 
@@ -179,6 +195,7 @@ void VideoPage::onFrameReady(const QImage& frame) {
 void VideoPage::onRunningChanged(bool running) {
     running_ = running;
     stallTimer_->stop();
+    pauseButton_->setChecked(false);  // unfreeze on any stream transition
     view_->setOverlayText(QString());
     hintLabel_->setVisible(false);
     if (!running && recorder_->isRecording()) {
@@ -258,6 +275,11 @@ void VideoPage::onScreenshotClicked() {
         return;  // user cancelled
     }
     (void)saveScreenshot(path);
+}
+
+void VideoPage::onPauseToggled(bool paused) {
+    view_->setFrozen(paused);
+    pauseButton_->setText(paused ? tr("Resume") : tr("Pause"));
 }
 
 void VideoPage::onRecordClicked() {

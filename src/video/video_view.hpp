@@ -22,11 +22,17 @@ class VideoView : public QWidget {
 public:
     explicit VideoView(QWidget* parent = nullptr);
 
-    /// Replace the displayed frame and schedule a repaint.
+    /// Replace the displayed frame and schedule a repaint. Ignored while frozen.
     void setFrame(const QImage& frame);
 
     /// Drop the current frame; the placeholder is shown until the next `setFrame`.
+    /// Clears regardless of the frozen state.
     void clearFrame();
+
+    /// Freeze the display: while frozen, `setFrame` is ignored so the current
+    /// image stays put for inspection.
+    void setFrozen(bool frozen);
+    [[nodiscard]] bool isFrozen() const noexcept;
 
     /// The most recently set frame (null `QImage` if none / cleared).
     [[nodiscard]] QImage currentFrame() const;
@@ -57,6 +63,7 @@ private:
     QString placeholder_ = QStringLiteral("Waiting for video stream…");
     QString overlay_;
     bool overlayVisible_ = true;
+    bool frozen_ = false;
 };
 
 }  // namespace signalforge::video

@@ -54,6 +54,12 @@ public:
     /// there is no frame or the save fails. The non-dialog test seam.
     [[nodiscard]] bool saveScreenshot(const QString& path) const;
 
+    /// The "Pause"/"Resume" button (for wiring / tests).
+    [[nodiscard]] QToolButton* pauseButton() const noexcept;
+
+    /// Whether the display is frozen (paused).
+    [[nodiscard]] bool isPaused() const;
+
     /// The "Record"/"Stop" button (for wiring / tests).
     [[nodiscard]] QToolButton* recordButton() const noexcept;
 
@@ -87,6 +93,7 @@ public slots:
 private slots:
     void onStallTimeout();
     void onScreenshotClicked();
+    void onPauseToggled(bool paused);
     void onRecordClicked();
     void onRecordingStarted();
     void onRecordingStopped(bool ok);
@@ -102,6 +109,7 @@ private:
     QLabel* hintLabel_ = nullptr;
     QLabel* elapsedLabel_ = nullptr;
     QComboBox* formatCombo_ = nullptr;
+    QToolButton* pauseButton_ = nullptr;
     QToolButton* recordButton_ = nullptr;
     QToolButton* statsToggle_ = nullptr;
     QToolButton* screenshotButton_ = nullptr;
