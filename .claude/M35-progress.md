@@ -31,5 +31,27 @@ board's 25.5 fps / 570 Mbps target.
 - Doxygen on all public decls ✅. Coverage: tests exercise the full public surface.
 - TSan: the receiver worker is exercised; a dedicated TSan run is the `debug-asan`/CI gate's job.
 
-## P1–P5 — pending
+## P1 — Video page + display + stall handling — ✅ DONE (local)
+- `video_view.{hpp,cpp}` — `VideoView`: aspect-preserving paint of the latest frame on a dark
+  backdrop, placeholder text when none; repaint-on-set (frame-arrival cadence).
+- `video_page.{hpp,cpp}` — `VideoPage` (the Video mode): control bar (status) + `VideoView`, with the
+  display state machine Disabled → Waiting → Streaming → Stalled and a stall watchdog (`setStallTimeoutMs`).
+- `UdpConfig` += `videoPort` (default 5004) + `videoEnabled` (additive; not a frozen field). YAML
+  (de)serialization in `connection_manager.cpp` (guard-on-read = backward compatible). Connection dialog
+  UDP page gains "Enable video stream" + "Video port" (port enabled only when the box is checked).
+- `MainWindow`: owns `videoReceiver_`; adds the `"video"` mode beside connect/inspect; the connection-
+  state hook `rebind()+start`s the receiver when a UDP connection with `videoEnabled` connects and
+  `stop`s it on Idle/Error. Receiver → page signals wired.
+
+Tests: `video_page_test.cpp` (offscreen, leaked QApplication per `memory/qt_xcb_teardown_crash`) — view
+set/clear/placeholder, page state transitions, stall watchdog, and **end-to-end receiver → page** over
+real UDP. Extended `connection_persistence_test` to round-trip `videoPort`/`videoEnabled`.
+**video_test: 14 cases / 55 assertions; drivers_test 67/220; connection_persistence 7/72 — all green.**
+
+### DoD status
+- Build: Debug ✅, Release ✅ (full app links `signalforge_video`). ASan → CI gate.
+- clang-format clean ✅. clang-tidy: widget child-construction + `new X(this)` idiom only (codebase
+  baseline; `WarningsAsErrors: ''`). Doxygen on public decls ✅.
+
+## P2–P5 — pending
 See `.claude/M35-plan.md`.

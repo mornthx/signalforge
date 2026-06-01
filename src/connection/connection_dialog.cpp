@@ -196,6 +196,18 @@ QWidget* ConnectionDialog::buildUdpPage() {
     udpMulticastTtl_->setValue(1);
     form->addRow(tr("Multicast TTL"), udpMulticastTtl_);
 
+    // M35: dedicated RGB24 video stream on its own port (independent of the
+    // scalar bind above). Off by default.
+    udpVideoEnabled_ = new QCheckBox(tr("Enable video stream"), page);
+    form->addRow(QString(), udpVideoEnabled_);
+
+    udpVideoPort_ = new QSpinBox(page);
+    udpVideoPort_->setRange(1, 65535);
+    udpVideoPort_->setValue(5004);
+    udpVideoPort_->setEnabled(false);
+    form->addRow(tr("Video port"), udpVideoPort_);
+    connect(udpVideoEnabled_, &QCheckBox::toggled, udpVideoPort_, &QWidget::setEnabled);
+
     return page;
 }
 
@@ -457,6 +469,9 @@ void ConnectionDialog::applyUdp(const signalforge::drivers::UdpConfig& u) {
     udpRemotePort_->setValue(u.remotePort);
     udpMulticastGroup_->setText(u.multicastGroup);
     udpMulticastTtl_->setValue(static_cast<int>(u.multicastTtl));
+    udpVideoEnabled_->setChecked(u.videoEnabled);
+    udpVideoPort_->setValue(u.videoPort);
+    udpVideoPort_->setEnabled(u.videoEnabled);
 }
 
 void ConnectionDialog::applyReplay(const signalforge::drivers::ReplayConfig& r) {
@@ -528,6 +543,8 @@ ConnectionConfig ConnectionDialog::readUdp() const {
     u.remotePort = static_cast<quint16>(udpRemotePort_->value());
     u.multicastGroup = udpMulticastGroup_->text().trimmed();
     u.multicastTtl = static_cast<quint32>(udpMulticastTtl_->value());
+    u.videoEnabled = udpVideoEnabled_->isChecked();
+    u.videoPort = static_cast<quint16>(udpVideoPort_->value());
     cfg.driverConfig = u;
     return cfg;
 }
