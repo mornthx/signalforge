@@ -4,8 +4,10 @@
 #include "video/video_recorder.hpp"
 #include "video/video_types.hpp"
 
+#include <QColor>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QPoint>
 #include <QString>
 #include <QWidget>
 #include <cstdint>
@@ -40,6 +42,9 @@ public:
 
     /// Current one-line status text ("Disabled" / "Waiting…" / "Streaming" / "Stalled").
     [[nodiscard]] QString statusText() const;
+
+    /// Current pixel-probe readout text ("(x,y) RGB(r,g,b)"), empty until hovered.
+    [[nodiscard]] QString probeText() const;
 
     /// Override the stall watchdog timeout (default 3000 ms). Test seam.
     void setStallTimeoutMs(int ms);
@@ -94,6 +99,7 @@ private slots:
     void onStallTimeout();
     void onScreenshotClicked();
     void onPauseToggled(bool paused);
+    void onPixelProbed(const QPoint& imagePos, const QColor& color);
     void onRecordClicked();
     void onRecordingStarted();
     void onRecordingStopped(bool ok);
@@ -106,6 +112,7 @@ private:
     VideoView* view_ = nullptr;
     QHBoxLayout* controlBarLayout_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLabel* probeLabel_ = nullptr;
     QLabel* hintLabel_ = nullptr;
     QLabel* elapsedLabel_ = nullptr;
     QComboBox* formatCombo_ = nullptr;

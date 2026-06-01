@@ -36,6 +36,11 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
 
     statusLabel_ = new QLabel(controlBar);
     controlBarLayout_->addWidget(statusLabel_);
+
+    probeLabel_ = new QLabel(controlBar);
+    probeLabel_->setStyleSheet(QStringLiteral("color:#8a8a90;"));  // muted readout
+    controlBarLayout_->addWidget(probeLabel_);
+
     controlBarLayout_->addStretch(1);
 
     hintLabel_ = new QLabel(controlBar);
@@ -83,6 +88,7 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
 
     root->addWidget(controlBar);
     root->addWidget(view_, 1);
+    connect(view_, &VideoView::pixelProbed, this, &VideoPage::onPixelProbed);
 
     recorder_ = new VideoRecorder(this);
     connect(recorder_, &VideoRecorder::recordingStarted, this, &VideoPage::onRecordingStarted);
@@ -112,6 +118,10 @@ QHBoxLayout* VideoPage::controlBarLayout() const noexcept {
 
 QString VideoPage::statusText() const {
     return statusLabel_->text();
+}
+
+QString VideoPage::probeText() const {
+    return probeLabel_->text();
 }
 
 QToolButton* VideoPage::statsToggleButton() const noexcept {
@@ -280,6 +290,15 @@ void VideoPage::onScreenshotClicked() {
 void VideoPage::onPauseToggled(bool paused) {
     view_->setFrozen(paused);
     pauseButton_->setText(paused ? tr("Resume") : tr("Pause"));
+}
+
+void VideoPage::onPixelProbed(const QPoint& imagePos, const QColor& color) {
+    probeLabel_->setText(QStringLiteral("(%1,%2) RGB(%3,%4,%5)")
+                             .arg(imagePos.x())
+                             .arg(imagePos.y())
+                             .arg(color.red())
+                             .arg(color.green())
+                             .arg(color.blue()));
 }
 
 void VideoPage::onRecordClicked() {

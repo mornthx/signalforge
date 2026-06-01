@@ -8,14 +8,17 @@
 #include <QByteArray>
 #include <QColor>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
 #include <QImage>
+#include <QMouseEvent>
 #include <QSignalSpy>
 #include <QThread>
 #include <QToolButton>
 #include <QUdpSocket>
+#include <QWheelEvent>
 #include <QtTest/QtTest>
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
@@ -271,6 +274,69 @@ TEST_CASE("VideoPage: recording continues while paused", "[video][page][interact
     page.stopRecording();
     CHECK(QFileInfo(path).size() == 2LL * 6 * 4 * 3);  // two frames recorded despite pause
     QFile::remove(path);
+}
+
+TEST_CASE("VideoView: maps widget coords to image pixels at fit", "[video][view][interaction]") {
+    app();
+    VideoView view;
+    view.resize(200, 100);
+    QImage f(100, 50, QImage::Format_RGB888);
+    f.fill(QColor(0, 0, 0));
+    view.setFrame(f);
+    // fit scale = min(200/100, 100/50) = 2; the image fills the widget exactly.
+    CHECK(view.mapToImage(QPoint(0, 0)) == QPoint(0, 0));
+    CHECK(view.mapToImage(QPoint(100, 50)) == QPoint(50, 25));
+    CHECK(view.mapToImage(QPoint(199, 99)) == QPoint(99, 49));
+}
+
+TEST_CASE("VideoView: wheel zooms in; resetView returns to fit", "[video][view][interaction]") {
+    app();
+    VideoView view;
+    view.resize(200, 100);
+    QImage f(100, 50, QImage::Format_RGB888);
+    f.fill(QColor(0, 0, 0));
+    view.setFrame(f);
+    CHECK(view.zoom() == 1.0);
+
+    QWheelEvent we(QPointF(100, 50), QPointF(100, 50), QPoint(0, 0), QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+                   Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(&view, &we);
+    CHECK(view.zoom() > 1.0);
+
+    view.resetView();
+    CHECK(view.zoom() == 1.0);
+}
+
+TEST_CASE("VideoView: hover emits pixelProbed with the source pixel colour", "[video][view][interaction]") {
+    app();
+    VideoView view;
+    view.resize(200, 100);
+    QImage f(100, 50, QImage::Format_RGB888);
+    f.fill(QColor(33, 66, 99));
+    view.setFrame(f);
+
+    QSignalSpy spy(&view, &VideoView::pixelProbed);
+    QMouseEvent me(QEvent::MouseMove, QPointF(100, 50), QPointF(100, 50), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &me);
+
+    REQUIRE(spy.count() >= 1);
+    const auto last = spy.takeLast();
+    CHECK(last.at(0).toPoint() == QPoint(50, 25));
+    CHECK(last.at(1).value<QColor>() == QColor(33, 66, 99));
+}
+
+TEST_CASE("VideoPage: pixel probe updates the readout", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    QImage f(100, 50, QImage::Format_RGB888);
+    f.fill(QColor(10, 20, 30));
+    page.onFrameReady(f);
+    page.view()->resize(200, 100);
+
+    QMouseEvent me(QEvent::MouseMove, QPointF(100, 50), QPointF(100, 50), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(page.view(), &me);
+    CHECK(page.probeText().contains(QStringLiteral("RGB(10,20,30)")));
 }
 
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {
