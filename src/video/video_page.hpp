@@ -1,6 +1,7 @@
 // src/video/video_page.hpp
 #pragma once
 
+#include "video/color_correction.hpp"
 #include "video/video_recorder.hpp"
 #include "video/video_types.hpp"
 
@@ -21,6 +22,7 @@ class QToolButton;
 namespace signalforge::video {
 
 class VideoView;
+class ColorPanel;
 
 /// Top-level "Video" page (a workbench mode, parallel to Connect / Inspect).
 ///
@@ -79,6 +81,17 @@ public:
     /// Stop the in-progress recording (no-op if not recording).
     void stopRecording();
 
+    /// The "Color" panel toggle button and the panel itself (for wiring / tests).
+    [[nodiscard]] QToolButton* colorButton() const noexcept;
+    [[nodiscard]] ColorPanel* colorPanel() const noexcept;
+
+    /// Current colour-correction parameters.
+    [[nodiscard]] ColorParams colorParams() const;
+
+    /// Apply colour-correction params (rebuilds the corrector + re-renders the
+    /// current frame). Also the slot the slider panel drives.
+    void setColorParams(const ColorParams& params);
+
     /// Whether the high-packet-loss rmem hint is currently shown.
     [[nodiscard]] bool isHintVisible() const;
 
@@ -120,11 +133,16 @@ private:
     QToolButton* recordButton_ = nullptr;
     QToolButton* statsToggle_ = nullptr;
     QToolButton* screenshotButton_ = nullptr;
+    QToolButton* colorButton_ = nullptr;
     QTimer* stallTimer_ = nullptr;
     QTimer* elapsedTimer_ = nullptr;
     QElapsedTimer recordClock_;
     VideoRecorder* recorder_ = nullptr;
+    ColorPanel* colorPanel_ = nullptr;
+    ColorCorrector corrector_;
+    QImage lastRawFrame_;
     bool running_ = false;
+    bool recordRaw_ = false;  ///< P4: record raw vs corrected (default corrected).
     int stallTimeoutMs_ = 3000;
     int recordFps_ = 25;
     std::uint64_t lastDelivered_ = 0;

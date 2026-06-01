@@ -1,4 +1,5 @@
 // tests/unit/video/video_page_test.cpp
+#include "video/color_panel.hpp"
 #include "video/video_page.hpp"
 #include "video/video_receiver.hpp"
 #include "video/video_view.hpp"
@@ -337,6 +338,40 @@ TEST_CASE("VideoPage: pixel probe updates the readout", "[video][page][interacti
     QMouseEvent me(QEvent::MouseMove, QPointF(100, 50), QPointF(100, 50), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
     QCoreApplication::sendEvent(page.view(), &me);
     CHECK(page.probeText().contains(QStringLiteral("RGB(10,20,30)")));
+}
+
+TEST_CASE("VideoPage: color correction transforms the displayed frame", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    page.onFrameReady(solidFrame(4, 4, 100));  // raw grey 100
+    CHECK(page.view()->currentFrame().pixelColor(0, 0) == QColor(100, 100, 100));
+
+    signalforge::video::ColorParams p;
+    p.rGain = 2.0;
+    page.setColorParams(p);
+    const QColor c = page.view()->currentFrame().pixelColor(0, 0);
+    CHECK(c.red() == 200);    // 100 * 2
+    CHECK(c.green() == 100);  // unchanged
+    CHECK(c.blue() == 100);
+
+    page.onFrameReady(solidFrame(4, 4, 50));  // next frame stays corrected
+    const QColor c2 = page.view()->currentFrame().pixelColor(0, 0);
+    CHECK(c2.red() == 100);  // 50 * 2
+    CHECK(c2.green() == 50);
+}
+
+TEST_CASE("VideoPage: Color button toggles the slider panel; panel drives params", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    CHECK(page.colorPanel()->isHidden());  // hidden by default
+    page.colorButton()->click();
+    CHECK_FALSE(page.colorPanel()->isHidden());
+
+    signalforge::video::ColorParams p;
+    p.gGain = 1.5;
+    page.colorPanel()->setParams(p);  // panel → page corrector
+    CHECK(page.colorParams().gGain == 1.5);
 }
 
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {

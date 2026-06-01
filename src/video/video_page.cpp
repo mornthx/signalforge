@@ -2,6 +2,7 @@
 #include "video/video_page.hpp"
 
 #include "observability/logging.hpp"
+#include "video/color_panel.hpp"
 #include "video/video_view.hpp"
 
 #include <QChar>
@@ -79,6 +80,11 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     controlBarLayout_->addWidget(screenshotButton_);
     connect(screenshotButton_, &QToolButton::clicked, this, &VideoPage::onScreenshotClicked);
 
+    colorButton_ = new QToolButton(controlBar);
+    colorButton_->setText(tr("Color"));
+    colorButton_->setCheckable(true);
+    controlBarLayout_->addWidget(colorButton_);
+
     statsToggle_ = new QToolButton(controlBar);
     statsToggle_->setText(tr("Stats"));
     statsToggle_->setCheckable(true);
@@ -89,6 +95,12 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     root->addWidget(controlBar);
     root->addWidget(view_, 1);
     connect(view_, &VideoView::pixelProbed, this, &VideoPage::onPixelProbed);
+
+    colorPanel_ = new ColorPanel(this);
+    colorPanel_->setVisible(false);
+    root->addWidget(colorPanel_);
+    connect(colorButton_, &QToolButton::toggled, colorPanel_, &QWidget::setVisible);
+    connect(colorPanel_, &ColorPanel::paramsChanged, this, &VideoPage::setColorParams);
 
     recorder_ = new VideoRecorder(this);
     connect(recorder_, &VideoRecorder::recordingStarted, this, &VideoPage::onRecordingStarted);
@@ -160,6 +172,29 @@ void VideoPage::stopRecording() {
     recorder_->stop();
 }
 
+QToolButton* VideoPage::colorButton() const noexcept {
+    return colorButton_;
+}
+
+ColorPanel* VideoPage::colorPanel() const noexcept {
+    return colorPanel_;
+}
+
+ColorParams VideoPage::colorParams() const {
+    return corrector_.params();
+}
+
+void VideoPage::setColorParams(const ColorParams& params) {
+    corrector_.setParams(params);
+    if (!lastRawFrame_.isNull()) {
+        // Re-render the current frame even if the display is frozen (live preview).
+        const bool wasFrozen = view_->isFrozen();
+        view_->setFrozen(false);
+        view_->setFrame(corrector_.apply(lastRawFrame_));
+        view_->setFrozen(wasFrozen);
+    }
+}
+
 void VideoPage::updateButtonStates() {
     const bool hasFrame = view_->hasFrame();
     screenshotButton_->setEnabled(hasFrame);
@@ -191,9 +226,15 @@ void VideoPage::setStallTimeoutMs(int ms) {
 }
 
 void VideoPage::onFrameReady(const QImage& frame) {
-    view_->setFrame(frame);
+    // Recording always tracks the live stream, even while the display is frozen.
     if (recorder_->isRecording()) {
-        recorder_->writeFrame(frame);
+        recorder_->writeFrame(recordRaw_ ? frame : corrector_.apply(frame));
+    }
+    if (!view_->isFrozen()) {
+        // Keep the raw frame so colour-param changes can re-render it; the view
+        // and screenshot show the corrected image.
+        lastRawFrame_ = frame;
+        view_->setFrame(corrector_.apply(frame));
     }
     updateButtonStates();
     setStatus(tr("Streaming"));
