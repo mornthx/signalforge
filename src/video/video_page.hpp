@@ -92,6 +92,11 @@ public:
     /// current frame). Also the slot the slider panel drives.
     void setColorParams(const ColorParams& params);
 
+    /// Save / load the current colour-correction params to/from a JSON preset
+    /// file. Non-dialog test seams. Return false on IO / parse failure.
+    [[nodiscard]] bool saveColorPreset(const QString& path) const;
+    [[nodiscard]] bool loadColorPreset(const QString& path);
+
     /// Whether the high-packet-loss rmem hint is currently shown.
     [[nodiscard]] bool isHintVisible() const;
 
@@ -113,6 +118,8 @@ private slots:
     void onScreenshotClicked();
     void onPauseToggled(bool paused);
     void onPixelProbed(const QPoint& imagePos, const QColor& color);
+    void onSaveColorPreset();
+    void onLoadColorPreset();
     void onRecordClicked();
     void onRecordingStarted();
     void onRecordingStopped(bool ok);

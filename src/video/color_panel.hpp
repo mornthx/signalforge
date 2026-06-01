@@ -25,6 +25,8 @@ public:
 
 signals:
     void paramsChanged(const signalforge::video::ColorParams& params);
+    void saveRequested();
+    void loadRequested();
 
 private slots:
     void onSliderChanged();

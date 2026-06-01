@@ -22,6 +22,7 @@
 #include <QWheelEvent>
 #include <QtTest/QtTest>
 #include <algorithm>
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstdint>
@@ -372,6 +373,33 @@ TEST_CASE("VideoPage: Color button toggles the slider panel; panel drives params
     p.gGain = 1.5;
     page.colorPanel()->setParams(p);  // panel → page corrector
     CHECK(page.colorParams().gGain == 1.5);
+}
+
+TEST_CASE("VideoPage: color preset save/load round-trip", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    signalforge::video::ColorParams p;
+    p.rGain = 1.7;
+    p.saturation = 0.5;
+    page.setColorParams(p);
+
+    const QString path = QDir::tempPath() + QStringLiteral("/sf_color_preset.json");
+    QFile::remove(path);
+    REQUIRE(page.saveColorPreset(path));
+
+    page.setColorParams(signalforge::video::ColorParams{});  // reset to identity
+    REQUIRE(page.colorParams().isIdentity());
+
+    REQUIRE(page.loadColorPreset(path));
+    CHECK(page.colorParams().rGain == Catch::Approx(1.7));
+    CHECK(page.colorParams().saturation == Catch::Approx(0.5));
+    QFile::remove(path);
+}
+
+TEST_CASE("VideoPage: loadColorPreset rejects a missing file", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    CHECK_FALSE(page.loadColorPreset(QDir::tempPath() + QStringLiteral("/sf_no_such_preset.json")));
 }
 
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {

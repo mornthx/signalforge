@@ -1,9 +1,13 @@
 // src/video/color_correction.cpp
 #include "video/color_correction.hpp"
 
+#include "observability/logging.hpp"
+
 #include <QtGlobal>
 #include <algorithm>
 #include <cmath>
+#include <exception>
+#include <nlohmann/json.hpp>
 
 namespace signalforge::video {
 
@@ -51,6 +55,37 @@ void ColorCorrector::rebuild() {
             buildEntry(v, params_.gGain, params_.contrast, params_.brightness, invGamma);
         lutB_[static_cast<std::size_t>(v)] =
             buildEntry(v, params_.bGain, params_.contrast, params_.brightness, invGamma);
+    }
+}
+
+std::string colorParamsToJson(const ColorParams& p) {
+    const nlohmann::json j = {
+        {"version", 1},     {"rGain", p.rGain},           {"gGain", p.gGain},
+        {"bGain", p.bGain}, {"brightness", p.brightness}, {"contrast", p.contrast},
+        {"gamma", p.gamma}, {"saturation", p.saturation},
+    };
+    return j.dump(2);
+}
+
+std::optional<ColorParams> colorParamsFromJson(const std::string& text) {
+    try {
+        const auto j = nlohmann::json::parse(text);
+        if (!j.is_object()) {
+            SF_LOG_WARN("video: color preset JSON root is not an object");
+            return std::nullopt;
+        }
+        ColorParams p;
+        p.rGain = j.value("rGain", p.rGain);
+        p.gGain = j.value("gGain", p.gGain);
+        p.bGain = j.value("bGain", p.bGain);
+        p.brightness = j.value("brightness", p.brightness);
+        p.contrast = j.value("contrast", p.contrast);
+        p.gamma = j.value("gamma", p.gamma);
+        p.saturation = j.value("saturation", p.saturation);
+        return p;
+    } catch (const std::exception& e) {
+        SF_LOG_WARN("video: color preset JSON parse failed: {}", e.what());
+        return std::nullopt;
     }
 }
 

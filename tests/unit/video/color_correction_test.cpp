@@ -3,10 +3,13 @@
 
 #include <QColor>
 #include <QImage>
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using signalforge::video::ColorCorrector;
 using signalforge::video::ColorParams;
+using signalforge::video::colorParamsFromJson;
+using signalforge::video::colorParamsToJson;
 
 namespace {
 QImage solid(int w, int h, QColor c) {
@@ -80,4 +83,37 @@ TEST_CASE("ColorCorrector: gamma > 1 brightens mid-tones", "[video][color]") {
     cc.setParams(p);
     const int mid = cc.apply(solid(2, 2, QColor(128, 128, 128))).pixelColor(0, 0).red();
     CHECK(mid > 128);  // gamma 2.0 lifts mid-grey
+}
+
+TEST_CASE("color preset JSON round-trips all fields", "[video][color]") {
+    ColorParams p;
+    p.rGain = 1.3;
+    p.gGain = 0.8;
+    p.bGain = 1.1;
+    p.brightness = 0.05;
+    p.contrast = 1.2;
+    p.gamma = 0.9;
+    p.saturation = 1.4;
+    const auto back = colorParamsFromJson(colorParamsToJson(p));
+    REQUIRE(back.has_value());
+    CHECK(back->rGain == Catch::Approx(1.3));
+    CHECK(back->gGain == Catch::Approx(0.8));
+    CHECK(back->bGain == Catch::Approx(1.1));
+    CHECK(back->brightness == Catch::Approx(0.05));
+    CHECK(back->contrast == Catch::Approx(1.2));
+    CHECK(back->gamma == Catch::Approx(0.9));
+    CHECK(back->saturation == Catch::Approx(1.4));
+}
+
+TEST_CASE("color preset rejects malformed JSON", "[video][color]") {
+    CHECK_FALSE(colorParamsFromJson("not json").has_value());
+    CHECK_FALSE(colorParamsFromJson("[1,2,3]").has_value());  // non-object root
+}
+
+TEST_CASE("color preset missing fields keep identity defaults", "[video][color]") {
+    const auto p = colorParamsFromJson(R"({"rGain":2.0})");
+    REQUIRE(p.has_value());
+    CHECK(p->rGain == Catch::Approx(2.0));
+    CHECK(p->gGain == Catch::Approx(1.0));       // default
+    CHECK(p->saturation == Catch::Approx(1.0));  // default
 }

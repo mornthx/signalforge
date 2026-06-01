@@ -5,9 +5,11 @@
 #include "video/color_panel.hpp"
 #include "video/video_view.hpp"
 
+#include <QByteArray>
 #include <QChar>
 #include <QComboBox>
 #include <QDateTime>
+#include <QFile>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QImage>
@@ -101,6 +103,8 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     root->addWidget(colorPanel_);
     connect(colorButton_, &QToolButton::toggled, colorPanel_, &QWidget::setVisible);
     connect(colorPanel_, &ColorPanel::paramsChanged, this, &VideoPage::setColorParams);
+    connect(colorPanel_, &ColorPanel::saveRequested, this, &VideoPage::onSaveColorPreset);
+    connect(colorPanel_, &ColorPanel::loadRequested, this, &VideoPage::onLoadColorPreset);
 
     recorder_ = new VideoRecorder(this);
     connect(recorder_, &VideoRecorder::recordingStarted, this, &VideoPage::onRecordingStarted);
@@ -192,6 +196,53 @@ void VideoPage::setColorParams(const ColorParams& params) {
         view_->setFrozen(false);
         view_->setFrame(corrector_.apply(lastRawFrame_));
         view_->setFrozen(wasFrozen);
+    }
+}
+
+bool VideoPage::saveColorPreset(const QString& path) const {
+    if (path.isEmpty()) {
+        return false;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        SF_LOG_WARN("video: cannot write color preset '{}': {}", path.toStdString(), file.errorString().toStdString());
+        return false;
+    }
+    const std::string json = colorParamsToJson(corrector_.params());
+    return file.write(json.data(), static_cast<qint64>(json.size())) == static_cast<qint64>(json.size());
+}
+
+bool VideoPage::loadColorPreset(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        SF_LOG_WARN("video: cannot read color preset '{}': {}", path.toStdString(), file.errorString().toStdString());
+        return false;
+    }
+    const QByteArray bytes = file.readAll();
+    const auto params = colorParamsFromJson(bytes.toStdString());
+    if (!params) {
+        return false;
+    }
+    colorPanel_->setParams(*params);  // updates sliders + flows to setColorParams
+    return true;
+}
+
+void VideoPage::onSaveColorPreset() {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const QString suggested =
+        (dir.isEmpty() ? QString() : dir + QLatin1Char('/')) + QStringLiteral("color-preset.json");
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Save color preset"), suggested, tr("JSON preset (*.json)"));
+    if (!path.isEmpty()) {
+        (void)saveColorPreset(path);
+    }
+}
+
+void VideoPage::onLoadColorPreset() {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const QString path = QFileDialog::getOpenFileName(this, tr("Load color preset"), dir, tr("JSON preset (*.json)"));
+    if (!path.isEmpty()) {
+        (void)loadColorPreset(path);
     }
 }
 

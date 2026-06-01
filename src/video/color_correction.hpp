@@ -4,6 +4,8 @@
 #include <QImage>
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string>
 
 namespace signalforge::video {
 
@@ -23,6 +25,13 @@ struct ColorParams {
     /// True when every field is its identity value (transform is a no-op).
     [[nodiscard]] bool isIdentity() const noexcept;
 };
+
+/// Serialize `p` to a pretty-printed JSON object (a color preset).
+[[nodiscard]] std::string colorParamsToJson(const ColorParams& p);
+
+/// Parse a color preset from JSON. Missing fields keep their identity default;
+/// returns `std::nullopt` on malformed JSON or a non-object root.
+[[nodiscard]] std::optional<ColorParams> colorParamsFromJson(const std::string& text);
 
 /// Applies `ColorParams` to RGB24 frames using per-channel lookup tables (for
 /// white-balance/contrast/brightness/gamma) plus an optional saturation pass.

@@ -2,6 +2,7 @@
 #include "video/color_panel.hpp"
 
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -49,9 +50,17 @@ ColorPanel::ColorPanel(QWidget* parent) : QWidget(parent) {
         ++row;
     }
 
+    auto* buttons = new QHBoxLayout();
     auto* reset = new QPushButton(tr("Reset"), this);
     connect(reset, &QPushButton::clicked, this, [this] { setParams(ColorParams{}); });
-    grid->addWidget(reset, row, 0, 1, 2);
+    auto* save = new QPushButton(tr("Save…"), this);
+    connect(save, &QPushButton::clicked, this, &ColorPanel::saveRequested);
+    auto* load = new QPushButton(tr("Load…"), this);
+    connect(load, &QPushButton::clicked, this, &ColorPanel::loadRequested);
+    buttons->addWidget(reset);
+    buttons->addWidget(save);
+    buttons->addWidget(load);
+    grid->addLayout(buttons, row, 0, 1, 2);
 }
 
 ColorParams ColorPanel::params() const {
