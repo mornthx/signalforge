@@ -1,26 +1,43 @@
-# M35 — Concerns
+# M35 — Concerns (re-scoped 2026-06-02)
 
-## C1 — Codec dependency (the load-bearing decision)
-`architecture.md §4.1` permits no Qt Multimedia / FFmpeg / codec library. Per CLAUDE.md §1 a new
-dependency is a HALT / owner-approval event.
-- **Image + Motion-JPEG**: decoded by `QImage::loadFromData` (Qt Gui, already linked) → **no new dep.**
-- **H.264 / H.265**: needs FFmpeg or Qt Multimedia → **§4.1 amendment + owner approval.**
+## C1 — Codec dependency — **RESOLVED**
+The old M35 framing's load-bearing worry. The source is **raw RGB24**, so display needs no decoder:
+a complete frame is `QImage(buf, w, h, QImage::Format_RGB888)`. **No new dependency for display.**
+The MJPEG/H.264 fork and any `§4.1` amendment are off the table for M35.
 
-**Recommendation:** ship MJPEG-only first (whole pipeline, zero dep risk); keep the decoder behind an
-interface so H.264 is a later, owner-gated add-on. Do not pull a codec dependency without explicit
-approval.
+## C2 — ffmpeg as a runtime tool (recording only)
+Recording to MP4 needs an encoder. Decision: **invoke the `ffmpeg` binary via `QProcess`** (pipe raw
+RGB24 to stdin), *not* link a codec library. This is a **runtime tool dependency**, not a `§4.1`
+link/FetchContent dependency, so it does **not** require an `architecture.md` amendment (and CLAUDE.md
+forbids editing that file regardless). Owner-authorized this chat (ffmpeg 6.1.1 present).
+**Mitigation:** detect `ffmpeg` at runtime; if absent, disable MP4 recording with a clear message and
+keep the dependency-free **raw** dump available. Document the tool requirement in `M35-done.md`.
 
-## C2 — Transport / source ambiguity
-Whether the source is a **custom device** (→ simple custom chunk protocol, MJPEG) or **off-the-shelf
-IP cameras** (→ RTP/RTSP, likely a dependency) changes most of the design. Needs an owner answer
-before the transport layer is fixed. Do not guess.
+## C3 — Performance & memory (new highest-bandwidth path)
+~570 Mbps, ~25 fps, 2.76 MB/frame, ~48k datagrams/s — a different cost class from scalar refresh.
+- Reassembly + recv off the UI thread (CLAUDE.md §8); UI thread only blits the latest `QImage`.
+- Dedicated `VideoUdpReceiver` keeps this load **out of** the scalar `FramePipeline`.
+- Bounded memory: hold only the latest complete frame (+ the in-progress assembly buffer); latest-wins.
+- Before/after throughput benchmark required (CLAUDE.md §5): reassembly fps / Mbps / drop rate.
+- ThreadSanitizer test for the receiver worker (CLAUDE.md §6).
 
-## C3 — Perf + memory (new highest-bandwidth path)
-30 fps × multi-MB frames is a different cost class from scalar refresh: decode must be off the UI
-thread (CLAUDE.md §8), the media buffer must be explicitly memory-bounded (QImages are large), and the
-path needs before/after benchmarks (CLAUDE.md §5). Reuses the deferred per-component-cadence design
-(`memory/heterogeneous_frame_rates.md`).
+## C4 — Host receive-buffer (operator step, surfaced in UI)
+Without `sudo sysctl net.core.rmem_max=33554432`, 25 fps bursts overflow the socket buffer and drop
+packets (~6 fps of complete frames). This is a **host** setting, not a board issue. M35 raises
+`SO_RCVBUF` on its socket and **surfaces a UI hint** when the measured drop rate is high, rather than
+failing silently.
+
+## C5 — Visual baseline tests vs live video
+The Video page renders non-deterministic live content. Do **not** add full-window pixel baselines of
+live frames (they would false-red like the M15 full-window baselines already do on CI —
+`memory/ci_visual_baseline_divergence.md`). Test reassembly/stats/controls with logic + GUI-interaction
+tests (synthetic ZVID sender as oracle) and, if a visual check is wanted, render a fixed test-pattern
+frame rather than the live stream.
+
+## C6 — Sanitizer gate is CI-authoritative
+Local ASan is blocked by `/etc/ld.so.preload` (`memory/host_asan_preload`). Sanitizer verification for
+the new receiver/recording paths routes through the `debug-asan` CI gate, not the local host.
 
 ## Resolution
-Exploration (`docs/v0.4/media-playback-exploration.md`) lays out the options. Await the owner's 4
-decisions (exploration §5) before writing `M35-plan.md`; then plan → Phase-4 execute approval.
+All concerns have an agreed mitigation; none blocks M35. Decisions captured in `M35-understanding.md`
+and `M35-plan.md`. Proceed pending Phase-4 execute approval.
