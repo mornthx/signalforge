@@ -2,6 +2,7 @@ add_library(signalforge_video STATIC
     video_receiver.cpp
     video_view.cpp
     video_page.cpp
+    video_recorder.cpp
 )
 target_include_directories(signalforge_video PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(signalforge_video

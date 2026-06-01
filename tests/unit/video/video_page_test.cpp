@@ -9,6 +9,7 @@
 #include <QColor>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QImage>
 #include <QSignalSpy>
@@ -191,6 +192,47 @@ TEST_CASE("VideoPage: screenshot button gating + PNG save round-trip", "[video][
     page.onRunningChanged(false);
     CHECK_FALSE(page.screenshotButton()->isEnabled());
     CHECK_FALSE(page.saveScreenshot(path));  // no frame → false
+}
+
+TEST_CASE("VideoPage: record lifecycle (raw) via seam", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    CHECK_FALSE(page.recordButton()->isEnabled());  // no frame yet
+
+    page.onFrameReady(solidFrame(6, 4, 30));
+    CHECK(page.recordButton()->isEnabled());
+    CHECK_FALSE(page.isRecording());
+
+    const QString path = QDir::tempPath() + QStringLiteral("/sf_page_rec.raw");
+    QFile::remove(path);
+    REQUIRE(page.startRecording(path, signalforge::video::VideoRecorder::Format::Raw));
+    CHECK(page.isRecording());
+    CHECK(page.recordButton()->text() == QStringLiteral("Stop"));
+
+    // Frames are written only via onFrameReady while recording.
+    page.onFrameReady(solidFrame(6, 4, 40));
+    page.onFrameReady(solidFrame(6, 4, 50));
+    page.stopRecording();
+
+    CHECK_FALSE(page.isRecording());
+    CHECK(page.recordButton()->text() == QStringLiteral("Record"));
+    CHECK(QFileInfo(path).size() == 2LL * 6 * 4 * 3);  // two frames written post-start
+    QFile::remove(path);
+}
+
+TEST_CASE("VideoPage: stream stop finalizes an active recording", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    page.onFrameReady(solidFrame(6, 4, 30));
+    const QString path = QDir::tempPath() + QStringLiteral("/sf_page_rec2.raw");
+    QFile::remove(path);
+    REQUIRE(page.startRecording(path, signalforge::video::VideoRecorder::Format::Raw));
+    CHECK(page.isRecording());
+    page.onRunningChanged(false);  // stream drops
+    CHECK_FALSE(page.isRecording());
+    QFile::remove(path);
 }
 
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {

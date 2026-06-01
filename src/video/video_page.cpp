@@ -5,6 +5,7 @@
 #include "video/video_view.hpp"
 
 #include <QChar>
+#include <QComboBox>
 #include <QDateTime>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -42,6 +43,24 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     hintLabel_->setVisible(false);
     controlBarLayout_->addWidget(hintLabel_);
 
+    elapsedLabel_ = new QLabel(controlBar);
+    elapsedLabel_->setStyleSheet(QStringLiteral("color:#f06060;"));  // red REC indicator
+    elapsedLabel_->setVisible(false);
+    controlBarLayout_->addWidget(elapsedLabel_);
+
+    formatCombo_ = new QComboBox(controlBar);
+    if (VideoRecorder::ffmpegAvailable()) {
+        formatCombo_->addItem(tr("MP4 (H.264)"), static_cast<int>(VideoRecorder::Format::Mp4));
+    }
+    formatCombo_->addItem(tr("Raw RGB24"), static_cast<int>(VideoRecorder::Format::Raw));
+    controlBarLayout_->addWidget(formatCombo_);
+
+    recordButton_ = new QToolButton(controlBar);
+    recordButton_->setText(tr("Record"));
+    recordButton_->setEnabled(false);  // enabled once a frame is displayed
+    controlBarLayout_->addWidget(recordButton_);
+    connect(recordButton_, &QToolButton::clicked, this, &VideoPage::onRecordClicked);
+
     screenshotButton_ = new QToolButton(controlBar);
     screenshotButton_->setText(tr("Screenshot"));
     screenshotButton_->setEnabled(false);  // enabled once a frame is displayed
@@ -57,6 +76,16 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
 
     root->addWidget(controlBar);
     root->addWidget(view_, 1);
+
+    recorder_ = new VideoRecorder(this);
+    connect(recorder_, &VideoRecorder::recordingStarted, this, &VideoPage::onRecordingStarted);
+    connect(recorder_, &VideoRecorder::recordingStopped, this, &VideoPage::onRecordingStopped);
+    connect(recorder_, &VideoRecorder::errorOccurred, this,
+            [](const QString& msg) { SF_LOG_WARN("video: recorder error: {}", msg.toStdString()); });
+
+    elapsedTimer_ = new QTimer(this);
+    elapsedTimer_->setInterval(1000);
+    connect(elapsedTimer_, &QTimer::timeout, this, &VideoPage::updateElapsed);
 
     stallTimer_ = new QTimer(this);
     stallTimer_->setSingleShot(true);
@@ -86,6 +115,32 @@ QToolButton* VideoPage::screenshotButton() const noexcept {
     return screenshotButton_;
 }
 
+QToolButton* VideoPage::recordButton() const noexcept {
+    return recordButton_;
+}
+
+bool VideoPage::isRecording() const {
+    return recorder_->isRecording();
+}
+
+bool VideoPage::startRecording(const QString& path, VideoRecorder::Format format) {
+    const QImage frame = view_->currentFrame();
+    if (frame.isNull()) {
+        return false;
+    }
+    return recorder_->start(path, format, frame.width(), frame.height(), recordFps_ > 0 ? recordFps_ : 25);
+}
+
+void VideoPage::stopRecording() {
+    recorder_->stop();
+}
+
+void VideoPage::updateButtonStates() {
+    const bool hasFrame = view_->hasFrame();
+    screenshotButton_->setEnabled(hasFrame);
+    recordButton_->setEnabled(hasFrame || recorder_->isRecording());
+}
+
 bool VideoPage::saveScreenshot(const QString& path) const {
     const QImage frame = view_->currentFrame();
     if (frame.isNull() || path.isEmpty()) {
@@ -111,7 +166,10 @@ void VideoPage::setStallTimeoutMs(int ms) {
 
 void VideoPage::onFrameReady(const QImage& frame) {
     view_->setFrame(frame);
-    screenshotButton_->setEnabled(true);
+    if (recorder_->isRecording()) {
+        recorder_->writeFrame(frame);
+    }
+    updateButtonStates();
     setStatus(tr("Streaming"));
     if (running_) {
         stallTimer_->start(stallTimeoutMs_);
@@ -123,7 +181,9 @@ void VideoPage::onRunningChanged(bool running) {
     stallTimer_->stop();
     view_->setOverlayText(QString());
     hintLabel_->setVisible(false);
-    screenshotButton_->setEnabled(false);
+    if (!running && recorder_->isRecording()) {
+        stopRecording();  // the stream ended — finalize any recording
+    }
     lastDelivered_ = 0;
     lastDropped_ = 0;
     if (running) {
@@ -135,9 +195,13 @@ void VideoPage::onRunningChanged(bool running) {
         view_->setPlaceholderText(tr("Video stream disabled — enable it on a UDP connection."));
         setStatus(tr("Disabled"));
     }
+    updateButtonStates();
 }
 
 void VideoPage::onStats(const VideoStats& stats) {
+    if (stats.fps >= 1.0) {
+        recordFps_ = qRound(stats.fps);
+    }
     const QString res = (stats.width > 0 && stats.height > 0)
                             ? QStringLiteral("%1×%2").arg(stats.width).arg(stats.height)
                             : QStringLiteral("—");
@@ -176,7 +240,7 @@ void VideoPage::onStallTimeout() {
         return;
     }
     view_->clearFrame();
-    screenshotButton_->setEnabled(false);
+    updateButtonStates();
     view_->setPlaceholderText(tr("Video stream stalled — waiting for frames…"));
     setStatus(tr("Stalled"));
 }
@@ -194,6 +258,55 @@ void VideoPage::onScreenshotClicked() {
         return;  // user cancelled
     }
     (void)saveScreenshot(path);
+}
+
+void VideoPage::onRecordClicked() {
+    if (recorder_->isRecording()) {
+        stopRecording();
+        return;
+    }
+    if (!view_->hasFrame()) {
+        return;
+    }
+    const auto format = static_cast<VideoRecorder::Format>(formatCombo_->currentData().toInt());
+    const bool mp4 = format == VideoRecorder::Format::Mp4;
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QString ext = mp4 ? QStringLiteral(".mp4") : QStringLiteral(".raw");
+    const QString suggested =
+        (dir.isEmpty() ? QString() : dir + QLatin1Char('/')) + QStringLiteral("signalforge-video-%1%2").arg(stamp, ext);
+    const QString filter = mp4 ? tr("MP4 video (*.mp4)") : tr("Raw RGB24 (*.raw)");
+    const QString path = QFileDialog::getSaveFileName(this, tr("Record video"), suggested, filter);
+    if (path.isEmpty()) {
+        return;  // user cancelled
+    }
+    (void)startRecording(path, format);
+}
+
+void VideoPage::onRecordingStarted() {
+    recordButton_->setText(tr("Stop"));
+    formatCombo_->setEnabled(false);
+    recordClock_.start();
+    elapsedLabel_->setVisible(true);
+    updateElapsed();
+    elapsedTimer_->start();
+}
+
+void VideoPage::onRecordingStopped(bool ok) {
+    recordButton_->setText(tr("Record"));
+    formatCombo_->setEnabled(true);
+    elapsedTimer_->stop();
+    elapsedLabel_->setVisible(false);
+    updateButtonStates();
+    if (!ok) {
+        SF_LOG_WARN("video: recording stopped with an error");
+    }
+}
+
+void VideoPage::updateElapsed() {
+    const qint64 secs = recordClock_.elapsed() / 1000;
+    elapsedLabel_->setText(
+        QStringLiteral("● REC %1:%2").arg(secs / 60, 2, 10, QLatin1Char('0')).arg(secs % 60, 2, 10, QLatin1Char('0')));
 }
 
 void VideoPage::setStatus(const QString& text) {

@@ -2,6 +2,7 @@ add_executable(video_test
     video_protocol_test.cpp
     video_receiver_test.cpp
     video_page_test.cpp
+    video_recorder_test.cpp
 )
 target_link_libraries(video_test
     PRIVATE

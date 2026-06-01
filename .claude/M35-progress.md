@@ -73,5 +73,23 @@ samples. **video_test: 17 cases / 64 assertions green; Debug+Release build clean
 Tests: button gating across no-frame / frame / stopped, and a PNG save round-trip (decodes back to the
 frame size). **video_test: 18 cases / 71 assertions green; Debug+Release clean.**
 
-## P4–P5 — pending
+## P4 — Recording (ffmpeg MP4 + raw fallback) — ✅ DONE (local)
+- `video_recorder.{hpp,cpp}` — `VideoRecorder`: `Mp4` pipes tightly-packed RGB24 into the `ffmpeg` CLI
+  (`QProcess`, `-c:v libx264 -pix_fmt yuv420p`); `Raw` writes RGB24 to a `.raw` file (zero dependency).
+  `ffmpegAvailable()` gates MP4; frames whose size ≠ the recording size are skipped; stop() flushes and
+  reports success.
+- `VideoPage` control bar gains a format combo (MP4 only listed when ffmpeg is present; Raw always),
+  a Record/Stop button (enabled while a frame is shown or a recording is active), and a red "● REC mm:ss"
+  elapsed indicator. Frames flow receiver → page → recorder; a stream stop finalizes any recording.
+  `startRecording`/`stopRecording` are non-dialog test seams.
+
+Tests: recorder raw round-trip (tightly-packed byte count, wrong-size skip), bad-arg/double-start
+rejection, start/stop signals, and the **MP4 path via real ffmpeg guarded by `ffmpegAvailable()`**
+(SUCCEED-and-skip when absent so CI stays green either way); page record lifecycle + stream-stop
+finalization. **video_test: 24 cases / 102 assertions green; Debug+Release clean.**
+
+ffmpeg note: invoked as an external **runtime tool** via QProcess — not a §4.1 link dependency; owner-
+authorized; raw fallback covers ffmpeg-absent hosts.
+
+## P5 — closure — in progress
 See `.claude/M35-plan.md`.

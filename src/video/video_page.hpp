@@ -1,13 +1,16 @@
 // src/video/video_page.hpp
 #pragma once
 
+#include "video/video_recorder.hpp"
 #include "video/video_types.hpp"
 
+#include <QElapsedTimer>
 #include <QImage>
 #include <QString>
 #include <QWidget>
 #include <cstdint>
 
+class QComboBox;
 class QHBoxLayout;
 class QLabel;
 class QTimer;
@@ -51,6 +54,20 @@ public:
     /// there is no frame or the save fails. The non-dialog test seam.
     [[nodiscard]] bool saveScreenshot(const QString& path) const;
 
+    /// The "Record"/"Stop" button (for wiring / tests).
+    [[nodiscard]] QToolButton* recordButton() const noexcept;
+
+    /// Whether a recording is in progress.
+    [[nodiscard]] bool isRecording() const;
+
+    /// Begin recording the live stream to `path` (uses the current frame size
+    /// and the most recent fps estimate). Non-dialog test seam. Returns false
+    /// if there is no frame or the recorder rejects the request.
+    [[nodiscard]] bool startRecording(const QString& path, VideoRecorder::Format format);
+
+    /// Stop the in-progress recording (no-op if not recording).
+    void stopRecording();
+
     /// Whether the high-packet-loss rmem hint is currently shown.
     [[nodiscard]] bool isHintVisible() const;
 
@@ -70,19 +87,31 @@ public slots:
 private slots:
     void onStallTimeout();
     void onScreenshotClicked();
+    void onRecordClicked();
+    void onRecordingStarted();
+    void onRecordingStopped(bool ok);
+    void updateElapsed();
 
 private:
     void setStatus(const QString& text);
+    void updateButtonStates();
 
     VideoView* view_ = nullptr;
     QHBoxLayout* controlBarLayout_ = nullptr;
     QLabel* statusLabel_ = nullptr;
     QLabel* hintLabel_ = nullptr;
+    QLabel* elapsedLabel_ = nullptr;
+    QComboBox* formatCombo_ = nullptr;
+    QToolButton* recordButton_ = nullptr;
     QToolButton* statsToggle_ = nullptr;
     QToolButton* screenshotButton_ = nullptr;
     QTimer* stallTimer_ = nullptr;
+    QTimer* elapsedTimer_ = nullptr;
+    QElapsedTimer recordClock_;
+    VideoRecorder* recorder_ = nullptr;
     bool running_ = false;
     int stallTimeoutMs_ = 3000;
+    int recordFps_ = 25;
     std::uint64_t lastDelivered_ = 0;
     std::uint64_t lastDropped_ = 0;
 };
