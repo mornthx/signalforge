@@ -640,6 +640,8 @@ void MainWindow::buildChartUi() {
     workbench_->addMode(QStringLiteral("video"), tr("Video"), videoPage_);
     connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::frameReady, videoPage_,
             &signalforge::video::VideoPage::onFrameReady);
+    connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::statsUpdated, videoPage_,
+            &signalforge::video::VideoPage::onStats);
     connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::runningChanged, videoPage_,
             &signalforge::video::VideoPage::onRunningChanged);
     connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::errorOccurred, videoPage_,

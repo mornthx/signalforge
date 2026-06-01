@@ -1,13 +1,17 @@
 // src/video/video_page.hpp
 #pragma once
 
+#include "video/video_types.hpp"
+
 #include <QImage>
 #include <QString>
 #include <QWidget>
+#include <cstdint>
 
 class QHBoxLayout;
 class QLabel;
 class QTimer;
+class QToolButton;
 
 namespace signalforge::video {
 
@@ -37,12 +41,21 @@ public:
     /// Override the stall watchdog timeout (default 3000 ms). Test seam.
     void setStallTimeoutMs(int ms);
 
+    /// The "Stats" overlay toggle button (for wiring / tests).
+    [[nodiscard]] QToolButton* statsToggleButton() const noexcept;
+
+    /// Whether the high-packet-loss rmem hint is currently shown.
+    [[nodiscard]] bool isHintVisible() const;
+
 public slots:
     /// A complete frame arrived — display it and re-arm the stall watchdog.
     void onFrameReady(const QImage& frame);
 
     /// The receiver bound (`true`) or stopped (`false`).
     void onRunningChanged(bool running);
+
+    /// A periodic throughput/health snapshot — updates the overlay + rmem hint.
+    void onStats(const signalforge::video::VideoStats& stats);
 
     /// A receiver error — surfaced in the placeholder/status.
     void onError(const QString& message);
@@ -56,9 +69,13 @@ private:
     VideoView* view_ = nullptr;
     QHBoxLayout* controlBarLayout_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLabel* hintLabel_ = nullptr;
+    QToolButton* statsToggle_ = nullptr;
     QTimer* stallTimer_ = nullptr;
     bool running_ = false;
     int stallTimeoutMs_ = 3000;
+    std::uint64_t lastDelivered_ = 0;
+    std::uint64_t lastDropped_ = 0;
 };
 
 }  // namespace signalforge::video

@@ -6,6 +6,8 @@
 #include <QString>
 #include <QWidget>
 
+class QPainter;
+
 namespace signalforge::video {
 
 /// Lightweight live-video display widget.
@@ -36,14 +38,25 @@ public:
     void setPlaceholderText(const QString& text);
     [[nodiscard]] QString placeholderText() const;
 
+    /// Stats overlay drawn (when visible) in the top-left over the frame.
+    /// Multi-line text is supported (split on '\n').
+    void setOverlayText(const QString& text);
+    [[nodiscard]] QString overlayText() const;
+    void setOverlayVisible(bool visible);
+    [[nodiscard]] bool isOverlayVisible() const noexcept;
+
     [[nodiscard]] QSize sizeHint() const override;
 
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
+    void paintOverlay(QPainter& p);
+
     QImage frame_;
     QString placeholder_ = QStringLiteral("Waiting for video stream…");
+    QString overlay_;
+    bool overlayVisible_ = true;
 };
 
 }  // namespace signalforge::video

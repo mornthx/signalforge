@@ -53,5 +53,17 @@ real UDP. Extended `connection_persistence_test` to round-trip `videoPort`/`vide
 - clang-format clean ✅. clang-tidy: widget child-construction + `new X(this)` idiom only (codebase
   baseline; `WarningsAsErrors: ''`). Doxygen on public decls ✅.
 
-## P2–P5 — pending
+## P2 — Stream stats overlay + rmem hint — ✅ DONE (local)
+- `VideoView` gains a top-left semi-transparent stats overlay (`setOverlayText` / `setOverlayVisible`),
+  drawn over the live frame.
+- `VideoPage::onStats` formats `WxH · fps · Mbps · dropped N` into the overlay, and shows an amber
+  control-bar hint ("⚠ High packet loss — raise host net.core.rmem_max") when the per-window drop ratio
+  exceeds 5% (guards the receiver's counter reset on rebind). A checkable "Stats" toolbar button toggles
+  the overlay (on by default).
+- `MainWindow` wires `statsUpdated → VideoPage::onStats`.
+
+Tests: overlay text content, Stats-toggle visibility, and the rmem hint appearing/clearing across
+samples. **video_test: 17 cases / 64 assertions green; Debug+Release build clean.**
+
+## P3–P5 — pending
 See `.claude/M35-plan.md`.

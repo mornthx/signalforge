@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QSignalSpy>
 #include <QThread>
+#include <QToolButton>
 #include <QUdpSocket>
 #include <QtTest/QtTest>
 #include <algorithm>
@@ -113,6 +114,58 @@ TEST_CASE("VideoPage: stall watchdog flips to Stalled when frames stop", "[video
 
     REQUIRE(waitFor([&] { return page.statusText().contains(QStringLiteral("Stalled")); }, 2000));
     CHECK_FALSE(page.view()->hasFrame());
+}
+
+TEST_CASE("VideoPage: stats overlay reflects the latest sample", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+    signalforge::video::VideoStats s;
+    s.fps = 25.4;
+    s.mbps = 568.3;
+    s.framesDelivered = 100;
+    s.framesDropped = 2;
+    s.width = 1280;
+    s.height = 720;
+    page.onStats(s);
+    const QString ov = page.view()->overlayText();
+    CHECK(ov.contains(QStringLiteral("1280×720")));
+    CHECK(ov.contains(QStringLiteral("25.4")));
+    CHECK(ov.contains(QStringLiteral("568.3")));
+}
+
+TEST_CASE("VideoPage: Stats toggle controls overlay visibility", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    CHECK(page.view()->isOverlayVisible());  // default on
+    page.statsToggleButton()->click();       // off
+    CHECK_FALSE(page.view()->isOverlayVisible());
+    page.statsToggleButton()->click();  // on
+    CHECK(page.view()->isOverlayVisible());
+}
+
+TEST_CASE("VideoPage: rmem hint appears under high packet loss", "[video][page][interaction]") {
+    app();
+    VideoPage page;
+    page.onRunningChanged(true);
+
+    signalforge::video::VideoStats a;  // baseline
+    a.framesDelivered = 100;
+    a.framesDropped = 0;
+    page.onStats(a);
+    CHECK_FALSE(page.isHintVisible());
+
+    signalforge::video::VideoStats b;  // window: 20 dropped / 100 total = 20% loss
+    b.framesDelivered = 180;
+    b.framesDropped = 20;
+    page.onStats(b);
+    CHECK(page.isHintVisible());
+
+    signalforge::video::VideoStats c;  // window: 0 dropped → clears
+    c.framesDelivered = 280;
+    c.framesDropped = 20;
+    page.onStats(c);
+    CHECK_FALSE(page.isHintVisible());
 }
 
 TEST_CASE("VideoPage: end-to-end receiver → page wiring", "[video][page][interaction]") {
