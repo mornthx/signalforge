@@ -28,6 +28,8 @@
 #include "replay/replay_mode_manager.hpp"
 #include "session/session_writer.hpp"
 #include "session/tee_signal_value_sink.hpp"
+#include "video/video_page.hpp"
+#include "video/video_receiver.hpp"
 #include "workbench/components/inspector_panel.hpp"
 #include "workbench/components/segmented_control.hpp"
 #include "workbench/selection_model.hpp"
@@ -298,6 +300,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     }
     connectionManager_ = std::make_unique<signalforge::connection::ConnectionManager>(*decoderRegistrar_, this);
 
+    // M35: dedicated RGB24-video-over-UDP receiver. Created here (before the
+    // connection-state hook below) so the hook can start/stop it when a UDP
+    // connection with videoEnabled connects/disconnects. Runs its own IO thread;
+    // owned by `this` so teardown stops the thread.
+    videoReceiver_ = new signalforge::video::VideoUdpReceiver(5004, this);
+
     // ADR-009: bridge ConnectionManager state transitions into
     // PipelineManager attach/detach. Without this, no production
     // code calls PipelineManager::attach(), pipelineAttached never
@@ -319,9 +327,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                     // per-type schema model (a captured frame's `source` carries
                     // this type as its `:`-prefix). Last connected schema wins.
                     rebuildDissectorForType(driverType, conn->config().decoderSchemaId);
+                    // M35: a UDP connection with videoEnabled drives the Video page.
+                    if (videoReceiver_ != nullptr) {
+                        if (const auto* u = std::get_if<signalforge::drivers::UdpConfig>(&conn->config().driverConfig);
+                            u != nullptr && u->videoEnabled) {
+                            videoReceiver_->rebind(u->videoPort);
+                        }
+                    }
                 } else if (state == signalforge::connection::Connection::State::Idle ||
                            state == signalforge::connection::Connection::State::Error) {
                     pipelineManager_->detach(driverId);
+                    // M35: stop video when its UDP connection drops.
+                    if (videoReceiver_ != nullptr) {
+                        if (const auto* u = std::get_if<signalforge::drivers::UdpConfig>(&conn->config().driverConfig);
+                            u != nullptr && u->videoEnabled) {
+                            videoReceiver_->stop();
+                        }
+                    }
                 }
             });
 
@@ -613,6 +635,17 @@ void MainWindow::buildChartUi() {
     workbench_->setTitle(tr("SignalForge"));
     workbench_->addMode(QStringLiteral("connect"), tr("Connect"), connectStack_);
     workbench_->addMode(QStringLiteral("inspect"), tr("Inspect"), inspectPage);
+    // M35: Video mode — parallel to Connect / Inspect. Fed by videoReceiver_.
+    videoPage_ = new signalforge::video::VideoPage;
+    workbench_->addMode(QStringLiteral("video"), tr("Video"), videoPage_);
+    connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::frameReady, videoPage_,
+            &signalforge::video::VideoPage::onFrameReady);
+    connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::statsUpdated, videoPage_,
+            &signalforge::video::VideoPage::onStats);
+    connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::runningChanged, videoPage_,
+            &signalforge::video::VideoPage::onRunningChanged);
+    connect(videoReceiver_, &signalforge::video::VideoUdpReceiver::errorOccurred, videoPage_,
+            &signalforge::video::VideoPage::onError);
     setCentralWidget(workbench_);
     // The inspector belongs to Inspect — leaving for Connect dismisses it (and
     // drops the selection); it returns on the next selection back in Inspect.

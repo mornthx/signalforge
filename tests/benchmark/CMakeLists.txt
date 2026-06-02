@@ -12,6 +12,15 @@ target_link_libraries(bench_driver_throughput
         signalforge_socat_fixture
 )
 
+add_executable(bench_video_reassembly bench_video_reassembly.cpp)
+target_link_libraries(bench_video_reassembly
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        signalforge_video
+)
+
 add_executable(bench_driver_latency bench_driver_latency.cpp)
 target_link_libraries(bench_driver_latency
     PRIVATE

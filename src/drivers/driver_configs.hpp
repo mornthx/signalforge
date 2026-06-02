@@ -47,6 +47,12 @@ struct UdpConfig {
     quint16 remotePort = 0;
     QString multicastGroup;    ///< Optional; e.g. "224.0.0.1"
     quint32 multicastTtl = 1;  ///< Valid only when multicastGroup is non-empty
+
+    // M35 (additive): a dedicated RGB24-video-over-UDP stream carried on its own
+    // port, independent of the scalar bind above. When `videoEnabled`, connecting
+    // this UDP connection binds `videoPort` for the Video page (see src/video).
+    quint16 videoPort = 5004;   ///< Board's default video broadcast port.
+    bool videoEnabled = false;  ///< Opt-in; off by default so non-video UDP is unaffected.
 };
 
 /// Session replay configuration.

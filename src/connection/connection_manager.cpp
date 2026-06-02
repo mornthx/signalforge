@@ -312,6 +312,8 @@ void emitDriverConfig(YAML::Emitter& out, const ConnectionConfig& cfg) {
         out << YAML::Key << "remotePort" << YAML::Value << static_cast<int>(u.remotePort);
         out << YAML::Key << "multicastGroup" << YAML::Value << u.multicastGroup.toStdString();
         out << YAML::Key << "multicastTtl" << YAML::Value << static_cast<unsigned>(u.multicastTtl);
+        out << YAML::Key << "videoPort" << YAML::Value << static_cast<int>(u.videoPort);
+        out << YAML::Key << "videoEnabled" << YAML::Value << u.videoEnabled;
         break;
     }
     case DriverType::Replay: {
@@ -376,6 +378,10 @@ bool readDriverConfig(const YAML::Node& node, DriverType type, DriverConfig& out
             u.multicastGroup = QString::fromStdString(node["multicastGroup"].as<std::string>());
         if (node["multicastTtl"])
             u.multicastTtl = node["multicastTtl"].as<unsigned>();
+        if (node["videoPort"])
+            u.videoPort = static_cast<quint16>(node["videoPort"].as<int>());
+        if (node["videoEnabled"])
+            u.videoEnabled = node["videoEnabled"].as<bool>();
         outConfig = u;
         return true;
     }
@@ -613,8 +619,7 @@ bool ConnectionManager::autoSave() {
     }
     const bool saved = saveConfigFile(configPath_);
     Q_EMIT configurationSaveStateChanged(
-        saved, configPath_,
-        saved ? QString() : tr("Could not save connection configuration to %1").arg(configPath_));
+        saved, configPath_, saved ? QString() : tr("Could not save connection configuration to %1").arg(configPath_));
     return saved;
 }
 

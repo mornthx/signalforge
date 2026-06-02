@@ -35,6 +35,10 @@ class FrameDissector;
 namespace signalforge::dashboard {
 class Dashboard;
 }  // namespace signalforge::dashboard
+namespace signalforge::video {
+class VideoPage;
+class VideoUdpReceiver;
+}  // namespace signalforge::video
 namespace signalforge::inspect {
 class ParsedSignalsView;
 class RawFrameTap;
@@ -376,8 +380,10 @@ private:
     signalforge::workbench::InspectorPanel* inspector_ = nullptr;       ///< P5: right-hand selection details
     signalforge::workbench::SelectionModel* selectionModel_ = nullptr;  ///< P5: app-wide current selection (backbone)
     signalforge::workbench::SegmentedControl* inspectSegments_ = nullptr;
-    QStackedWidget* inspectStack_ = nullptr;    ///< Raw / Parsed / Dashboard views (Inspect mode)
-    QStackedWidget* connectStack_ = nullptr;    ///< onboarding ↔ connection manager (Connect mode)
+    QStackedWidget* inspectStack_ = nullptr;              ///< Raw / Parsed / Dashboard views (Inspect mode)
+    QStackedWidget* connectStack_ = nullptr;              ///< onboarding ↔ connection manager (Connect mode)
+    signalforge::video::VideoPage* videoPage_ = nullptr;  ///< M35: Video mode content
+    signalforge::video::VideoUdpReceiver* videoReceiver_ = nullptr;  ///< M35: dedicated video ingest
     QWidget* connectionManagerBody_ = nullptr;  ///< connection list + save banner (Connect mode page 1)
     QWidget* chartContainer_ = nullptr;         ///< Dashboard segment page: local toolbar + dashboard surface
     QWidget* chartEmptyState_ = nullptr;        ///< onboarding empty-state (Connect mode page 0)

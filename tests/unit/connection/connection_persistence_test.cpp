@@ -103,6 +103,8 @@ TEST_CASE("S4: round-trip save → load preserves all 4 driver types", "[connect
         u.remotePort = 5006;
         u.multicastGroup = QStringLiteral("239.0.0.1");
         u.multicastTtl = 4;
+        u.videoEnabled = true;  // M35
+        u.videoPort = 5104;     // M35
         cfg.driverConfig = u;
         REQUIRE_FALSE(m.addConnection(cfg).isEmpty());
     }
@@ -160,6 +162,8 @@ TEST_CASE("S4: round-trip save → load preserves all 4 driver types", "[connect
     REQUIRE(udpBack.remotePort == 5006);
     REQUIRE(udpBack.multicastGroup == QStringLiteral("239.0.0.1"));
     REQUIRE(udpBack.multicastTtl == 4u);
+    REQUIRE(udpBack.videoEnabled);       // M35
+    REQUIRE(udpBack.videoPort == 5104);  // M35
 
     // Verify Replay fields.
     auto* repConn = m2.connection(QStringLiteral("rep1"));

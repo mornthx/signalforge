@@ -129,6 +129,8 @@ private:
     QSpinBox* udpRemotePort_{nullptr};
     QLineEdit* udpMulticastGroup_{nullptr};
     QSpinBox* udpMulticastTtl_{nullptr};
+    QCheckBox* udpVideoEnabled_{nullptr};  // M35: bind a dedicated video port on connect
+    QSpinBox* udpVideoPort_{nullptr};
 
     // Replay fields
     QLineEdit* replayPath_{nullptr};
