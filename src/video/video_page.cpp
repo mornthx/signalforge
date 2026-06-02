@@ -2,11 +2,14 @@
 #include "video/video_page.hpp"
 
 #include "observability/logging.hpp"
+#include "video/color_panel.hpp"
 #include "video/video_view.hpp"
 
+#include <QByteArray>
 #include <QChar>
 #include <QComboBox>
 #include <QDateTime>
+#include <QFile>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QImage>
@@ -36,6 +39,11 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
 
     statusLabel_ = new QLabel(controlBar);
     controlBarLayout_->addWidget(statusLabel_);
+
+    probeLabel_ = new QLabel(controlBar);
+    probeLabel_->setStyleSheet(QStringLiteral("color:#8a8a90;"));  // muted readout
+    controlBarLayout_->addWidget(probeLabel_);
+
     controlBarLayout_->addStretch(1);
 
     hintLabel_ = new QLabel(controlBar);
@@ -48,12 +56,26 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     elapsedLabel_->setVisible(false);
     controlBarLayout_->addWidget(elapsedLabel_);
 
+    pauseButton_ = new QToolButton(controlBar);
+    pauseButton_->setText(tr("Pause"));
+    pauseButton_->setCheckable(true);
+    pauseButton_->setEnabled(false);  // enabled once a frame is displayed
+    controlBarLayout_->addWidget(pauseButton_);
+    connect(pauseButton_, &QToolButton::toggled, this, &VideoPage::onPauseToggled);
+
     formatCombo_ = new QComboBox(controlBar);
     if (VideoRecorder::ffmpegAvailable()) {
         formatCombo_->addItem(tr("MP4 (H.264)"), static_cast<int>(VideoRecorder::Format::Mp4));
     }
     formatCombo_->addItem(tr("Raw RGB24"), static_cast<int>(VideoRecorder::Format::Raw));
     controlBarLayout_->addWidget(formatCombo_);
+
+    recordSourceCombo_ = new QComboBox(controlBar);
+    recordSourceCombo_->addItem(tr("Corrected"), false);         // default
+    recordSourceCombo_->addItem(tr("Raw (uncorrected)"), true);  // bypass colour correction
+    controlBarLayout_->addWidget(recordSourceCombo_);
+    connect(recordSourceCombo_, &QComboBox::currentIndexChanged, this,
+            [this] { recordRaw_ = recordSourceCombo_->currentData().toBool(); });
 
     recordButton_ = new QToolButton(controlBar);
     recordButton_->setText(tr("Record"));
@@ -67,6 +89,11 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
     controlBarLayout_->addWidget(screenshotButton_);
     connect(screenshotButton_, &QToolButton::clicked, this, &VideoPage::onScreenshotClicked);
 
+    colorButton_ = new QToolButton(controlBar);
+    colorButton_->setText(tr("Color"));
+    colorButton_->setCheckable(true);
+    controlBarLayout_->addWidget(colorButton_);
+
     statsToggle_ = new QToolButton(controlBar);
     statsToggle_->setText(tr("Stats"));
     statsToggle_->setCheckable(true);
@@ -76,6 +103,15 @@ VideoPage::VideoPage(QWidget* parent) : QWidget(parent) {
 
     root->addWidget(controlBar);
     root->addWidget(view_, 1);
+    connect(view_, &VideoView::pixelProbed, this, &VideoPage::onPixelProbed);
+
+    colorPanel_ = new ColorPanel(this);
+    colorPanel_->setVisible(false);
+    root->addWidget(colorPanel_);
+    connect(colorButton_, &QToolButton::toggled, colorPanel_, &QWidget::setVisible);
+    connect(colorPanel_, &ColorPanel::paramsChanged, this, &VideoPage::setColorParams);
+    connect(colorPanel_, &ColorPanel::saveRequested, this, &VideoPage::onSaveColorPreset);
+    connect(colorPanel_, &ColorPanel::loadRequested, this, &VideoPage::onLoadColorPreset);
 
     recorder_ = new VideoRecorder(this);
     connect(recorder_, &VideoRecorder::recordingStarted, this, &VideoPage::onRecordingStarted);
@@ -107,12 +143,24 @@ QString VideoPage::statusText() const {
     return statusLabel_->text();
 }
 
+QString VideoPage::probeText() const {
+    return probeLabel_->text();
+}
+
 QToolButton* VideoPage::statsToggleButton() const noexcept {
     return statsToggle_;
 }
 
 QToolButton* VideoPage::screenshotButton() const noexcept {
     return screenshotButton_;
+}
+
+QToolButton* VideoPage::pauseButton() const noexcept {
+    return pauseButton_;
+}
+
+bool VideoPage::isPaused() const {
+    return view_->isFrozen();
 }
 
 QToolButton* VideoPage::recordButton() const noexcept {
@@ -135,9 +183,88 @@ void VideoPage::stopRecording() {
     recorder_->stop();
 }
 
+void VideoPage::setRecordSource(bool raw) {
+    recordSourceCombo_->setCurrentIndex(raw ? 1 : 0);
+}
+
+bool VideoPage::recordRaw() const noexcept {
+    return recordRaw_;
+}
+
+QToolButton* VideoPage::colorButton() const noexcept {
+    return colorButton_;
+}
+
+ColorPanel* VideoPage::colorPanel() const noexcept {
+    return colorPanel_;
+}
+
+ColorParams VideoPage::colorParams() const {
+    return corrector_.params();
+}
+
+void VideoPage::setColorParams(const ColorParams& params) {
+    corrector_.setParams(params);
+    if (!lastRawFrame_.isNull()) {
+        // Re-render the current frame even if the display is frozen (live preview).
+        const bool wasFrozen = view_->isFrozen();
+        view_->setFrozen(false);
+        view_->setFrame(corrector_.apply(lastRawFrame_));
+        view_->setFrozen(wasFrozen);
+    }
+}
+
+bool VideoPage::saveColorPreset(const QString& path) const {
+    if (path.isEmpty()) {
+        return false;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        SF_LOG_WARN("video: cannot write color preset '{}': {}", path.toStdString(), file.errorString().toStdString());
+        return false;
+    }
+    const std::string json = colorParamsToJson(corrector_.params());
+    return file.write(json.data(), static_cast<qint64>(json.size())) == static_cast<qint64>(json.size());
+}
+
+bool VideoPage::loadColorPreset(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        SF_LOG_WARN("video: cannot read color preset '{}': {}", path.toStdString(), file.errorString().toStdString());
+        return false;
+    }
+    const QByteArray bytes = file.readAll();
+    const auto params = colorParamsFromJson(bytes.toStdString());
+    if (!params) {
+        return false;
+    }
+    colorPanel_->setParams(*params);  // updates sliders + flows to setColorParams
+    return true;
+}
+
+void VideoPage::onSaveColorPreset() {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const QString suggested =
+        (dir.isEmpty() ? QString() : dir + QLatin1Char('/')) + QStringLiteral("color-preset.json");
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Save color preset"), suggested, tr("JSON preset (*.json)"));
+    if (!path.isEmpty()) {
+        (void)saveColorPreset(path);
+    }
+}
+
+void VideoPage::onLoadColorPreset() {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const QString path = QFileDialog::getOpenFileName(this, tr("Load color preset"), dir, tr("JSON preset (*.json)"));
+    if (!path.isEmpty()) {
+        (void)loadColorPreset(path);
+    }
+}
+
 void VideoPage::updateButtonStates() {
     const bool hasFrame = view_->hasFrame();
     screenshotButton_->setEnabled(hasFrame);
+    pauseButton_->setEnabled(hasFrame);
     recordButton_->setEnabled(hasFrame || recorder_->isRecording());
 }
 
@@ -165,9 +292,15 @@ void VideoPage::setStallTimeoutMs(int ms) {
 }
 
 void VideoPage::onFrameReady(const QImage& frame) {
-    view_->setFrame(frame);
+    // Recording always tracks the live stream, even while the display is frozen.
     if (recorder_->isRecording()) {
-        recorder_->writeFrame(frame);
+        recorder_->writeFrame(recordRaw_ ? frame : corrector_.apply(frame));
+    }
+    if (!view_->isFrozen()) {
+        // Keep the raw frame so colour-param changes can re-render it; the view
+        // and screenshot show the corrected image.
+        lastRawFrame_ = frame;
+        view_->setFrame(corrector_.apply(frame));
     }
     updateButtonStates();
     setStatus(tr("Streaming"));
@@ -179,6 +312,7 @@ void VideoPage::onFrameReady(const QImage& frame) {
 void VideoPage::onRunningChanged(bool running) {
     running_ = running;
     stallTimer_->stop();
+    pauseButton_->setChecked(false);  // unfreeze on any stream transition
     view_->setOverlayText(QString());
     hintLabel_->setVisible(false);
     if (!running && recorder_->isRecording()) {
@@ -260,6 +394,20 @@ void VideoPage::onScreenshotClicked() {
     (void)saveScreenshot(path);
 }
 
+void VideoPage::onPauseToggled(bool paused) {
+    view_->setFrozen(paused);
+    pauseButton_->setText(paused ? tr("Resume") : tr("Pause"));
+}
+
+void VideoPage::onPixelProbed(const QPoint& imagePos, const QColor& color) {
+    probeLabel_->setText(QStringLiteral("(%1,%2) RGB(%3,%4,%5)")
+                             .arg(imagePos.x())
+                             .arg(imagePos.y())
+                             .arg(color.red())
+                             .arg(color.green())
+                             .arg(color.blue()));
+}
+
 void VideoPage::onRecordClicked() {
     if (recorder_->isRecording()) {
         stopRecording();
@@ -286,6 +434,7 @@ void VideoPage::onRecordClicked() {
 void VideoPage::onRecordingStarted() {
     recordButton_->setText(tr("Stop"));
     formatCombo_->setEnabled(false);
+    recordSourceCombo_->setEnabled(false);
     recordClock_.start();
     elapsedLabel_->setVisible(true);
     updateElapsed();
@@ -295,6 +444,7 @@ void VideoPage::onRecordingStarted() {
 void VideoPage::onRecordingStopped(bool ok) {
     recordButton_->setText(tr("Record"));
     formatCombo_->setEnabled(true);
+    recordSourceCombo_->setEnabled(true);
     elapsedTimer_->stop();
     elapsedLabel_->setVisible(false);
     updateButtonStates();

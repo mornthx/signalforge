@@ -1,11 +1,14 @@
 // src/video/video_page.hpp
 #pragma once
 
+#include "video/color_correction.hpp"
 #include "video/video_recorder.hpp"
 #include "video/video_types.hpp"
 
+#include <QColor>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QPoint>
 #include <QString>
 #include <QWidget>
 #include <cstdint>
@@ -19,6 +22,7 @@ class QToolButton;
 namespace signalforge::video {
 
 class VideoView;
+class ColorPanel;
 
 /// Top-level "Video" page (a workbench mode, parallel to Connect / Inspect).
 ///
@@ -41,6 +45,9 @@ public:
     /// Current one-line status text ("Disabled" / "Waiting…" / "Streaming" / "Stalled").
     [[nodiscard]] QString statusText() const;
 
+    /// Current pixel-probe readout text ("(x,y) RGB(r,g,b)"), empty until hovered.
+    [[nodiscard]] QString probeText() const;
+
     /// Override the stall watchdog timeout (default 3000 ms). Test seam.
     void setStallTimeoutMs(int ms);
 
@@ -53,6 +60,12 @@ public:
     /// Save the currently displayed frame to `path` as PNG. Returns false if
     /// there is no frame or the save fails. The non-dialog test seam.
     [[nodiscard]] bool saveScreenshot(const QString& path) const;
+
+    /// The "Pause"/"Resume" button (for wiring / tests).
+    [[nodiscard]] QToolButton* pauseButton() const noexcept;
+
+    /// Whether the display is frozen (paused).
+    [[nodiscard]] bool isPaused() const;
 
     /// The "Record"/"Stop" button (for wiring / tests).
     [[nodiscard]] QToolButton* recordButton() const noexcept;
@@ -67,6 +80,26 @@ public:
 
     /// Stop the in-progress recording (no-op if not recording).
     void stopRecording();
+
+    /// Select the recording source: corrected (default) or raw/uncorrected.
+    void setRecordSource(bool raw);
+    [[nodiscard]] bool recordRaw() const noexcept;
+
+    /// The "Color" panel toggle button and the panel itself (for wiring / tests).
+    [[nodiscard]] QToolButton* colorButton() const noexcept;
+    [[nodiscard]] ColorPanel* colorPanel() const noexcept;
+
+    /// Current colour-correction parameters.
+    [[nodiscard]] ColorParams colorParams() const;
+
+    /// Apply colour-correction params (rebuilds the corrector + re-renders the
+    /// current frame). Also the slot the slider panel drives.
+    void setColorParams(const ColorParams& params);
+
+    /// Save / load the current colour-correction params to/from a JSON preset
+    /// file. Non-dialog test seams. Return false on IO / parse failure.
+    [[nodiscard]] bool saveColorPreset(const QString& path) const;
+    [[nodiscard]] bool loadColorPreset(const QString& path);
 
     /// Whether the high-packet-loss rmem hint is currently shown.
     [[nodiscard]] bool isHintVisible() const;
@@ -87,6 +120,10 @@ public slots:
 private slots:
     void onStallTimeout();
     void onScreenshotClicked();
+    void onPauseToggled(bool paused);
+    void onPixelProbed(const QPoint& imagePos, const QColor& color);
+    void onSaveColorPreset();
+    void onLoadColorPreset();
     void onRecordClicked();
     void onRecordingStarted();
     void onRecordingStopped(bool ok);
@@ -99,17 +136,25 @@ private:
     VideoView* view_ = nullptr;
     QHBoxLayout* controlBarLayout_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLabel* probeLabel_ = nullptr;
     QLabel* hintLabel_ = nullptr;
     QLabel* elapsedLabel_ = nullptr;
     QComboBox* formatCombo_ = nullptr;
+    QComboBox* recordSourceCombo_ = nullptr;
+    QToolButton* pauseButton_ = nullptr;
     QToolButton* recordButton_ = nullptr;
     QToolButton* statsToggle_ = nullptr;
     QToolButton* screenshotButton_ = nullptr;
+    QToolButton* colorButton_ = nullptr;
     QTimer* stallTimer_ = nullptr;
     QTimer* elapsedTimer_ = nullptr;
     QElapsedTimer recordClock_;
     VideoRecorder* recorder_ = nullptr;
+    ColorPanel* colorPanel_ = nullptr;
+    ColorCorrector corrector_;
+    QImage lastRawFrame_;
     bool running_ = false;
+    bool recordRaw_ = false;  ///< P4: record raw vs corrected (default corrected).
     int stallTimeoutMs_ = 3000;
     int recordFps_ = 25;
     std::uint64_t lastDelivered_ = 0;

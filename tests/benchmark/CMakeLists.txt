@@ -21,6 +21,14 @@ target_link_libraries(bench_video_reassembly
         signalforge_video
 )
 
+add_executable(bench_color_correction bench_color_correction.cpp)
+target_link_libraries(bench_color_correction
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        signalforge_video
+)
+
 add_executable(bench_driver_latency bench_driver_latency.cpp)
 target_link_libraries(bench_driver_latency
     PRIVATE
